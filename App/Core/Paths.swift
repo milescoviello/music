@@ -64,7 +64,13 @@ enum Paths {
     /// figure that accounts for caches iOS will purge on demand, so it is what a download
     /// can actually use rather than what `df` would say.
     static var availableBytes: Int64 {
+        #if canImport(Darwin)
         let values = try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         return values?.volumeAvailableCapacityForImportantUsage ?? 0
+        #else
+        // Linux Foundation has no such key. Only the test package ever builds there, and
+        // nothing it tests asks how much room the phone has.
+        return 0
+        #endif
     }
 }

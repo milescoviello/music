@@ -472,20 +472,41 @@ actor SubsonicClient {
         )
     }
 
+    /// `fromYear`/`toYear` filter on the song's year, both inclusive, and either may be
+    /// given alone. The span is what an era DJ and a decade station draw from.
     func randomSongs(
         size: Int = 50,
         genre: String? = nil,
+        fromYear: Int? = nil,
+        toYear: Int? = nil,
         scope: LibraryScope = .all
     ) async throws -> [Song] {
         try await get(
             "getRandomSongs.view",
             query: [
+                "fromYear": fromYear.map(String.init),
                 "genre": genre,
                 "musicFolderId": scope.queryValue,
                 "size": String(size),
+                "toYear": toYear.map(String.init),
             ],
             as: RandomSongs.self
         ).song ?? []
+    }
+
+    /// Biography and similar artists, from whichever agents the server has configured.
+    /// Empty rather than failing on a server without them, which the caller should treat
+    /// as "nothing to show", not as an error.
+    func artistInfo(id: String, similarCount: Int = 20) async throws -> ArtistInfo {
+        try await get(
+            "getArtistInfo2.view",
+            query: ["count": String(similarCount), "id": id],
+            as: ArtistInfo.self
+        )
+    }
+
+    func albumInfo(id: String) async throws -> AlbumInfo {
+        try await get("getAlbumInfo2.view", query: ["id": id], as: AlbumInfo.self)
     }
 
     func search(

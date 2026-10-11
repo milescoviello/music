@@ -41,7 +41,111 @@ struct Album: Codable, Identifiable, Hashable, Sendable {
     var genre: String?
     var starred: String?
 
+    // OpenSubsonic. Every one optional and appended, so a cached album written before they
+    // existed still decodes, and a server that predates them simply leaves them nil.
+    var playCount: Int?
+    /// ISO timestamp of the last play.
+    var played: String?
+    var userRating: Int?
+    /// When it was added to the library.
+    var created: String?
+    /// MusicBrainz release types, lowercased by Navidrome: "album", "single", "ep",
+    /// "compilation", "live", "soundtrack", "remix"… What lets an artist page split
+    /// Albums from Singles & EPs the way Plexamp does.
+    var releaseTypes: [String]?
+    var recordLabels: [NamedItem]?
+    var isCompilation: Bool?
+    var genres: [NamedItem]?
+    var moods: [String]?
+    var originalReleaseDate: ItemDate?
+    var releaseDate: ItemDate?
+
     var isFavorite: Bool { starred != nil }
+    var lastPlayedAt: Date? { ServerDate.parse(played) }
+    var addedAt: Date? { ServerDate.parse(created) }
+    var kind: ReleaseKind { ReleaseKind(album: self) }
+}
+
+/// `{ "name": "Warp" }` — the shape OpenSubsonic uses for genres and record labels alike.
+struct NamedItem: Codable, Hashable, Sendable {
+    let name: String
+}
+
+/// A release date broken into parts, any of which may be missing: plenty of tags carry a
+/// year and nothing else.
+struct ItemDate: Codable, Hashable, Sendable {
+    var year: Int?
+    var month: Int?
+    var day: Int?
+}
+
+/// An `{ "id", "name" }` pair for one of a track's several credited artists.
+struct ArtistLink: Codable, Hashable, Sendable {
+    let id: String
+    let name: String
+}
+
+/// Volume normalisation data, read from the file's ReplayGain or R128 tags by the server.
+///
+/// Decibels relative to the ReplayGain 2.0 reference of −18 LUFS: a loud modern master
+/// typically carries a gain around −8, a quiet 1970s pressing something positive.
+/// Peaks are linear, 1.0 being full scale.
+struct ReplayGain: Codable, Hashable, Sendable {
+    var trackGain: Double?
+    var albumGain: Double?
+    var trackPeak: Double?
+    var albumPeak: Double?
+    /// A gain the server applies on top, for formats whose tags are relative to a
+    /// different reference (Opus R128). Usually absent or zero.
+    var baseGain: Double?
+}
+
+/// How an artist page groups its releases. Plexamp splits a discography into Albums,
+/// Singles & EPs, Live, Compilations and so on; this is the same split, read from the
+/// release types the server reports. Case order is the order on the page.
+enum ReleaseKind: String, CaseIterable, Sendable {
+    case album
+    case singleOrEP
+    case live
+    case compilation
+    case soundtrack
+    case remix
+    case other
+
+    var title: String {
+        switch self {
+        case .album: return "Albums"
+        case .singleOrEP: return "Singles & EPs"
+        case .live: return "Live"
+        case .compilation: return "Compilations"
+        case .soundtrack: return "Soundtracks"
+        case .remix: return "Remixes"
+        case .other: return "Other"
+        }
+    }
+
+    /// The first type that settles it, in precedence order. A live compilation is filed as
+    /// live, and a soundtrack single as a soundtrack, because those are the words that
+    /// describe what it sounds like. With no types at all it is an album: that is what
+    /// every release was before tags said otherwise.
+    init(album: Album) {
+        let types = Set((album.releaseTypes ?? []).map { $0.lowercased() })
+        if types.contains("live") {
+            self = .live
+        } else if types.contains("soundtrack") {
+            self = .soundtrack
+        } else if types.contains("compilation") || album.isCompilation == true {
+            self = .compilation
+        } else if types.contains("remix") {
+            self = .remix
+        } else if types.contains("single") || types.contains("ep") {
+            self = .singleOrEP
+        } else if types.isEmpty || types.contains("album") {
+            self = .album
+        } else {
+            self = .other
+        }
+    }
 }
 
 struct Song: Codable, Identifiable, Hashable, Sendable {
@@ -71,10 +175,30 @@ struct Song: Codable, Identifiable, Hashable, Sendable {
     var userRating: Int?
     var playCount: Int?
 
+    // OpenSubsonic, optional and appended for the same reason as on `Album`.
+    var replayGain: ReplayGain?
+    /// ISO timestamp of the last play.
+    var played: String?
+    var created: String?
+    var bpm: Int?
+    var comment: String?
+    var genres: [NamedItem]?
+    var moods: [String]?
+    /// Every credited track artist, where `artist` is one display string.
+    var artists: [ArtistLink]?
+    var albumArtists: [ArtistLink]?
+    var displayArtist: String?
+
     var isFavorite: Bool { starred != nil }
+    var lastPlayedAt: Date? { ServerDate.parse(played) }
 
     /// Stable sort key that keeps multi-disc albums in playing order.
     var albumOrder: Int { (discNumber ?? 1) * 1000 + (track ?? 0) }
+
+    /// The album artist when the server says who that is, else the track artist. What
+    /// "same artist" means for a DJ or a mix: a guest verse should not count as a new
+    /// artist.
+    var primaryArtistID: String? { albumArtists?.first?.id ?? artistId }
 }
 
 struct Artist: Codable, Identifiable, Hashable, Sendable {
@@ -193,11 +317,35 @@ struct AlbumDetail: Codable, PayloadKeyed, Identifiable, Sendable {
     var starred: String?
     var song: [Song]?
 
+    var playCount: Int?
+    var played: String?
+    var userRating: Int?
+    var created: String?
+    var releaseTypes: [String]?
+    var recordLabels: [NamedItem]?
+    var isCompilation: Bool?
+    var genres: [NamedItem]?
+    var moods: [String]?
+    var originalReleaseDate: ItemDate?
+    var releaseDate: ItemDate?
+
     static var payloadKey: String { "album" }
 
     var songs: [Song] { (song ?? []).sorted { $0.albumOrder < $1.albumOrder } }
     var isFavorite: Bool { starred != nil }
     var hasMultipleDiscs: Bool { Set(songs.map { $0.discNumber ?? 1 }).count > 1 }
+
+    /// The list-row form of this album, for anything that only takes an `Album`.
+    var summary: Album {
+        Album(
+            id: id, name: name, artist: artist, artistId: artistId, coverArt: coverArt,
+            songCount: songCount, duration: duration, year: year, genre: genre,
+            starred: starred, playCount: playCount, played: played, userRating: userRating,
+            created: created, releaseTypes: releaseTypes, recordLabels: recordLabels,
+            isCompilation: isCompilation, genres: genres, moods: moods,
+            originalReleaseDate: originalReleaseDate, releaseDate: releaseDate
+        )
+    }
 }
 
 struct ArtistIndex: Codable, Hashable, Sendable, Identifiable {
@@ -227,6 +375,49 @@ struct ArtistDetail: Codable, PayloadKeyed, Identifiable, Sendable {
     /// Newest first: for an artist you almost always want the latest release.
     var albums: [Album] { (album ?? []).sorted { ($0.year ?? 0) > ($1.year ?? 0) } }
     var isFavorite: Bool { starred != nil }
+}
+
+/// `getArtistInfo2`. Everything here comes from the server's metadata agents (Last.fm,
+/// Spotify) and is empty on a server without them configured — which is a normal state,
+/// not an error, so every field is optional and the page shows what there is.
+struct ArtistInfo: Codable, PayloadKeyed, Sendable {
+    var biography: String?
+    var musicBrainzId: String?
+    var lastFmUrl: String?
+    var largeImageUrl: String?
+    var similarArtist: [Artist]?
+
+    static var payloadKey: String { "artistInfo2" }
+
+    var similarArtists: [Artist] { similarArtist ?? [] }
+
+    var plainBiography: String? { ServerText.plain(biography) }
+}
+
+/// `getAlbumInfo2`: Plexamp's "Album Review", when the server's agents have one.
+struct AlbumInfo: Codable, PayloadKeyed, Sendable {
+    var notes: String?
+    var musicBrainzId: String?
+    var lastFmUrl: String?
+
+    static var payloadKey: String { "albumInfo" }
+
+    var plainNotes: String? { ServerText.plain(notes) }
+}
+
+/// Prose from the server's metadata agents, without its markup.
+enum ServerText {
+    /// Last.fm text ends with a "Read more on Last.fm" anchor. The prose is worth showing;
+    /// the link and the tags are not. Nil for anything that is empty once they are gone.
+    static func plain(_ html: String?) -> String? {
+        guard var text = html?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty
+        else { return nil }
+        if let anchor = text.range(of: "<a ") { text = String(text[..<anchor.lowerBound]) }
+        text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
 }
 
 struct TopSongs: Decodable, PayloadKeyed, Sendable {
