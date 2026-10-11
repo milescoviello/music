@@ -25,6 +25,7 @@ let package = Package(
                 "MixEngine.swift",
                 "TripPlanner.swift",
                 "DSP.swift",
+                "StreamCacheIndex.swift",
             ]
         ),
         .testTarget(
