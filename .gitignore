@@ -4,3 +4,4 @@ DerivedData/
 dist/
 *.ipa
 xcuserdata/
+.build/
