@@ -187,8 +187,32 @@ enum Equalizer {
     static let labels = ["31", "63", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"]
     static let gainRange: ClosedRange<Float> = -12...12
     /// One octave per band, so neighbouring bells meet at their half-gain points and a
-    /// row of equal boosts sums to a near-flat shelf rather than a comb.
+    /// row of equal boosts sums to a near-flat shelf rather than a comb. It is also the
+    /// Q of 1.41 that AutoEQ's ten-band headphone corrections are computed for.
     static let bandwidthOctaves = 1.0
+
+    /// Carries a curve set on different bands over to these ten, by interpolating on a
+    /// log-frequency axis and holding the end values flat beyond the old range.
+    ///
+    /// For the five-band EQ this app used to have, so an existing curve survives the
+    /// change instead of resetting — the same thing Plexamp does when its band count
+    /// changes.
+    static func resample(_ gains: [Float], from source: [Double]) -> [Float] {
+        guard gains.count == source.count, let first = gains.first, let last = gains.last else {
+            return Array(repeating: 0, count: bandCount)
+        }
+        let points = zip(source.map(log2), gains).sorted { $0.0 < $1.0 }
+
+        return frequencies.map { frequency in
+            let x = log2(frequency)
+            guard let upper = points.firstIndex(where: { $0.0 >= x }) else { return last }
+            guard upper > 0 else { return first }
+            let (x0, y0) = points[upper - 1]
+            let (x1, y1) = points[upper]
+            let t = Float((x - x0) / (x1 - x0))
+            return y0 + (y1 - y0) * t
+        }
+    }
 }
 
 /// Everything the audio thread needs to know about the user's settings, as one value.

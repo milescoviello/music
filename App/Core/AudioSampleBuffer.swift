@@ -2,9 +2,9 @@ import Foundation
 
 /// A fixed ring buffer that the audio thread can write into safely.
 ///
-/// The constraints here are not stylistic. Both producers — `AVAudioEngine`'s tap block
-/// and `MTAudioProcessingTap`'s process callback — run on a **real-time audio thread**,
-/// where allocating, locking, or hopping to an actor causes dropouts or worse. So:
+/// The constraints here are not stylistic. The producer — `MTAudioProcessingTap`'s
+/// process callback — runs on a **real-time audio thread**, where allocating, locking, or
+/// hopping to an actor causes dropouts or worse. So:
 ///
 /// - the storage is allocated once, up front, and never grows
 /// - `write` does one `memcpy` and one integer update, nothing else

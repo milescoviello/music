@@ -251,3 +251,23 @@ struct DSPTests {
         #expect(SweetFades.isAlbumContinuation(from: song("a", album: "A", track: nil), to: song("b", album: "A", track: nil)))
     }
 }
+
+struct EqualizerMigrationTests {
+    @Test func aFiveBandCurveCarriesOverToTen() {
+        let old: [Float] = [6, 3, 0, 0, 0]
+        let new = Equalizer.resample(old, from: [60, 250, 1_000, 4_000, 12_000])
+        #expect(new.count == Equalizer.bandCount)
+        // Below the old lowest band it holds; at 1 kHz it is the old 1 kHz value.
+        #expect(new[0] == 6)
+        // 62.5 Hz is just past the old 60 Hz band, so just under its value.
+        #expect(new[1] > 5.8 && new[1] < 6)
+        #expect(new[5] == 0)
+        // Between 60 and 250 Hz it is in between.
+        #expect(new[2] < 6 && new[2] > 3)
+    }
+
+    @Test func aFlatCurveStaysFlatAndGarbageBecomesFlat() {
+        #expect(Equalizer.resample([0, 0, 0, 0, 0], from: [60, 250, 1_000, 4_000, 12_000]).allSatisfy { $0 == 0 })
+        #expect(Equalizer.resample([1, 2], from: [60]).allSatisfy { $0 == 0 })
+    }
+}

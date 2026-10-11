@@ -6,12 +6,12 @@ import UIKit
 
 /// Everything the UI talks to for playback.
 ///
-/// Owns the queue, the play tracker, the lock screen and persistence. It does **not**
-/// own the sound: that is an `AudioOutput`, chosen per track window, so the EQ engine
-/// and the streaming player are interchangeable without any of the above moving.
+/// Owns the queue, the play tracker, the lock screen and persistence, and makes the
+/// decisions about sound — which chain a track gets, whether a transition fades. It does
+/// **not** produce the sound: that is `QueuePlayerOutput`, which executes those decisions.
 ///
-/// `@MainActor` rather than an actor: `AVQueuePlayer`, `AVAudioEngine`,
-/// `MPNowPlayingInfoCenter` and `UIImage` are all main-thread-affine and
+/// `@MainActor` rather than an actor: `AVQueuePlayer`, `MPNowPlayingInfoCenter` and
+/// `UIImage` are all main-thread-affine and
 /// non-`Sendable`, so actor isolation would mean an unsafe opt-out plus a hop on every
 /// remote command and time tick.
 @MainActor
@@ -40,11 +40,7 @@ final class PlaybackController {
 
     // MARK: - Dependencies
 
-    /// The default sound path, and the only one that can stream.
-    private let queueOutput = QueuePlayerOutput()
-    /// Built once `AppState` exists, because it needs the EQ settings.
-    private var engineOutput: EngineOutput?
-    private var output: AudioOutput
+    private let output = QueuePlayerOutput()
 
     private let session = AudioSessionCoordinator()
     private let nowPlaying = NowPlayingCenter()
@@ -53,8 +49,7 @@ final class PlaybackController {
     private weak var appState: AppState?
 
     private var saveTask: Task<Void, Never>?
-    /// Non-nil while a visualiser is on screen. Held here rather than in the output so
-    /// it survives a switch between outputs mid-track.
+    /// The visualiser's PCM ring, handed to the output before anything plays.
     private var spectrumSink: AudioSampleBuffer?
     /// When the local queue was last written to disk, so `QueueSync` can tell whether a
     /// remote queue is genuinely newer.
@@ -65,7 +60,6 @@ final class PlaybackController {
     private let windowSize = 3
 
     init() {
-        output = queueOutput
         session.configure()
 
         session.onPause = { [weak self] in self?.pause() }
@@ -88,18 +82,24 @@ final class PlaybackController {
             self?.report(event, submission: true)
         }
 
-        wire(queueOutput)
+        output.onAdvanced = { [weak self] songID in
+            self?.handleAdvanced(to: songID)
+        }
+        output.onTick = { [weak self] elapsed, isMoving in
+            self?.tick(elapsed: elapsed, isMoving: isMoving)
+        }
     }
 
     func attach(appState: AppState) {
         self.appState = appState
 
-        let engine = EngineOutput(settings: appState.audio)
-        engineOutput = engine
-        wire(engine)
-
-        queueOutput.locate = { [weak self] song in self?.locate(song) }
-        engine.locate = { [weak self] song in self?.locate(song) }
+        output.locate = { [weak self] song in self?.locate(song) }
+        // A chain per track: its own ReplayGain, the shared EQ and limiter.
+        let dsp = appState.audio.dsp
+        output.makeChain = { song in DSPChain(replayGain: song.replayGain, settings: dsp) }
+        output.transition = { [weak self] from, to in
+            self?.transitionOverlap(from: from, to: to)
+        }
 
         // A mix that is playing keeps growing, so the queue never runs out mid-listen.
         appState.mixes.onExtended = { [weak self] mix, added in
@@ -107,32 +107,23 @@ final class PlaybackController {
             append(added)
         }
 
-        // The sample tap goes in **now**, before anything plays, rather than when the
-        // visualiser first opens. Attaching it later is a change to a running audio graph
-        // -- `audioMix` on a playing item, or a tap on a live mixer -- and that is audible
-        // exactly once, on the first switch to the visualiser. Nothing else can attach it
-        // at a quiet moment, because there is no quiet moment after playback starts.
-        //
-        // The cost of leaving it in from the start is one `memcpy` per buffer on a thread
-        // that is already copying audio. The expensive half is the FFT, and that still
-        // only runs while a visualiser is on screen.
+        // The sample feed goes in **now**, before anything plays, rather than when the
+        // visualiser first opens: every item's tap is built with it, so opening the
+        // visualiser is never a change to a running audio graph, which is audible. The
+        // cost of feeding it unseen is one `memcpy` per buffer; the FFT only runs while
+        // a visualiser is on screen.
         spectrumSink = appState.spectrumBuffer
-        queueOutput.setSpectrumSink(spectrumSink)
-        engine.setSpectrumSink(spectrumSink)
+        output.setSpectrumSink(spectrumSink)
     }
 
-    /// Both outputs are wired up front rather than on switch: a callback arriving from
-    /// an output that has just been stopped is normal, and re-wiring on every switch
-    /// would be one more place to get it wrong.
-    private func wire(_ candidate: AudioOutput) {
-        candidate.onAdvanced = { [weak self, weak candidate] songID in
-            guard let self, let candidate, candidate === output else { return }
-            handleAdvanced(to: songID)
-        }
-        candidate.onTick = { [weak self, weak candidate] elapsed, isMoving in
-            guard let self, let candidate, candidate === output else { return }
-            tick(elapsed: elapsed, isMoving: isMoving)
-        }
+    /// Sweet Fades' rule for one transition: seconds of crossfade, or nil for gapless.
+    ///
+    /// Never within an album played in order — the gap between two album tracks is the
+    /// artist's — and never with the setting off. Everything else fades.
+    private func transitionOverlap(from current: Song, to next: Song) -> Double? {
+        guard let appState, appState.audio.sweetFades else { return nil }
+        guard !SweetFades.isAlbumContinuation(from: current, to: next) else { return nil }
+        return SweetFades.fallbackOverlap
     }
 
     /// Where a song's bytes are. A completed download wins over the network
@@ -190,25 +181,18 @@ final class PlaybackController {
     // MARK: - Visualiser
 
     /// There is deliberately no `stopSpectrum`, and no work here on the common path: the
-    /// tap is attached in `attach(appState:)` before any audio exists. This only covers
-    /// the case of an output built before that ran, and is a no-op otherwise — the outputs
-    /// ignore a second sink.
+    /// feed is set in `attach(appState:)` before any audio exists. This only covers an
+    /// output built before that ran, and is a no-op otherwise — a second sink is ignored.
     func startSpectrum() {
         guard let appState else { return }
         spectrumSink = appState.spectrumBuffer
         output.setSpectrumSink(spectrumSink)
     }
 
-    /// Called when the EQ or crossfade settings change. Reloads at the current
-    /// position only if the *choice* of output changed, so moving a slider does not
-    /// interrupt the music.
-    func audioSettingsChanged() {
-        engineOutput?.applyEQ()
-
-        guard hasQueue else { return }
-        let window = currentWindow
-        guard desiredOutput(for: window) !== output else { return }
-        rebuildOutput(startPlaying: isPlaying, seekTo: elapsed)
+    /// Sweet Fades was switched, so every planned transition is re-asked. The EQ and
+    /// leveling need nothing here: the tap of whatever is playing reads them live.
+    func transitionSettingsChanged() {
+        output.refreshTransitions()
     }
 
     // MARK: - Starting playback
@@ -393,6 +377,8 @@ final class PlaybackController {
 
     func cycleRepeat() {
         queue.repeatMode = queue.repeatMode.next
+        // Repeat-one changes the window itself -- see `currentWindow`.
+        refillWindow()
         persist()
     }
 
@@ -436,25 +422,20 @@ final class PlaybackController {
         }
     }
 
-    // MARK: - Output selection
+    // MARK: - Output
 
     /// Current track plus the preload window. Three items: preloading the next is what
     /// makes an album boundary gapless, and inserting a 292-track playlist would be a
     /// connection stampede.
+    ///
+    /// Just the current track on repeat-one, so the output runs out at its end and the
+    /// queue — which stays put — reloads it. Preloading the next track there meant the
+    /// player moved on to it and the old repeat handling then rewound *that* song,
+    /// while the queue still said the first one was playing.
     private var currentWindow: [Song] {
         guard let current = queue.current else { return [] }
+        guard queue.repeatMode != .one else { return [current] }
         return [current] + queue.upcoming(windowSize - 1)
-    }
-
-    /// The engine output only when it is switched on *and* every track in the window
-    /// is a completed download -- `AVAudioEngine` cannot read a URL, so a single
-    /// streaming track in the window disqualifies it. Falling back silently is
-    /// deliberate: the alternative is effects that half-work on half the library.
-    private func desiredOutput(for window: [Song]) -> AudioOutput {
-        guard let settings = appState?.audio, settings.isEnabled,
-              let engine = engineOutput, engine.canServe(window)
-        else { return queueOutput }
-        return engine
     }
 
     private func rebuildOutput(startPlaying: Bool, seekTo seconds: Double) {
@@ -464,15 +445,6 @@ final class PlaybackController {
             output.stop()
             isPlaying = false
             return
-        }
-
-        let wanted = desiredOutput(for: window)
-        if wanted !== output {
-            output.stop()
-            output = wanted
-            // The visualiser must follow the switch, or opening it on a streamed track
-            // and then reaching a downloaded one would silently go flat.
-            output.setSpectrumSink(spectrumSink)
         }
 
         output.load(window: window, startAt: seconds)
@@ -510,7 +482,7 @@ final class PlaybackController {
 
     /// Keeps the preload window topped up without disturbing what is playing.
     private func refillWindow() {
-        output.updateUpcoming(queue.upcoming(windowSize - 1))
+        output.updateUpcoming(Array(currentWindow.dropFirst()))
     }
 
     /// Containers iOS cannot decode natively. Kept explicit rather than inverted from
@@ -579,18 +551,15 @@ final class PlaybackController {
 
     /// The output moved on by itself, so follow it in the logical queue.
     private func handleAdvanced(to songID: String?) {
-        if queue.repeatMode == .one {
-            seek(to: 0)
-            play()
-            return
-        }
-
         guard let songID,
               let orderIndex = queue.order.firstIndex(where: { queue.tracks[$0].id == songID })
         else {
-            // Ran off the end of the window, or the next track is one this output
-            // cannot serve -- either way the queue decides and the output is rebuilt,
-            // which is also where a fall back from the engine to streaming happens.
+            // Ran off the end of the window -- the end of the queue, a track that could
+            // not be loaded, or repeat-one reaching the end of its only track. The queue
+            // decides, and the output is rebuilt from it.
+            if queue.repeatMode == .one {
+                appState?.sleepTimer.trackDidFinish()
+            }
             if queue.advance() {
                 rebuildOutput(startPlaying: true, seekTo: 0)
             } else {

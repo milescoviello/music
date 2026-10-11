@@ -57,7 +57,7 @@ struct SettingsView: View {
 
             Section {
                 NavigationLink(value: Destination.audioSettings) {
-                    LabeledContent("Audio", value: audioSummary)
+                    LabeledContent("Playback", value: audioSummary)
                 }
                 NavigationLink(value: Destination.downloads) {
                     LabeledContent("Downloads", value: downloadSummary)
@@ -93,9 +93,11 @@ struct SettingsView: View {
     }
 
     private var audioSummary: String {
-        guard audio.isEnabled else { return "Gapless" }
-        if audio.crossfadeSeconds > 0 { return "Crossfade \(Int(audio.crossfadeSeconds))s" }
-        return audio.isFlat ? "Gapless" : audio.presetName
+        var parts: [String] = []
+        if audio.loudnessLeveling { parts.append("Leveling") }
+        if audio.sweetFades { parts.append("Sweet Fades") }
+        if audio.equalizer { parts.append(audio.presetName) }
+        return parts.isEmpty ? "Off" : parts.joined(separator: " · ")
     }
 
     private var offlineSummary: String {

@@ -72,8 +72,8 @@ final class AppState {
             self?.player.fadeOutAndPause()
         }
 
-        audio.onChange = { [weak self] in
-            self?.player.audioSettingsChanged()
+        audio.onTransitionsChange = { [weak self] in
+            self?.player.transitionSettingsChanged()
         }
 
         // Plays recorded while offline reach the server the moment there is one.
