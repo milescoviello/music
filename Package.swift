@@ -10,7 +10,7 @@ import PackageDescription
 // UIKit import from silently breaking the test job.
 let package = Package(
     name: "MusicLogic",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     targets: [
         .target(
             name: "MusicLogic",
@@ -24,6 +24,7 @@ let package = Package(
                 "HermesResults.swift",
                 "MixEngine.swift",
                 "TripPlanner.swift",
+                "DSP.swift",
             ]
         ),
         .testTarget(
