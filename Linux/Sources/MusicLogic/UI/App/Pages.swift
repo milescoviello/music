@@ -6,9 +6,9 @@ enum Pages {
     /// The first page of each sidebar section.
     static func root(_ section: Shell.Section, env: Env) -> NavigationPage {
         switch section {
-        case .home: return pending("Home", env: env)
+        case .home: return HomePage.make(env)
         case .library: return LibraryHub.make(env)
-        case .search: return pending("Search", env: env)
+        case .search: return SearchPage.make(env)
         case .downloads: return pending("Downloads", env: env)
         case .settings: return pending("Settings", env: env)
         }
@@ -44,6 +44,12 @@ enum Pages {
             return LibraryFacetPage.make(env, facet: facet)
         case let .albumCollection(title, albums):
             return AlbumCollection.make(env, title: title, albums: albums)
+        case .dailyMixes:
+            return MixPages.list(env)
+        case let .dailyMix(id):
+            return MixPages.mix(env, id: id)
+        case .stations:
+            return MixPages.stations(env)
         default:
             return pending(String(describing: destination), env: env)
         }

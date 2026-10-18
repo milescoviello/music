@@ -8,6 +8,8 @@ final class Navigation {
     let view = NavigationView()
     let app: AppState
     weak var shell: Shell?
+    /// The Search section's field, for Ctrl+F.
+    var searchEntry: SearchEntry?
 
     init(app: AppState, shell: Shell?) {
         self.app = app

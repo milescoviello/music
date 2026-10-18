@@ -37,6 +37,7 @@ enum Style {
     .artwork.thumb { border-radius: 6px; }
     .artwork.player { border-radius: 12px; box-shadow: 0 12px 32px alpha(black, 0.5); }
     .artwork.round { border-radius: 9999px; }
+    .artwork.flat-corners { border-radius: 0; }
     .backdrop-blur { filter: blur(60px); }
     .artwork-placeholder { background-color: alpha(currentColor, 0.08); }
     .monogram { font-weight: 600; opacity: 0.45; }
