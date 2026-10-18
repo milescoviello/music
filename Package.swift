@@ -43,7 +43,6 @@ let package = Package(
                 "RhythmStore.swift",
                 "Romanizer.swift",
                 "LyricsLanguage.swift",
-                "Romanization.swift",
                 "LyricTranslationStore.swift",
             ]
         ),
