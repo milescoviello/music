@@ -13,6 +13,9 @@ For one Plex account (the owner, id 1):
   live. Navidrome playlists Plex has never heard of are left alone.
 - Custom playlist covers are uploaded through Navidrome's own API (`--images`, with
   Navidrome running).
+- With `--clean`, a clean carry-over: everything of the user's that Navidrome had before
+  goes first — every annotation, all play history, every playlist Plex does not have,
+  bookmarks and the saved play queue — so what is left is Plex's and nothing else.
 
 Reads Plex's database, not its HTTP API: the API emits invalid UTF-8 for some tags,
 and the database has exact per-account numbers and the full history. Plex is only ever
@@ -192,6 +195,22 @@ def read_navidrome(connection: sqlite3.Connection):
     return tracks, rows, text(user[0])
 
 
+def wipe(connection, user_id: str, keep_playlists: set[str]) -> dict:
+    """Removes the user's own Navidrome state, so only Plex's is written back."""
+    counts = {}
+    counts["annotations"] = connection.execute("delete from annotation where user_id = ?", (user_id,)).rowcount
+    gone = [row[0] for row in connection.execute("select id, name from playlist where owner_id = ?", (user_id,))
+            if row[1] not in keep_playlists]
+    for playlist_id in gone:
+        connection.execute("delete from playlist_tracks where playlist_id = ?", (playlist_id,))
+        connection.execute("delete from playlist_fields where playlist_id = ?", (playlist_id,))
+        connection.execute("delete from playlist where id = ?", (playlist_id,))
+    counts["playlists"] = len(gone)
+    counts["bookmarks"] = connection.execute("delete from bookmark where user_id = ?", (user_id,)).rowcount
+    counts["play queue"] = connection.execute("delete from playqueue where user_id = ?", (user_id,)).rowcount
+    return counts
+
+
 def apply_changes(connection, plan, user_id, now):
     upsert = """
         insert into annotation (user_id, item_id, item_type, play_count, play_date, rating, starred, starred_at, rated_at)
@@ -298,6 +317,8 @@ def main() -> None:
     parser.add_argument("--plex-db", default=PLEX_DB)
     parser.add_argument("--account", type=int, default=1)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--clean", action="store_true",
+                        help="remove all of the user's Navidrome state first: a clean carry-over")
     parser.add_argument("--images", action="store_true", help="upload playlist covers (Navidrome running)")
     args = parser.parse_args()
     token = os.environ["PLEX_TOKEN"]
@@ -388,6 +409,9 @@ def main() -> None:
         return
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    if args.clean:
+        removed = wipe(navidrome, user_id, {playlist["title"] for playlist in playlists})
+        print("cleared: " + ", ".join(f"{count} {name}" for name, count in removed.items()))
     plan = {"tracks": plan_tracks, "album": rollup(0), "artist": rollup(1), "scrobbles": scrobbles,
             "playlists": playlists}
     apply_changes(navidrome, plan, user_id, now)
