@@ -432,6 +432,18 @@ struct NowPlayingView: View {
     /// numbers; the bitrate is variable and the reported figure is only an average, so
     /// quoting it would look precise while meaning little.
     private func qualityText(_ song: Song) -> String {
+        // What is actually being heard: a stream converted to fit this network's quality
+        // setting says so, rather than quoting the file on the server.
+        if !downloads.isDownloaded(song.id) {
+            let variant = appState.streaming.policy.variant(for: song, on: appState.reachability.network)
+            if case let .mp3(kbps) = variant,
+               // The index, not `file(for:)`: that one marks the entry used, and a view
+               // body that writes what it reads redraws forever.
+               appState.streamCache.index.entry(for: song.id, satisfying: .original) == nil {
+                return "MP3 · \(kbps) kbps · converted"
+            }
+        }
+
         var parts: [String] = []
         if let suffix = song.suffix { parts.append(suffix.uppercased()) }
 

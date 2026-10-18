@@ -57,8 +57,13 @@ struct SettingsView: View {
             }
 
             Section {
+                // Plexamp's groups: what you hear, how it looks and behaves, and where
+                // the bytes come from.
                 NavigationLink(value: Destination.audioSettings) {
                     LabeledContent("Playback", value: audioSummary)
+                }
+                NavigationLink(value: Destination.experienceSettings) {
+                    LabeledContent("Experience", value: "Player, Home")
                 }
                 NavigationLink(value: Destination.streamingSettings) {
                     LabeledContent("Streaming & Caching", value: streamingSummary)

@@ -328,6 +328,10 @@ final class PlaybackController {
         }
 
         rebuildOutput(startPlaying: true, seekTo: startSeconds)
+
+        if appState?.playerSettings.opensPlayerOnPlay == true {
+            appState?.navigator.showsPlayer = true
+        }
     }
 
     /// Discards the resume position and starts the current track again.

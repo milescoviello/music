@@ -8,12 +8,10 @@ import SwiftUI
 /// Every control takes effect on the track already playing, within a fraction of a second.
 struct AudioSettingsView: View {
     @Environment(AudioSettings.self) private var audio
-    @Environment(PlayerSettings.self) private var playerSettings
     @Environment(AutoplayService.self) private var autoplay
 
     var body: some View {
         @Bindable var audio = audio
-        @Bindable var playerSettings = playerSettings
         @Bindable var autoplay = autoplay
 
         Form {
@@ -62,24 +60,10 @@ struct AudioSettingsView: View {
                 Toggle("Autoplay", isOn: $autoplay.isEnabled)
             } footer: {
                 Text("""
-                When the queue is about to run out, keep going with whatever is chosen at                 the bottom of Up Next — the next album, a radio, the same decade. Never                 with repeat on, and never for a mix, which keeps itself going.
+                When the queue is about to run out, keep going with whatever is chosen at \
+                the bottom of Up Next — the next album, a radio, the same decade. Never \
+                with repeat on, and never for a station or a mix, which keep themselves going.
                 """)
-            }
-
-            Section {
-                Toggle("Show Skip Buttons", isOn: $playerSettings.showsSkipButtons)
-                Picker("Skip Back", selection: $playerSettings.skipBackSeconds) {
-                    ForEach(PlayerSettings.skipOptions, id: \.self) { Text("\($0) sec").tag($0) }
-                }
-                .disabled(!playerSettings.showsSkipButtons)
-                Picker("Skip Forward", selection: $playerSettings.skipForwardSeconds) {
-                    ForEach(PlayerSettings.skipOptions, id: \.self) { Text("\($0) sec").tag($0) }
-                }
-                .disabled(!playerSettings.showsSkipButtons)
-            } header: {
-                Text("Quick Skip")
-            } footer: {
-                Text("Buttons either side of the transport that jump within the track — for mixes, live sets and anything long.")
             }
         }
         .navigationTitle("Playback")
