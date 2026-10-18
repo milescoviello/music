@@ -137,6 +137,7 @@ final class AppState {
         await native.configure(saved)
         signer = await client.makeSigner()
         artwork.configure(signer: signer)
+        downloads.resumeWaiting()
         phase = .ready
 
         await player.restore()
@@ -175,6 +176,7 @@ final class AppState {
         await native.configure(candidate)
         signer = await client.makeSigner()
         artwork.configure(signer: signer)
+        downloads.resumeWaiting()
         phase = .ready
 
         await loadServerContext()

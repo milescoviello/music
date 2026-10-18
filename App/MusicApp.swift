@@ -51,6 +51,7 @@ struct MusicApp: App {
                         Task { await appState.refreshRequests() }
                         Task { await appState.sonic.refreshStatus() }
                         Task { await appState.playlistSync.sync() }
+                        appState.downloads.resumeWaiting()
                         Task {
                             await appState.queueSync.check(
                                 localSavedAt: appState.player.lastSavedAt

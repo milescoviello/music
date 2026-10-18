@@ -81,6 +81,7 @@ final class DownloadCenter {
             catalog = await store.reconcile()
             await adoptRunningTasks()
             appState.playlistSync.catalogLoaded()
+            resumeWaiting()
         }
     }
 
@@ -142,23 +143,12 @@ final class DownloadCenter {
 
         var queued: [(entry: DownloadCatalog.Entry, url: URL)] = []
         for song in wanted {
-            // Original bytes unless asked otherwise -- except for containers iOS cannot
-            // decode, which would otherwise land on disk as a perfect copy of something
-            // unplayable. Those are fetched transcoded whatever the setting, and the
-            // stored extension has to match the bytes or AVFoundation picks the wrong
-            // decoder.
-            let bitRate = quality.maxBitRate ?? 320
-            let transcode = quality != .original || PlaybackController.needsTranscode(song.suffix)
-            let endpoint = transcode ? "stream.view" : "download.view"
-            let query: [String: String] = transcode
-                ? ["id": song.id, "format": "mp3", "maxBitRate": String(bitRate)]
-                : ["id": song.id]
-            guard let url = signer.url(endpoint, query) else { continue }
-
-            let suffix = transcode ? "mp3" : (song.suffix ?? "mp3")
+            guard let request = Self.request(for: song, quality: quality, signer: signer) else {
+                continue
+            }
             let entry = DownloadCatalog.Entry(
                 song: song,
-                filename: "\(song.id).\(suffix)",
+                filename: "\(song.id).\(request.suffix)",
                 // An estimate for a transcode, exact for the original; either way the
                 // real figure lands when the transfer completes.
                 byteCount: quality.estimatedBytes(for: song),
@@ -167,7 +157,7 @@ final class DownloadCenter {
                 groupName: groupName,
                 qualityRaw: quality.rawValue
             )
-            queued.append((entry, url))
+            queued.append((entry, request.url))
         }
         guard !queued.isEmpty else { return }
         // Arriving from this moment, not from when the catalog write lands: a second tap
@@ -209,11 +199,81 @@ final class DownloadCenter {
         }
     }
 
+    /// What to fetch for a song, and the extension its file is stored under.
+    ///
+    /// Original bytes unless asked otherwise -- except for containers iOS cannot decode,
+    /// which would otherwise land on disk as a perfect copy of something unplayable.
+    /// Those are fetched transcoded whatever the setting, and the stored extension has to
+    /// match the bytes or AVFoundation picks the wrong decoder.
+    private static func request(
+        for song: Song,
+        quality: DownloadQuality,
+        signer: SubsonicSigner
+    ) -> (url: URL, suffix: String)? {
+        let bitRate = quality.maxBitRate ?? 320
+        let transcode = quality != .original || PlaybackController.needsTranscode(song.suffix)
+        let endpoint = transcode ? "stream.view" : "download.view"
+        let query: [String: String] = transcode
+            ? ["id": song.id, "format": "mp3", "maxBitRate": String(bitRate)]
+            : ["id": song.id]
+        guard let url = signer.url(endpoint, query) else { return nil }
+        return (url, transcode ? "mp3" : (song.suffix ?? "mp3"))
+    }
+
+    @ObservationIgnored private var isResuming = false
+    @ObservationIgnored private var retryScheduled = false
+
+    /// Starts again every song still waiting with no transfer behind it.
+    ///
+    /// Installing a new build kills the app mid-download, and iOS cancels the background
+    /// session's transfers with it: the songs stayed in the catalog as waiting, with
+    /// nothing ever coming, so a playlist downloading when the phone was plugged in
+    /// stopped where it was and its ring never moved again. Called once the catalog is
+    /// loaded, when the server's signer is ready, on coming back to the foreground, and
+    /// a minute after a transfer is interrupted. Cheap when there is nothing to do.
+    func resumeWaiting() {
+        guard !isResuming, !catalog.pending.isEmpty, let signer = appState?.signer else { return }
+        isResuming = true
+        Task {
+            defer { isResuming = false }
+            let running = Set(await session.allTasks.compactMap(\.taskDescription))
+            var restarted: [String: Double] = [:]
+            // Not one with a progress entry either: that is a download just asked for,
+            // whose transfer is created once its catalog write lands.
+            let orphans = catalog.pending.values.filter {
+                !running.contains($0.song.id) && progress[$0.song.id] == nil
+            }
+            for entry in orphans {
+                guard let request = Self.request(for: entry.song, quality: entry.quality, signer: signer) else {
+                    continue
+                }
+                let task = session.downloadTask(with: request.url)
+                task.taskDescription = entry.song.id
+                task.resume()
+                restarted[entry.song.id] = 0
+            }
+            guard !restarted.isEmpty else { return }
+            progress.merge(restarted) { current, _ in current }
+            isDownloading = true
+            await Diagnostics.shared.record("download", "resumed \(restarted.count) waiting")
+        }
+    }
+
     func remove(_ songIDs: [String]) {
-        // Gone from the screen at once; the files and the catalog follow.
+        // Gone from the screen at once; the files and the catalog follow. The mirror
+        // too, so nothing — `resumeWaiting` least of all — sees them as still wanted
+        // while the store catches up.
         let removed = Set(songIDs)
         if progress.keys.contains(where: removed.contains) {
             progress = progress.filter { !removed.contains($0.key) }
+        }
+        if removed.contains(where: { catalog.entries[$0] != nil || catalog.pending[$0] != nil }) {
+            var mirror = catalog
+            for id in removed {
+                mirror.entries.removeValue(forKey: id)
+                mirror.pending.removeValue(forKey: id)
+            }
+            catalog = mirror
         }
         isDownloading = !progress.isEmpty
         Task {
@@ -285,6 +345,21 @@ final class DownloadCenter {
         }
     }
 
+    /// A transfer cut off by the network rather than refused by the server: the song
+    /// stays waiting, and is asked for again a minute from now (or on the next launch or
+    /// return to the foreground), instead of quietly dropping out of its album or playlist.
+    func taskInterrupted(songID: String) {
+        progress.removeValue(forKey: songID)
+        isDownloading = !progress.isEmpty
+        guard !retryScheduled else { return }
+        retryScheduled = true
+        Task {
+            try? await Task.sleep(for: .seconds(60))
+            retryScheduled = false
+            resumeWaiting()
+        }
+    }
+
     func taskFailed(songID: String) {
         let title = catalog.pending[songID]?.song.title ?? songID
         progress.removeValue(forKey: songID)
@@ -313,6 +388,18 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
 
     /// A Subsonic error body, however it was labelled: small, and starting with its JSON
     /// or XML envelope. No audio file is under 8 KB and starts like that.
+    /// The network going away mid-transfer, as opposed to the server saying no.
+    static func isInterruption(_ code: URLError.Code) -> Bool {
+        switch code {
+        case .timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost,
+             .cannotFindHost, .dnsLookupFailed, .internationalRoamingOff, .dataNotAllowed,
+             .callIsActive, .backgroundSessionWasDisconnected, .secureConnectionFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
     static func isErrorBody(_ url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
@@ -389,9 +476,18 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
         didCompleteWithError error: Error?
     ) {
         guard let error, let songID = task.taskDescription else { return }
-        // A cancel is a user action; the catalog was already updated by `remove`.
+        // Either `remove` — the catalog is already updated — or iOS, which cancels the
+        // transfers of an app being replaced; those are started again at the next launch
+        // by `resumeWaiting`.
         if (error as NSError).code == NSURLErrorCancelled { return }
-        MainActor.assumeIsolated { center?.taskFailed(songID: songID) }
+        let interrupted = (error as? URLError).map { Self.isInterruption($0.code) } ?? false
+        MainActor.assumeIsolated {
+            if interrupted {
+                center?.taskInterrupted(songID: songID)
+            } else {
+                center?.taskFailed(songID: songID)
+            }
+        }
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
