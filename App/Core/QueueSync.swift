@@ -32,9 +32,20 @@ final class QueueSync {
 
     private weak var client: SubsonicClient?
     private var pushTask: Task<Void, Never>?
-    /// Signature of what was last uploaded, so an unchanged queue is not re-sent on
-    /// every pause.
-    private var lastPushedSignature: String?
+
+    /// What an upload was of: which list, and which track in it.
+    private struct Upload: Equatable {
+        let listID: UUID
+        let currentID: String?
+    }
+
+    /// What was last uploaded, so an unchanged queue is not sent again. Each upload is
+    /// every id in the queue, which for a smart playlist of the whole library is 28,000
+    /// of them, and the old signature included the elapsed seconds -- so every pause sent
+    /// the lot again.
+    private var lastPushed: Upload?
+    /// The seconds that went with it, for the one upload that is about the position.
+    private var lastPushedSeconds: Int?
 
     func configure(client: SubsonicClient) {
         self.client = client
@@ -44,7 +55,8 @@ final class QueueSync {
         pushTask?.cancel()
         pushTask = nil
         available = nil
-        lastPushedSignature = nil
+        lastPushed = nil
+        lastPushedSeconds = nil
         lastPushedAt = nil
     }
 
@@ -53,43 +65,55 @@ final class QueueSync {
     /// Debounced. Called on the transitions that matter — track change, pause,
     /// backgrounding — not on a timer, because the position only needs to be roughly
     /// right for another device to pick up.
+    ///
+    /// Uploads only when the list or the track playing has changed since the last
+    /// upload. A pause or a resume on its own is not worth re-sending the whole queue.
     func push(queue: PlaybackQueue, elapsed: Double) {
         guard client != nil, !queue.isEmpty else { return }
+        let upload = Upload(listID: queue.listID, currentID: queue.current?.id)
+        guard upload != lastPushed else { return }
+        schedule(queue, elapsed: elapsed, as: upload)
+    }
 
-        let ids = queue.order.compactMap { index in
-            queue.tracks.indices.contains(index) ? queue.tracks[index].id : nil
-        }
-        guard !ids.isEmpty else { return }
+    /// For backgrounding — where there is no next transition to wait for, and which is
+    /// when another device is most likely to pick up — so the position goes too, if it
+    /// has moved since the last upload.
+    func pushNow(queue: PlaybackQueue, elapsed: Double) {
+        guard client != nil, !queue.isEmpty else { return }
+        let upload = Upload(listID: queue.listID, currentID: queue.current?.id)
+        guard upload != lastPushed || Int(elapsed) != lastPushedSeconds else { return }
+        schedule(queue, elapsed: elapsed, as: upload)
+    }
 
-        let currentID = queue.current?.id
-        let signature = "\(currentID ?? "")|\(Int(elapsed))|\(ids.count)|\(ids.first ?? "")"
-        guard signature != lastPushedSignature else { return }
-
+    private func schedule(_ queue: PlaybackQueue, elapsed: Double, as upload: Upload) {
         pushTask?.cancel()
         pushTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(3))
             guard !Task.isCancelled, let self, let client else { return }
 
+            // The ids are only gathered when an upload is actually going out, and off the
+            // main actor: it is a pass over the whole queue.
+            let ids = await Task.detached(priority: .utility) {
+                queue.order.compactMap { index in
+                    queue.tracks.indices.contains(index) ? queue.tracks[index].id : nil
+                }
+            }.value
+            guard !ids.isEmpty, !Task.isCancelled else { return }
+
             do {
                 try await client.saveQueue(
                     songIDs: ids,
-                    currentID: currentID,
+                    currentID: upload.currentID,
                     positionMilliseconds: Int(elapsed * 1000)
                 )
-                lastPushedSignature = signature
+                lastPushed = upload
+                lastPushedSeconds = Int(elapsed)
                 lastPushedAt = .now
             } catch {
                 // A failed sync is not worth surfacing: the local queue is already
                 // persisted on disk, and the next transition retries.
             }
         }
-    }
-
-    /// Forced, for backgrounding — where there is no next transition to wait for.
-    func pushNow(queue: PlaybackQueue, elapsed: Double) {
-        pushTask?.cancel()
-        lastPushedSignature = nil
-        push(queue: queue, elapsed: elapsed)
     }
 
     // MARK: - Downloading
