@@ -84,3 +84,36 @@ struct LibraryFacetsTests {
         #expect(found.map(\.id) == ["stale"])
     }
 }
+
+struct SearchRankingTests {
+    @Test func anExactArtistBeatsAnAlbumOfTheSameName() throws {
+        var results = SearchResult3()
+        results.artist = [Artist(id: "a", name: "Portishead")]
+        results.album = [Album(id: "b", name: "Portishead")]
+        guard case let .artist(artist) = SearchRanking.topResult(for: "portishead", in: results) else {
+            Issue.record("expected an artist"); return
+        }
+        #expect(artist.id == "a")
+    }
+
+    @Test func anExactAlbumBeatsAPrefixArtist() {
+        var results = SearchResult3()
+        results.artist = [Artist(id: "a", name: "Dummy Band")]
+        results.album = [Album(id: "b", name: "Dummy")]
+        guard case let .album(album) = SearchRanking.topResult(for: "Dummy", in: results) else {
+            Issue.record("expected an album"); return
+        }
+        #expect(album.id == "b")
+    }
+
+    @Test func accentsCaseAndTheDoNotMatter() {
+        #expect(SearchRanking.normalised("The Beatles") == SearchRanking.normalised("beatles"))
+        #expect(SearchRanking.normalised("Sigur Rós") == "sigur ros")
+    }
+
+    @Test func noPlausibleMatchMeansNoTopResult() {
+        var results = SearchResult3()
+        results.song = [Song(id: "s", title: "Something Else")]
+        #expect(SearchRanking.topResult(for: "zzz", in: results) == nil)
+    }
+}

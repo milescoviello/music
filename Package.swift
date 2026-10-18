@@ -34,6 +34,7 @@ let package = Package(
                 "LibraryFacets.swift",
                 "Charts.swift",
                 "HomeLayout.swift",
+                "SearchRanking.swift",
             ]
         ),
         .testTarget(

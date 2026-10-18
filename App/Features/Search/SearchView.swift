@@ -163,6 +163,32 @@ struct SearchView: View {
 
     private var resultsList: some View {
         List {
+            if let results, let top = SearchRanking.topResult(for: query, in: results) {
+                Section("Top Result") {
+                    topResultRow(top)
+                }
+            }
+
+            let playlists = matchingPlaylists
+            if !playlists.isEmpty {
+                Section("Playlists") {
+                    ForEach(playlists.prefix(4)) { playlist in
+                        NavigationLink(value: Destination.playlist(PlaylistRef(playlist))) {
+                            HStack(spacing: Metrics.itemSpacing) {
+                                ArtworkImage(id: playlist.coverArt, size: .thumb, cornerRadius: Metrics.radiusThumb)
+                                    .frame(width: Metrics.thumbSmall, height: Metrics.thumbSmall)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(playlist.name).lineLimit(1)
+                                    if let count = playlist.songCount {
+                                        Text("\(count) songs").font(.footnote).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if let artists = results?.artists, !artists.isEmpty {
                 Section("Artists") {
                     ForEach(artists.prefix(4)) { artist in
@@ -236,6 +262,55 @@ struct SearchView: View {
         )
         .overlay {
             if isSearching, results == nil { ProgressView() }
+        }
+    }
+
+    /// Playlists are not part of `search3`, so they are matched here, from the list the
+    /// app already has.
+    private var matchingPlaylists: [Playlist] {
+        let wanted = query.trimmingCharacters(in: .whitespaces)
+        guard wanted.count >= 2 else { return [] }
+        return appState.playlistStore.playlists.filter { $0.name.localizedCaseInsensitiveContains(wanted) }
+    }
+
+    /// Plexamp's Top Result: bigger than the rows below, and a tap away from playing.
+    @ViewBuilder
+    private func topResultRow(_ top: SearchRanking.TopResult) -> some View {
+        switch top {
+        case let .artist(artist):
+            NavigationLink(value: Destination.artist(ArtistRef(artist))) {
+                HStack(spacing: Metrics.itemSpacing) {
+                    ArtistArtwork(id: artist.coverArt, diameter: 72, initials: artist.name.monogram)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(artist.name).font(.title3.weight(.semibold)).lineLimit(1)
+                        Text("Artist").font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        appState.stations.play(.artistMix(ids: [artist.id], names: [artist.name]))
+                    } label: {
+                        Image(systemName: "dot.radiowaves.left.and.right")
+                            .font(.title3)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Play \(artist.name) Radio")
+                }
+            }
+        case let .album(album):
+            NavigationLink(value: Destination.album(AlbumRef(album))) {
+                HStack(spacing: Metrics.itemSpacing) {
+                    ArtworkImage(id: album.coverArt, size: .thumb, cornerRadius: Metrics.radiusThumb)
+                        .frame(width: 72, height: 72)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(album.name).font(.title3.weight(.semibold)).lineLimit(1)
+                        Text(["Album", album.artist, album.year.map(String.init)].compactMap { $0 }.joined(separator: " · "))
+                            .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            }
+            .albumFavorite(album)
+        case let .song(song):
+            PlayableSongRow(songs: [song], index: 0, source: "Search")
         }
     }
 
