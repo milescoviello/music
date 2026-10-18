@@ -17,6 +17,10 @@ struct CollectionDownloadButton: View {
     @State private var confirmsRemoval = false
 
     var body: some View {
+        // Once per body: it walks every song in the collection, and the label and the
+        // accessibility label each walked it again, on every percent of every download.
+        let progress = state
+
         Button {
             switch state {
             case .none: downloads.download(songs, groupID: groupID, groupName: groupName)
@@ -25,7 +29,7 @@ struct CollectionDownloadButton: View {
             case .complete: confirmsRemoval = true
             }
         } label: {
-            label
+            label(progress)
         }
         .buttonStyle(.plain)
         .disabled(songs.isEmpty)
@@ -40,11 +44,11 @@ struct CollectionDownloadButton: View {
         } message: {
             Text("It stays on your server.")
         }
-        .accessibilityLabel(accessibilityLabel)
+        .accessibilityLabel(accessibilityLabel(progress))
     }
 
     @ViewBuilder
-    private var label: some View {
+    private func label(_ state: Progress) -> some View {
         switch state {
         case .none:
             Image(systemName: "arrow.down.circle")
@@ -102,7 +106,7 @@ struct CollectionDownloadButton: View {
         return .none
     }
 
-    private var accessibilityLabel: String {
+    private func accessibilityLabel(_ state: Progress) -> String {
         switch state {
         case .none: return "Download"
         case .working: return "Cancel download"
@@ -120,18 +124,17 @@ struct DownloadedBadge: View {
     let songID: String
 
     var body: some View {
-        switch downloads.status(for: songID) {
-        case .downloaded:
+        // Not `status(for:)`: that reads the fraction, and this draws the same arrow
+        // whatever it is, so every row on screen redrew on every percent for nothing.
+        if downloads.isDownloaded(songID) {
             Image(systemName: "arrow.down.circle.fill")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-        case .waiting, .downloading:
+        } else if downloads.isArriving(songID) {
             Image(systemName: "arrow.down.circle")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .symbolEffect(.pulse)
-        case .none:
-            EmptyView()
         }
     }
 }
