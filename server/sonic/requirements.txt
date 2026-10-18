@@ -1,0 +1,5 @@
+# Essentia with its TensorFlow runner: decoding, resampling, MusiCNN's input stage, the
+# model itself, loudness, beats and key. NumPy for everything else. The HTTP layer is the
+# standard library.
+essentia-tensorflow==2.1b6.dev1389
+numpy>=1.26

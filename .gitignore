@@ -5,3 +5,7 @@ dist/
 *.ipa
 xcuserdata/
 .build/
+
+# The sonic service: Python caches, and its working data on the host.
+__pycache__/
+server/sonic/data/

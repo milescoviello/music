@@ -1,0 +1,25 @@
+# Runs on the 148 host beside Navidrome and the music share. Everything it reads is
+# mounted read-only; it writes only to ./data.
+services:
+  sonic:
+    build: .
+    image: sonic:latest
+    container_name: sonic
+    restart: unless-stopped
+    user: "1000:1000"
+    ports:
+      - "8650:8650"
+    environment:
+      SONIC_DATA: /data
+      SONIC_NAVIDROME_DB: /navidrome/navidrome.db
+      # Navidrome's library roots, as Navidrome sees them, to where they are mounted here.
+      SONIC_PATH_MAP: /music/my_music=/mnt/hdd-pool-media/my_music,/music/music=/mnt/hdd-pool-media/music
+      SONIC_WORKERS: "8"
+      SONIC_RESYNC_HOURS: "6"
+    volumes:
+      - ./data:/data
+      - /home/miles/media-stack/navidrome/data:/navidrome:ro
+      - /mnt/hdd-pool-media/my_music:/mnt/hdd-pool-media/my_music:ro,rslave
+      - /mnt/hdd-pool-media/music:/mnt/hdd-pool-media/music:ro,rslave
+    # Leave the host room for everything else it runs.
+    cpus: 10
