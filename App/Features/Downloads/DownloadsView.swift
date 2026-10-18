@@ -14,31 +14,37 @@ struct DownloadsView: View {
     @AppStorage("downloads.sort") private var sort = DownloadFolders.Sort.addedAt
     @AppStorage("downloads.sortAscending") private var ascending = true
 
+    @State private var query = ""
     @State private var removing: DownloadFolders.Folder?
     @State private var confirmsRemoveAll = false
 
     private var store: DownloadFolderStore { appState.downloadFolders }
     private var folders: DownloadFolders { store.folders }
 
+    private var isSearching: Bool {
+        !query.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
     var body: some View {
+        // Searched once per redraw, and only while there is something typed: the keys
+        // were folded when the folders were built, so this is a scan, not a rebuild.
+        let results = isSearching ? folders.search(query) : nil
+
         List {
-            if !folders.isEmpty {
-                summary
-            }
-
-            let albums = folders.sorted(folders.albums, by: sort, ascending: ascending)
-            if !albums.isEmpty {
-                Section("Albums") { rows(albums) }
-            }
-
-            let playlists = folders.sorted(folders.playlists, by: sort, ascending: ascending)
-            if !playlists.isEmpty {
-                Section("Playlists") { rows(playlists) }
+            if let results {
+                found(results)
+            } else {
+                library
             }
         }
         .listStyle(.plain)
         .playerClearance()
         .navigationTitle("Downloads")
+        .searchable(
+            text: $query,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Albums, Playlists, Songs"
+        )
         .toolbar {
             if !folders.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) { menu }
@@ -57,7 +63,9 @@ struct DownloadsView: View {
         }
         .downloadFolderRemoval($removing)
         .overlay {
-            if folders.isEmpty {
+            if let results, results.isEmpty {
+                ContentUnavailableView.search(text: query)
+            } else if folders.isEmpty {
                 ContentUnavailableView(
                     "No Downloads",
                     systemImage: "arrow.down.circle",
@@ -68,6 +76,46 @@ struct DownloadsView: View {
             }
         }
         .onAppear { store.activate() }
+    }
+
+    @ViewBuilder
+    private var library: some View {
+        if !folders.isEmpty {
+            summary
+        }
+
+        let albums = folders.sorted(folders.albums, by: sort, ascending: ascending)
+        if !albums.isEmpty {
+            Section("Albums") { rows(albums) }
+        }
+
+        let playlists = folders.sorted(folders.playlists, by: sort, ascending: ascending)
+        if !playlists.isEmpty {
+            Section("Playlists") { rows(playlists) }
+        }
+    }
+
+    /// Folders that match open like any other; a matching song plays the matching songs
+    /// from there, as Search does.
+    @ViewBuilder
+    private func found(_ results: DownloadFolders.SearchResults) -> some View {
+        if !results.albums.isEmpty {
+            Section("Albums") {
+                rows(folders.sorted(results.albums, by: sort, ascending: ascending))
+            }
+        }
+        if !results.playlists.isEmpty {
+            Section("Playlists") {
+                rows(folders.sorted(results.playlists, by: sort, ascending: ascending))
+            }
+        }
+        if !results.songs.isEmpty {
+            Section("Songs") {
+                ForEach(Array(results.songs.enumerated()), id: \.element.id) { index, _ in
+                    PlayableSongRow(songs: results.songs, index: index, source: "Downloads")
+                }
+            }
+        }
     }
 
     private func rows(_ list: [DownloadFolders.Folder]) -> some View {
