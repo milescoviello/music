@@ -104,6 +104,9 @@ final class QueuePlayerOutput: AudioOutput {
     /// How far the two tracks' playheads may disagree, once started, before the start is
     /// recorded as having missed — the size of a flam.
     private static let syncTolerance = 0.010
+    /// How far off a start may be at the handover and still be faded in. Beyond this it
+    /// is not a flam but two tracks out of step, and the plain fade replaces it.
+    private static let handoverTolerance = 0.050
 
     private var wantsToPlay = false
     private var startFallback: Task<Void, Never>?
@@ -543,10 +546,13 @@ final class QueuePlayerOutput: AudioOutput {
         let position = CMTimebaseGetTime(timebase).seconds
         guard position.isFinite else { return false }
         // Real seconds until the start, at whatever speed the player is set to.
-        let notice = (beats.start - position) / Double(rate)
+        let notice = (beats.start - position) / Double(rate * tempo[active])
         if notice > Self.cueLead { return true }
         // Past it already: a seek landed inside the overlap.
         guard notice > Self.minimumCueNotice else { return false }
+        // Still easing out of a matched fade of its own — a very short track. The start
+        // time is worked out at a steady speed, and this one is not.
+        guard tempo[active] == 1 else { return skip("the outgoing track is still easing its tempo") }
 
         let incoming = players[idle]
         guard abs(duration - beats.outgoingDuration) <= 0.5 else {
@@ -611,36 +617,50 @@ final class QueuePlayerOutput: AudioOutput {
         }
     }
 
-    /// The incoming track has just started, on time and at its matched speed: the fade,
-    /// and the change of track, begin now.
+    /// The incoming track should have just started, on time and at its matched speed: the
+    /// fade, and the change of track, begin now. Unless it plainly did not — the one thing
+    /// about a start at a host time that cannot be tested without a phone — in which case it
+    /// goes back to the top and the plain fade goes ahead, silent until now either way.
     private func handOver(_ beats: BeatMatch.Plan) {
+        if let late = lateness(of: idle, against: active, plan: beats), abs(late) > Self.handoverTolerance {
+            abandonCue("the incoming track started \(Self.describe(late))")
+            beginFadeIfDue()
+            return
+        }
+
         cue = nil
         plannedBeats = nil
         players[idle].defaultRate = rate * tempo[idle]
         startFade(over: max(beats.overlap / Double(rate), SweetFades.minimumOverlap), beats: beats)
 
+        // Half a second in, the same check, finer. Only recorded: a correction now would be
+        // a jump in the music, worse than a flam — but it is how to know, on the phone,
+        // that the timing holds.
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(0.5))
-            self?.checkSync(beats)
+            guard let self, let outgoing = fadingIndex,
+                  let late = lateness(of: active, against: outgoing, plan: beats),
+                  abs(late) > Self.syncTolerance
+            else { return }
+            let message = "beat-matched start \(Self.describe(late))"
+            Task { await Diagnostics.shared.record("fades", message) }
         }
     }
 
-    /// Half a second in, whether the incoming track really did start when it was told to:
-    /// the two playheads, read together, against where the plan puts them. Only recorded —
-    /// a correction now would be a jump in the music, which is worse than a flam — but it
-    /// is the one way to know, on the phone, that the timing holds.
-    private func checkSync(_ beats: BeatMatch.Plan) {
-        guard let outgoing = fadingIndex,
-              let outgoingTimebase = players[outgoing].currentItem?.timebase,
-              let incomingTimebase = players[active].currentItem?.timebase
-        else { return }
-        let elapsedOut = CMTimebaseGetTime(outgoingTimebase).seconds - beats.start
-        let elapsedIn = CMTimebaseGetTime(incomingTimebase).seconds / beats.rate
-        // In the outgoing track's seconds: positive when the incoming one is behind.
+    /// How far behind the plan the incoming player is, in the outgoing track's seconds —
+    /// negative when it is ahead — from the two playheads read together.
+    private func lateness(of incoming: Int, against outgoing: Int, plan: BeatMatch.Plan) -> Double? {
+        guard let outgoingTimebase = players[outgoing].currentItem?.timebase,
+              let incomingTimebase = players[incoming].currentItem?.timebase
+        else { return nil }
+        let elapsedOut = CMTimebaseGetTime(outgoingTimebase).seconds - plan.start
+        let elapsedIn = CMTimebaseGetTime(incomingTimebase).seconds / plan.rate
         let late = elapsedOut - elapsedIn
-        guard late.isFinite, abs(late) > Self.syncTolerance else { return }
-        let milliseconds = Int((abs(late) * 1000).rounded())
-        Task { await Diagnostics.shared.record("fades", "beat-matched start \(late > 0 ? "late" : "early") by \(milliseconds) ms") }
+        return late.isFinite ? late : nil
+    }
+
+    private static func describe(_ late: Double) -> String {
+        "\(late > 0 ? "late" : "early") by \(Int((abs(late) * 1000).rounded())) ms"
     }
 
     /// Undoes a cue that has not been handed over: the incoming player paused, silent no
