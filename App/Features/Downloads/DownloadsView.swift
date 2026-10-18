@@ -1,65 +1,47 @@
 import SwiftUI
 
-/// Everything on the phone, grouped the way it was downloaded.
+/// Everything on the phone, the way Plexamp's Downloads shows it: the albums and
+/// playlists that were downloaded, each a folder to open — not every song at once, which
+/// at a few hundred tracks made anything impossible to find.
 ///
-/// This doubles as the offline browser: every entry carries its full song metadata,
-/// so this screen renders and plays with the server switched off entirely.
+/// This doubles as the offline browser: every entry carries its full song metadata, so
+/// this screen and every folder in it render and play with the server switched off.
 struct DownloadsView: View {
     @Environment(AppState.self) private var appState
     @Environment(Reachability.self) private var reachability
 
+    /// Plexamp's `downloadsSort` and `downloadsSortAscending`, and its defaults.
+    @AppStorage("downloads.sort") private var sort = DownloadFolders.Sort.addedAt
+    @AppStorage("downloads.sortAscending") private var ascending = true
+
+    @State private var removing: DownloadFolders.Folder?
     @State private var confirmsRemoveAll = false
 
-    private var downloads: DownloadCenter { appState.downloads }
+    private var store: DownloadFolderStore { appState.downloadFolders }
+    private var folders: DownloadFolders { store.folders }
 
     var body: some View {
         List {
-            if !downloads.progress.isEmpty {
-                Section("Downloading") {
-                    ForEach(activeDownloads, id: \.id) { item in
-                        ActiveDownloadRow(entry: item.entry, fraction: item.fraction)
-                    }
-                }
+            if !folders.isEmpty {
+                summary
             }
 
-            ForEach(groups) { group in
-                Section {
-                    ForEach(Array(group.songs.enumerated()), id: \.element.id) { index, _ in
-                        PlayableSongRow(
-                            songs: group.songs,
-                            index: index,
-                            source: group.name,
-                            style: .numbered(index + 1)
-                        )
-                        .alignmentGuide(.listRowSeparatorLeading) { _ in 36 }
-                    }
-                } header: {
-                    GroupHeader(group: group)
-                }
+            let albums = folders.sorted(folders.albums, by: sort, ascending: ascending)
+            if !albums.isEmpty {
+                Section("Albums") { rows(albums) }
+            }
+
+            let playlists = folders.sorted(folders.playlists, by: sort, ascending: ascending)
+            if !playlists.isEmpty {
+                Section("Playlists") { rows(playlists) }
             }
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         .playerClearance()
         .navigationTitle("Downloads")
         .toolbar {
-            if !downloads.catalog.entries.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Shuffle All", systemImage: "shuffle") {
-                            appState.player.play(
-                                songs: allSongs.shuffled(),
-                                startingAt: 0,
-                                source: "Downloads"
-                            )
-                        }
-                        Divider()
-                        Button("Remove All Downloads", systemImage: "trash", role: .destructive) {
-                            confirmsRemoveAll = true
-                        }
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                    }
-                }
+            if !folders.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) { menu }
             }
         }
         .confirmationDialog(
@@ -67,14 +49,15 @@ struct DownloadsView: View {
             isPresented: $confirmsRemoveAll,
             titleVisibility: .visible
         ) {
-            Button("Remove \(sizeText)", role: .destructive) {
-                downloads.removeAll()
+            Button("Remove \(folders.totalBytes.asFileSize)", role: .destructive) {
+                appState.downloads.removeAll()
             }
         } message: {
             Text("The music stays on your server. Only the copies on this phone are deleted.")
         }
+        .downloadFolderRemoval($removing)
         .overlay {
-            if downloads.catalog.entries.isEmpty, downloads.progress.isEmpty {
+            if folders.isEmpty {
                 ContentUnavailableView(
                     "No Downloads",
                     systemImage: "arrow.down.circle",
@@ -84,143 +67,80 @@ struct DownloadsView: View {
                 )
             }
         }
-        .safeAreaInset(edge: .bottom) {
-            if !downloads.catalog.entries.isEmpty {
-                footer
+        .onAppear { store.activate() }
+    }
+
+    private func rows(_ list: [DownloadFolders.Folder]) -> some View {
+        ForEach(list) { folder in
+            NavigationLink(value: Destination.downloadFolder(folder.id)) {
+                DownloadFolderRow(folder: folder)
+            }
+            .contextMenu {
+                DownloadFolderMenu(folder: folder) { removing = folder }
+            }
+            // No destructive role: that animates the row away before the confirmation
+            // has been answered.
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button("Remove", systemImage: "trash") { removing = folder }
+                    .tint(.red)
             }
         }
     }
 
-    private var footer: some View {
-        VStack(spacing: 2) {
-            Text("\(downloads.catalog.entries.count) songs · \(sizeText)")
+    /// Plexamp's header over the list: how many tracks, how big, how long.
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(folders.songs.count) \(folders.songs.count == 1 ? "track" : "tracks")")
+                .font(.headline)
+            Text(totals)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             if !reachability.isOnline {
                 Text("Offline — playing from this phone")
+                    .font(.footnote)
                     .foregroundStyle(Color.appTint)
             }
         }
-        .font(.footnote)
-        .foregroundStyle(.secondary)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .background(.bar)
+        .listRowSeparator(.hidden)
     }
 
-    private var sizeText: String {
-        downloads.catalog.totalBytes.asFileSize
+    private var totals: String {
+        var parts = [folders.totalBytes.asFileSize]
+        if folders.totalDuration > 0 { parts.append(folders.totalDuration.asLongDuration) }
+        return parts.joined(separator: " – ")
     }
 
-    // MARK: - Grouping
-
-    struct Group: Identifiable {
-        let id: String
-        let name: String
-        let subtitle: String
-        let coverArt: String?
-        let songs: [Song]
-        /// Most recent download in the group, which is the sort order.
-        let addedAt: Date
-    }
-
-    private var allSongs: [Song] {
-        groups.flatMap(\.songs)
-    }
-
-    /// Grouped by the album or playlist the download was requested as, newest first,
-    /// because the thing you just downloaded is the thing you are looking for.
-    private var groups: [Group] {
-        let entries = Array(downloads.catalog.entries.values)
-        let keyed = Dictionary(grouping: entries) { entry in
-            entry.groupID ?? entry.song.albumId ?? entry.song.id
-        }
-
-        return keyed.compactMap { key, group -> Group? in
-            let sorted = group.sorted { $0.song.albumOrder < $1.song.albumOrder }
-            guard let first = sorted.first else { return nil }
-            let bytes = group.reduce(Int64(0)) { $0 + $1.byteCount }
-
-            return Group(
-                id: key,
-                name: first.groupName ?? first.song.album ?? first.song.title,
-                subtitle: "\(group.count) songs · \(bytes.asFileSize)",
-                coverArt: first.song.coverArt,
-                songs: sorted.map(\.song),
-                addedAt: group.map(\.addedAt).max() ?? .distantPast
-            )
-        }
-        .sorted { $0.addedAt > $1.addedAt }
-    }
-
-    private var activeDownloads: [(id: String, entry: DownloadCatalog.Entry, fraction: Double)] {
-        downloads.progress.compactMap { songID, fraction in
-            guard let entry = downloads.catalog.pending[songID] else { return nil }
-            return (id: songID, entry: entry, fraction: fraction)
-        }
-        .sorted { $0.entry.song.albumOrder < $1.entry.song.albumOrder }
-    }
-}
-
-private struct GroupHeader: View {
-    @Environment(AppState.self) private var appState
-
-    let group: DownloadsView.Group
-
-    var body: some View {
-        HStack(spacing: Metrics.itemSpacing) {
-            ArtworkImage(id: group.coverArt, size: .thumb, cornerRadius: Metrics.radiusThumb)
-                .frame(width: Metrics.thumbRow, height: Metrics.thumbRow)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(group.name)
-                    .font(.headline)
-                    .textCase(nil)
-                    .lineLimit(1)
-                Text(group.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textCase(nil)
+    /// Plexamp's Downloads menu: Play All, Remove All, and the sorts, where choosing the
+    /// sort already in use flips its direction.
+    private var menu: some View {
+        Menu {
+            Button("Play All", systemImage: "play.fill") { playAll(shuffled: false) }
+            Button("Shuffle All", systemImage: "shuffle") { playAll(shuffled: true) }
+            Button("Remove All…", systemImage: "trash", role: .destructive) {
+                confirmsRemoveAll = true
             }
 
-            Spacer(minLength: 8)
-
-            Button {
-                appState.downloads.remove(group.songs.map(\.id))
-            } label: {
-                Image(systemName: "trash")
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: Metrics.minimumTouchTarget, minHeight: Metrics.minimumTouchTarget)
-                    .contentShape(Rectangle())
+            Section("Sort By") {
+                ForEach(DownloadFolders.Sort.allCases, id: \.self) { option in
+                    Button {
+                        if sort == option { ascending.toggle() } else { sort = option }
+                    } label: {
+                        if sort == option {
+                            Label(option.title, systemImage: ascending ? "chevron.up" : "chevron.down")
+                        } else {
+                            Text(option.title)
+                        }
+                    }
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Remove \(group.name)")
+        } label: {
+            Image(systemName: "ellipsis.circle")
         }
-        .padding(.vertical, 4)
     }
-}
 
-private struct ActiveDownloadRow: View {
-    @Environment(AppState.self) private var appState
-
-    let entry: DownloadCatalog.Entry
-    let fraction: Double
-
-    var body: some View {
-        HStack(spacing: Metrics.itemSpacing) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(entry.song.title)
-                    .lineLimit(1)
-                ProgressView(value: fraction)
-                    .tint(.appTint)
-            }
-
-            Button {
-                appState.downloads.remove([entry.song.id])
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Cancel download")
-        }
+    private func playAll(shuffled: Bool) {
+        let songs = folders.playAll(sort: sort, ascending: ascending)
+        guard !songs.isEmpty else { return }
+        appState.player.play(songs: songs, startingAt: 0, source: "Downloads", shuffled: shuffled)
     }
 }
