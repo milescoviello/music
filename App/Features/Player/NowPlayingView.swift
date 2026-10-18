@@ -7,10 +7,7 @@ enum PlayerMode: String, CaseIterable {
 
 struct NowPlayingView: View {
     @Environment(AppState.self) private var appState
-    @Environment(SleepTimer.self) private var sleepTimer
-    @Environment(DownloadCenter.self) private var downloads
     @Environment(PlayerSettings.self) private var playerSettings
-    @Environment(GuestDJService.self) private var guestDJ
     /// Called instead of `dismiss()`: this is no longer a modal, it is a layer drawn
     /// above the library, so closing it is the presenter's business.
     var onDismiss: () -> Void = {}
@@ -65,7 +62,7 @@ struct NowPlayingView: View {
                 // scrolls, so nothing competes for the gesture here.
                 VStack(spacing: 0) {
                     metadata(song)
-                    detailLine(song)
+                    PlayerDetailLine(song: song)
                 }
                 .contentShape(Rectangle())
                 .gesture(dismissDrag)
@@ -381,108 +378,6 @@ struct NowPlayingView: View {
         .foregroundStyle(.white.opacity(0.5))
     }
 
-    /// The quiet line Plexamp gets right: what you are actually hearing, and where you
-    /// are in the queue. Every part is omitted when unknown rather than shown as a
-    /// placeholder.
-    private func detailLine(_ song: Song) -> some View {
-        HStack(spacing: 6) {
-            if downloads.isDownloaded(song.id) {
-                Label("Downloaded", systemImage: "arrow.down.circle.fill")
-                    .labelStyle(.iconOnly)
-                    .foregroundStyle(Color.appTint)
-            }
-
-            Text(qualityText(song))
-
-            if let count = song.playCount, count > 0 {
-                Text("·")
-                Text("\(count) \(count == 1 ? "play" : "plays")")
-            }
-
-            if player.queue.order.count > 1 {
-                Text("·")
-                Text("\(player.queue.position + 1) of \(player.queue.order.count)")
-                    .monospacedDigit()
-            }
-
-            if let dj = guestDJ.dj {
-                Text("·")
-                Label(dj.name, systemImage: "sparkles")
-                    .foregroundStyle(Color.appTint)
-            }
-
-            if player.speed != 1 {
-                Text("·")
-                Text(String(format: "%.1f×", player.speed))
-                    .monospacedDigit()
-                    .foregroundStyle(Color.appTint)
-            }
-
-            if let label = sleepTimer.label {
-                Text("·")
-                Label(label, systemImage: "moon.fill")
-                    .foregroundStyle(Color.appTint)
-            }
-
-            if appState.screenAwake.isEnabled {
-                Text("·")
-                Label("Screen on", systemImage: "sun.max.fill")
-                    .foregroundStyle(Color.appTint)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .font(.caption2)
-        .foregroundStyle(.white.opacity(0.55))
-        .padding(.horizontal, 24)
-        .padding(.top, 5)
-    }
-
-    /// "FLAC 24/96", "MP3 320 kbps". For lossless the depth and rate are the useful
-    /// numbers; the bitrate is variable and the reported figure is only an average, so
-    /// quoting it would look precise while meaning little.
-    private func qualityText(_ song: Song) -> String {
-        // What is actually being heard: a stream converted to fit this network's quality
-        // setting says so, rather than quoting the file on the server.
-        if !downloads.isDownloaded(song.id) {
-            let variant = appState.streaming.policy.variant(for: song, on: appState.reachability.network)
-            if case let .mp3(kbps) = variant,
-               // The index, not `file(for:)`: that one marks the entry used, and a view
-               // body that writes what it reads redraws forever.
-               appState.streamCache.index.entry(for: song.id, satisfying: .original) == nil {
-                return "MP3 · \(kbps) kbps · converted"
-            }
-        }
-
-        var parts: [String] = []
-        if let suffix = song.suffix { parts.append(suffix.uppercased()) }
-
-        let isLossless = ["flac", "wav", "aiff", "aif", "alac"]
-            .contains(song.suffix?.lowercased() ?? "")
-
-        if isLossless {
-            if let depth = song.bitDepth, let rate = song.samplingRate, rate > 0 {
-                parts.append("\(depth)/\(kilohertz(rate))")
-            } else if let rate = song.samplingRate, rate > 0 {
-                parts.append("\(kilohertz(rate)) kHz")
-            }
-        } else if let rate = song.bitRate, rate > 0 {
-            parts.append("\(rate) kbps")
-        }
-
-        if song.channelCount == 1 { parts.append("mono") }
-
-        return parts.isEmpty ? "Streaming" : parts.joined(separator: " · ")
-    }
-
-    /// 44100 reads as 44.1, 48000 as 48 -- no trailing ".0".
-    private func kilohertz(_ hertz: Int) -> String {
-        let value = Double(hertz) / 1000
-        return value == value.rounded()
-            ? String(Int(value))
-            : String(format: "%.1f", value)
-    }
-
     /// Shown for a few seconds when playback started part-way through a long track.
     ///
     /// A silent auto-seek with no way back is the failure mode this exists to avoid: the
@@ -620,6 +515,123 @@ struct NowPlayingView: View {
         }
         .accessibilityLabel(String(describing: target).capitalized)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
+
+/// The quiet line Plexamp gets right: what you are actually hearing, and where you are
+/// in the queue. Every part is omitted when unknown rather than shown as a placeholder.
+///
+/// Its own view because of everything it reads: the downloads catalog, the stream cache,
+/// the network, the sleep timer, the Guest DJ. Inside the player's body, a download
+/// finishing anywhere in the library, or a file landing in the cache, re-ran the whole
+/// player; here it re-runs one line.
+private struct PlayerDetailLine: View {
+    @Environment(AppState.self) private var appState
+    @Environment(SleepTimer.self) private var sleepTimer
+    @Environment(DownloadCenter.self) private var downloads
+    @Environment(GuestDJService.self) private var guestDJ
+
+    let song: Song
+
+    private var player: PlaybackController { appState.player }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if downloads.isDownloaded(song.id) {
+                Label("Downloaded", systemImage: "arrow.down.circle.fill")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(Color.appTint)
+            }
+
+            Text(qualityText(song))
+
+            if let count = song.playCount, count > 0 {
+                Text("·")
+                Text("\(count) \(count == 1 ? "play" : "plays")")
+            }
+
+            if player.queue.order.count > 1 {
+                Text("·")
+                Text("\(player.queue.position + 1) of \(player.queue.order.count)")
+                    .monospacedDigit()
+            }
+
+            if let dj = guestDJ.dj {
+                Text("·")
+                Label(dj.name, systemImage: "sparkles")
+                    .foregroundStyle(Color.appTint)
+            }
+
+            if player.speed != 1 {
+                Text("·")
+                Text(String(format: "%.1f×", player.speed))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.appTint)
+            }
+
+            if let label = sleepTimer.label {
+                Text("·")
+                Label(label, systemImage: "moon.fill")
+                    .foregroundStyle(Color.appTint)
+            }
+
+            if appState.screenAwake.isEnabled {
+                Text("·")
+                Label("Screen on", systemImage: "sun.max.fill")
+                    .foregroundStyle(Color.appTint)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .font(.caption2)
+        .foregroundStyle(.white.opacity(0.55))
+        .padding(.horizontal, 24)
+        .padding(.top, 5)
+    }
+
+    /// "FLAC 24/96", "MP3 320 kbps". For lossless the depth and rate are the useful
+    /// numbers; the bitrate is variable and the reported figure is only an average, so
+    /// quoting it would look precise while meaning little.
+    private func qualityText(_ song: Song) -> String {
+        // What is actually being heard: a stream converted to fit this network's quality
+        // setting says so, rather than quoting the file on the server.
+        if !downloads.isDownloaded(song.id) {
+            let variant = appState.streaming.policy.variant(for: song, on: appState.reachability.network)
+            if case let .mp3(kbps) = variant,
+               // The index, not `file(for:)`: that one marks the entry used, and a view
+               // body that writes what it reads redraws forever.
+               appState.streamCache.index.entry(for: song.id, satisfying: .original) == nil {
+                return "MP3 · \(kbps) kbps · converted"
+            }
+        }
+
+        var parts: [String] = []
+        if let suffix = song.suffix { parts.append(suffix.uppercased()) }
+
+        let isLossless = ["flac", "wav", "aiff", "aif", "alac"]
+            .contains(song.suffix?.lowercased() ?? "")
+
+        if isLossless {
+            if let depth = song.bitDepth, let rate = song.samplingRate, rate > 0 {
+                parts.append("\(depth)/\(kilohertz(rate))")
+            } else if let rate = song.samplingRate, rate > 0 {
+                parts.append("\(kilohertz(rate)) kHz")
+            }
+        } else if let rate = song.bitRate, rate > 0 {
+            parts.append("\(rate) kbps")
+        }
+
+        if song.channelCount == 1 { parts.append("mono") }
+
+        return parts.isEmpty ? "Streaming" : parts.joined(separator: " · ")
+    }
+
+    /// 44100 reads as 44.1, 48000 as 48 -- no trailing ".0".
+    private func kilohertz(_ hertz: Int) -> String {
+        let value = Double(hertz) / 1000
+        return value == value.rounded()
+            ? String(Int(value))
+            : String(format: "%.1f", value)
     }
 }
 
