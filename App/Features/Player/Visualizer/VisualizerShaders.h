@@ -71,14 +71,31 @@ inline float4 vizOutput(float4 colour) {
 }
 
 // GLSL's mod: floored, where Metal's fmod truncates. They differ for negatives, which
-// the angle maths in several programs produces.
-inline float vizMod(float x, float y) {
+// the angle maths in several programs produces. Metal has no `mod` of its own, so the
+// programs can keep the GLSL name.
+inline float mod(float x, float y) {
     return x - y * floor(x / y);
 }
 
-inline float3 vizMod(float3 x, float3 y) {
+inline float3 mod(float3 x, float3 y) {
     return x - y * floor(x / y);
 }
+
+// GLSL's smoothstep, written out. The programs often pass the edges reversed —
+// `smoothstep(w + aa, w - aa, d)` for "1 inside, 0 outside" — which every GL driver
+// answers by the formula and Metal's documentation leaves undefined. The formula is the
+// same whichever way round the edges are, so this is the GL behaviour by construction.
+inline float glslSmoothstep(float edge0, float edge1, float x) {
+    float t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+inline float3 glslSmoothstep(float edge0, float edge1, float3 x) {
+    float3 t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+#define smoothstep glslSmoothstep
 
 inline float cubicOut(float t) {
     float f = t - 1.0;

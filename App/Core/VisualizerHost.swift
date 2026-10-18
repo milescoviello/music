@@ -77,12 +77,22 @@ enum VisualizerSpectrum {
     /// the standard adds). It lifts the presence region — +12 dB around 6 kHz — which is
     /// why treble moves Plexamp's bars more than a flat spectrum would.
     static func weighting(_ frequency: Int) -> Float {
-        let f = Double(frequency)
-        let f2 = Double(Float(frequency) * Float(frequency))
-        let h1 = Float(-4.737338981378384e-24 * f2 * f2 * f2 + 2.043828333606125e-15 * f2 * f2
-            - 1.363894795463638e-07 * f2 + 1)
-        let h2 = Float(5.559488023498642e-04 * f
-            + (1.306612257412824e-19 * f2 * f2 * f - f2 * 2.118150887518656e-11 * f))
+        let f: Double = Double(frequency)
+        let f2: Double = Double(Float(frequency) * Float(frequency))
+        let f4: Double = f2 * f2
+
+        // Spelled out term by term: as one expression this is too much for the type
+        // checker on the CI's compiler.
+        let h1a: Double = -4.737338981378384e-24 * f4 * f2
+        let h1b: Double = 2.043828333606125e-15 * f4
+        let h1c: Double = 1.363894795463638e-07 * f2
+        let h1 = Float(h1a + h1b - h1c + 1)
+
+        let h2a: Double = 5.559488023498642e-04 * f
+        let h2b: Double = 1.306612257412824e-19 * f4 * f
+        let h2c: Double = f2 * 2.118150887518656e-11 * f
+        let h2 = Float(h2a + (h2b - h2c))
+
         let magnitude = Double((h1 * h1 + h2 * h2).squareRoot())
         guard magnitude > 0 else { return 0 }
         return Float(f * 1.0130572010774149e-03 / magnitude)

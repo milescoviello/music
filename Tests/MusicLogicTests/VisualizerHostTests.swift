@@ -153,7 +153,9 @@ struct VisualizerLoudnessTests {
         #expect(texels.count == VisualizerLoudness.texels)
         #expect(texels[0] == 0)
         // Both ends survive the resampling exactly, and the loudest is the last.
-        #expect(abs(texels[VisualizerLoudness.texels - 1] - 40.909088 / 50) < 1e-6)
+        let loudest: Float = 40.909088 / 50
+        let last: Float = texels[VisualizerLoudness.texels - 1]
+        #expect(abs(last - loudest) < 1e-6)
     }
 
     @Test func interpolationKeepsBothEnds() {

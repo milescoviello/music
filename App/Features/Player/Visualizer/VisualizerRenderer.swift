@@ -23,7 +23,7 @@ struct VisualizerUniforms {
 /// 64×32 half floats), so they are written whole every frame, into one of three sets so
 /// the CPU never writes a texture the GPU may still be reading.
 @MainActor
-final class VisualizerRenderer: NSObject, @preconcurrency MTKViewDelegate {
+final class VisualizerRenderer: NSObject, MTKViewDelegate {
     let device: MTLDevice
     private let queue: MTLCommandQueue
     private let library: MTLLibrary

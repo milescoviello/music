@@ -242,16 +242,18 @@ enum VisualizerPalette {
         func channel(_ value: (RGB) -> Double) -> [Float] {
             VisualizerLoudness.interpolate(colours.map { Float(value($0)) / 255 }, count: count)
         }
+        func byte(_ value: Float) -> Double {
+            Double(Int(Double(value) * 255))
+        }
         let reds = channel(\.r)
         let greens = channel(\.g)
         let blues = channel(\.b)
-        return (0..<count).map { index in
-            RGB(
-                Double(Int(Double(reds[index]) * 255)),
-                Double(Int(Double(greens[index]) * 255)),
-                Double(Int(Double(blues[index]) * 255))
-            )
+        var gradient: [RGB] = []
+        gradient.reserveCapacity(count)
+        for index in 0..<count {
+            gradient.append(RGB(byte(reds[index]), byte(greens[index]), byte(blues[index])))
         }
+        return gradient
     }
 }
 
