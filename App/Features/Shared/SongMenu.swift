@@ -284,8 +284,16 @@ private struct AlbumFavoriteModifier: ViewModifier {
                     withSongs { appState.player.append($0) }
                 }
                 Divider()
-                Button("Download", systemImage: "arrow.down.circle") {
-                    downloadAlbum()
+                // The album screen's button as a menu item: Download, or Remove Download
+                // once any of it is here or on its way.
+                if !downloads.hasDownload(group: album.id) {
+                    Button("Download", systemImage: "arrow.down.circle") {
+                        downloadAlbum()
+                    }
+                } else {
+                    Button("Remove Download", systemImage: "trash", role: .destructive) {
+                        downloads.removeGroup(album.id)
+                    }
                 }
                 Divider()
                 Button(
