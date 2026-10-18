@@ -41,6 +41,7 @@ final class AutoplayService {
         static let enabled = "autoplay.enabled"
         static let albumChoice = "autoplay.albumChoice"
         static let otherChoice = "autoplay.otherChoice"
+        static let albumDirection = "autoplay.albumDirection"
     }
 
     private(set) var options: [Option] = []
@@ -56,13 +57,25 @@ final class AutoplayService {
         }
     }
 
+    /// Plexamp's Album Direction: after an album, offer the next one or the previous one.
+    var albumDirection: AutoplayChoice {
+        didSet {
+            UserDefaults.standard.set(albumDirection.rawValue, forKey: Key.albumDirection)
+            queueKey = nil
+            queueChanged()
+        }
+    }
+
     @ObservationIgnored private weak var appState: AppState?
     @ObservationIgnored private var queueKey: String?
     @ObservationIgnored private var computeTask: Task<Void, Never>?
     @ObservationIgnored private var addTask: Task<Bool, Never>?
 
     init() {
-        isEnabled = UserDefaults.standard.object(forKey: Key.enabled) as? Bool ?? true
+        let defaults = UserDefaults.standard
+        isEnabled = defaults.object(forKey: Key.enabled) as? Bool ?? true
+        albumDirection = (defaults.object(forKey: Key.albumDirection) as? Int)
+            .flatMap(AutoplayChoice.init(rawValue:)) ?? .nextAlbum
     }
 
     func configure(appState: AppState) {
@@ -92,7 +105,8 @@ final class AutoplayService {
 
     private func preferred(endedWithAlbum: Bool) -> AutoplayChoice {
         let stored = UserDefaults.standard.object(forKey: endedWithAlbum ? Key.albumChoice : Key.otherChoice) as? Int
-        return stored.flatMap(AutoplayChoice.init(rawValue:)) ?? AutoplayRules.defaultChoice(endedWithAlbum: endedWithAlbum)
+        return stored.flatMap(AutoplayChoice.init(rawValue:))
+            ?? AutoplayRules.defaultChoice(endedWithAlbum: endedWithAlbum, albumDirection: albumDirection)
     }
 
     // MARK: - Working out the options
@@ -141,7 +155,7 @@ final class AutoplayService {
         }
 
         var built: [Option] = []
-        for choice in AutoplayRules.choices(endedWithAlbum: albumEnding) {
+        for choice in AutoplayRules.choices(endedWithAlbum: albumEnding, albumDirection: albumDirection) {
             guard !Task.isCancelled else { return }
             if let option = await option(for: choice, last: last, artist: artist, similar: similar) {
                 built.append(option)

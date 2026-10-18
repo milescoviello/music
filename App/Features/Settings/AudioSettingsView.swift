@@ -58,6 +58,13 @@ struct AudioSettingsView: View {
 
             Section {
                 Toggle("Autoplay", isOn: $autoplay.isEnabled)
+                Picker("Album Direction", selection: $autoplay.albumDirection) {
+                    Text("Next Album").tag(AutoplayChoice.nextAlbum)
+                    Text("Previous Album").tag(AutoplayChoice.previousAlbum)
+                }
+                .disabled(!autoplay.isEnabled)
+            } header: {
+                Text("Autoplay")
             } footer: {
                 Text("""
                 When the queue is about to run out, keep going with whatever is chosen at \

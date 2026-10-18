@@ -77,17 +77,20 @@ enum AutoplayRules {
     }
 
     /// The carousel, in Plexamp's order. After an album there are album-shaped things to
-    /// go to next; otherwise only the mixes.
-    static func choices(endedWithAlbum: Bool) -> [AutoplayChoice] {
-        endedWithAlbum
-            ? [.silence, .nextAlbum, .previousAlbum, .similarAlbum, .artistMix, .artistRadio,
+    /// go to next — the next album or the previous one, whichever the Album Direction
+    /// setting says; otherwise only the mixes.
+    static func choices(endedWithAlbum: Bool, albumDirection: AutoplayChoice = .nextAlbum) -> [AutoplayChoice] {
+        let neighbour: AutoplayChoice = albumDirection == .previousAlbum ? .previousAlbum : .nextAlbum
+        return endedWithAlbum
+            ? [.silence, neighbour, .similarAlbum, .artistMix, .artistRadio,
                .trackRadio, .similarArtists, .decade, .libraryRadio]
             : [.silence, .similarArtists, .trackRadio, .decade, .libraryRadio]
     }
 
-    /// Plexamp's defaults: the next album after an album, similar artists otherwise.
-    static func defaultChoice(endedWithAlbum: Bool) -> AutoplayChoice {
-        endedWithAlbum ? .nextAlbum : .similarArtists
+    /// Plexamp's defaults: the album in the chosen direction after an album, similar
+    /// artists otherwise.
+    static func defaultChoice(endedWithAlbum: Bool, albumDirection: AutoplayChoice = .nextAlbum) -> AutoplayChoice {
+        endedWithAlbum ? (albumDirection == .previousAlbum ? .previousAlbum : .nextAlbum) : .similarArtists
     }
 
     /// The remembered choice if it is on offer, else the first that is not silence —

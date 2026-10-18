@@ -37,6 +37,15 @@ struct AutoplayTests {
         #expect(AutoplayRules.choices(endedWithAlbum: false).first == .silence)
     }
 
+    @Test func albumDirectionPicksWhichNeighbourIsOffered() {
+        let older = AutoplayRules.choices(endedWithAlbum: true, albumDirection: .previousAlbum)
+        #expect(older.contains(.previousAlbum))
+        #expect(!older.contains(.nextAlbum))
+        #expect(AutoplayRules.defaultChoice(endedWithAlbum: true, albumDirection: .previousAlbum) == .previousAlbum)
+        // A remembered "next album" falls back to what is on offer, not to silence.
+        #expect(AutoplayRules.selection(preferred: .nextAlbum, available: older) == .previousAlbum)
+    }
+
     @Test func anUnavailableChoiceFallsBackToSomethingRatherThanSilence() {
         #expect(AutoplayRules.selection(preferred: .nextAlbum, available: [.silence, .similarAlbum]) == .similarAlbum)
         #expect(AutoplayRules.selection(preferred: .silence, available: [.silence, .decade]) == .silence)
