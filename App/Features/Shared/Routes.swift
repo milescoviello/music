@@ -36,6 +36,9 @@ enum Destination: Hashable {
     case stations
     case mixBuilder(MixBuilderKind)
     case sonicAdventure(Song)
+    case libraryFacet(LibraryFacet)
+    case albumCollection(title: String, albums: [Album])
+    case charts
 }
 
 extension View {
@@ -107,6 +110,12 @@ extension View {
                 MixBuilderView(kind: kind)
             case let .sonicAdventure(song):
                 SonicAdventureView(start: song)
+            case let .libraryFacet(facet):
+                LibraryFacetView(facet: facet)
+            case let .albumCollection(title, albums):
+                AlbumCollectionView(title: title, albums: albums)
+            case .charts:
+                ChartsView()
             }
         }
     }

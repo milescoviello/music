@@ -27,6 +27,9 @@ struct ArtistDetailView: View {
     /// Grows five at a time. A 322-track wall would bury the Albums section under it, and
     /// "all of it or nothing" is a worse choice than "a bit more".
     @State private var visiblePopularCount = ArtistDetailView.popularStep
+    @State private var info: ArtistInfo?
+    @State private var appearsOn: [Album] = []
+    @State private var isBiographyExpanded = false
 
     var body: some View {
         ScrollView {
@@ -82,48 +85,58 @@ struct ArtistDetailView: View {
                     }
                 }
 
-                if let albums = detail?.albums, !albums.isEmpty {
+                // Plexamp's split: Albums, Singles & EPs, Live, Compilations… each its
+                // own row, newest first, read from the release types the server reports.
+                ForEach(releaseGroups, id: \.kind) { group in
+                    albumCarousel(group.kind.title, group.albums)
+                }
+
+                if !appearsOn.isEmpty {
+                    albumCarousel("Appears On", appearsOn)
+                }
+
+                if !similarArtists.isEmpty {
                     VStack(alignment: .leading, spacing: Metrics.headerToContent) {
-                        Text("Albums")
+                        Text("Similar Artists")
                             .font(.title3.weight(.semibold))
                             .padding(.horizontal, Metrics.gutter)
 
-                        // Rows, not a grid: denser and more scannable for the
-                        // 1-30 albums an artist actually has.
-                        ForEach(albums) { album in
-                            NavigationLink(value: Destination.album(AlbumRef(album))) {
-                                HStack(spacing: Metrics.itemSpacing) {
-                                    ArtworkImage(
-                                        id: album.coverArt,
-                                        size: .thumb,
-                                        cornerRadius: Metrics.radiusThumb
-                                    )
-                                    .frame(width: Metrics.thumbRow, height: Metrics.thumbRow)
-
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(album.name)
-                                            .lineLimit(1)
-                                            .foregroundStyle(.primary)
-                                        if let year = album.year {
-                                            Text(String(year))
-                                                .font(.footnote)
-                                                .foregroundStyle(.secondary)
+                        ScrollView(.horizontal) {
+                            LazyHStack(alignment: .top, spacing: Metrics.itemSpacing) {
+                                ForEach(similarArtists) { similar in
+                                    NavigationLink(value: Destination.artist(ArtistRef(id: similar.id, name: similar.name, coverArt: similar.coverArt))) {
+                                        VStack(spacing: 6) {
+                                            ArtistArtwork(id: similar.coverArt, diameter: 96, initials: similar.name.monogram)
+                                            Text(similar.name)
+                                                .font(.caption)
+                                                .lineLimit(2)
+                                                .multilineTextAlignment(.center)
                                         }
+                                        .frame(width: 100)
                                     }
-
-                                    Spacer(minLength: 8)
-
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                        .foregroundStyle(.tertiary)
+                                    .buttonStyle(.plain)
                                 }
-                                .padding(.horizontal, Metrics.gutter)
-                                .frame(minHeight: 60)
-                                .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
                         }
+                        .contentMargins(.horizontal, Metrics.gutter, for: .scrollContent)
+                        .scrollIndicators(.hidden)
                     }
+                }
+
+                if let biography = info?.plainBiography {
+                    VStack(alignment: .leading, spacing: Metrics.headerToContent) {
+                        Text("About")
+                            .font(.title3.weight(.semibold))
+                        Text(biography)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(isBiographyExpanded ? nil : 5)
+                        Button(isBiographyExpanded ? "Less" : "More") {
+                            withAnimation { isBiographyExpanded.toggle() }
+                        }
+                        .font(.subheadline.weight(.medium))
+                    }
+                    .padding(.horizontal, Metrics.gutter)
                 }
             }
             .padding(.bottom, 24)
@@ -193,6 +206,48 @@ struct ArtistDetailView: View {
 
     static let popularStep = 5
 
+    private var releaseGroups: [(kind: ReleaseKind, albums: [Album])] {
+        LibraryFacets.byReleaseKind(detail?.album ?? [])
+    }
+
+    /// Only those in this library: Navidrome lists similar artists it has, with ids.
+    private var similarArtists: [Artist] {
+        (info?.similarArtists ?? []).filter { !$0.id.isEmpty }
+    }
+
+    private func albumCarousel(_ title: String, _ albums: [Album]) -> some View {
+        VStack(alignment: .leading, spacing: Metrics.headerToContent) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                if albums.count > 2 {
+                    NavigationLink(value: Destination.albumCollection(title: "\(artist.name) · \(title)", albums: albums)) {
+                        Text("See All").font(.subheadline)
+                    }
+                }
+            }
+            .padding(.horizontal, Metrics.gutter)
+
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: Metrics.itemSpacing) {
+                    ForEach(albums) { album in
+                        NavigationLink(value: Destination.album(AlbumRef(album))) {
+                            AlbumCard(album: album)
+                                .frame(width: Metrics.cardWidth)
+                        }
+                        .buttonStyle(.plain)
+                        .albumMenu(album)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .contentMargins(.horizontal, Metrics.gutter, for: .scrollContent)
+            .scrollIndicators(.hidden)
+        }
+    }
+
     private var visiblePopular: [Song] {
         Array(popular.prefix(visiblePopularCount))
     }
@@ -243,6 +298,15 @@ struct ArtistDetailView: View {
         }
 
         popular = Self.ordered(chart: await chart ?? [], catalogue: await catalogue ?? [])
+
+        // Biography, similar artists, and the albums this artist only guests on — the
+        // last found by searching for the name and keeping the tracks that credit them on
+        // someone else's album.
+        async let about = try? client.artistInfo(id: id, similarCount: 15)
+        async let found = try? client.search(query: name, artistCount: 0, albumCount: 0, songCount: 200)
+        info = await about
+        let own = Set((detail?.album ?? []).map(\.id))
+        appearsOn = LibraryFacets.appearsOn(await found?.songs ?? [], artistID: id, excluding: own)
     }
 
     /// The chart's order, then everything it missed by play count.

@@ -49,6 +49,7 @@ final class AppState {
     let autoplay = AutoplayService()
     let guestDJ = GuestDJService()
     let stations = StationService()
+    let libraryIndex = LibraryIndex()
     let streamCache = StreamCache()
     let shapes = TrackShapeStore()
     /// Shared PCM ring. One buffer for the whole app, because only one thing can be
@@ -76,6 +77,7 @@ final class AppState {
         autoplay.configure(appState: self)
         guestDJ.configure(appState: self)
         stations.configure(appState: self)
+        libraryIndex.configure(appState: self)
         player.attach(appState: self)
 
         sleepTimer.onFire = { [weak self] in

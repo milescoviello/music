@@ -24,6 +24,18 @@ final class ListeningHistory {
         /// Seconds, so totals do not need the library to answer.
         let duration: Int
         let at: Date
+        // Recorded since the charts arrived, so a charted album or artist can be opened.
+        // Optional, so the history written before them still decodes.
+        var albumID: String?
+        var artistID: String?
+        var coverArt: String?
+
+        var chartPlay: ChartPlay {
+            ChartPlay(
+                songID: songID, title: title, artist: artist, album: album,
+                albumID: albumID, artistID: artistID, coverArt: coverArt, at: at
+            )
+        }
     }
 
     private(set) var plays: [Play] = []
@@ -49,7 +61,10 @@ final class ListeningHistory {
             album: song.album ?? "Unknown Album",
             genre: song.genre,
             duration: song.duration ?? 0,
-            at: date
+            at: date,
+            albumID: song.albumId,
+            artistID: song.primaryArtistID,
+            coverArt: song.coverArt
         ))
         if plays.count > limit {
             plays.removeFirst(plays.count - limit)

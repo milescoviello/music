@@ -32,6 +32,18 @@ struct LibraryHubView: View {
                     row("Recently Played", "clock.arrow.circlepath", .albums(.recent))
                     row("Most Played", "chart.bar", .albums(.frequent))
                     row("Genres", "guitars", .genres)
+                    row("Stations", "dot.radiowaves.left.and.right", .stations)
+                    row("Charts", "chart.line.uptrend.xyaxis", .charts)
+                }
+
+                // Plexamp's other categories, cut from the whole album list.
+                Section {
+                    ForEach(LibraryFacet.allCases, id: \.self) { facet in
+                        row(facet.title, facet.symbol, .libraryFacet(facet))
+                    }
+                }
+
+                Section {
                     row("Favourites", "heart", .favorites)
                     // The one row whose contents live on this phone, so it is the
                     // one row where a count says something the screen does not.

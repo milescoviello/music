@@ -241,6 +241,21 @@ private struct AlbumFavoriteModifier: ViewModifier {
                 Button("Shuffle", systemImage: "shuffle") {
                     playAlbum(shuffled: true)
                 }
+                Divider()
+                // Plexamp's three insert points, for an album that has to be fetched
+                // before it can be queued.
+                Button("Play Next", systemImage: "text.insert") {
+                    withSongs { appState.player.playNext($0) }
+                }
+                if appState.player.canAddToUpNext {
+                    Button("Add to Up Next", systemImage: "list.bullet.indent") {
+                        withSongs { appState.player.addToUpNext($0) }
+                    }
+                }
+                Button("Add to Queue", systemImage: "text.append") {
+                    withSongs { appState.player.append($0) }
+                }
+                Divider()
                 Button("Download", systemImage: "arrow.down.circle") {
                     downloadAlbum()
                 }
@@ -252,6 +267,15 @@ private struct AlbumFavoriteModifier: ViewModifier {
                     userState.toggleStar(album)
                 }
             }
+    }
+
+    private func withSongs(_ action: @escaping @MainActor ([Song]) -> Void) {
+        Task {
+            guard let detail = try? await appState.client.albumDetail(id: album.id),
+                  !detail.songs.isEmpty
+            else { return }
+            action(detail.songs)
+        }
     }
 
     /// The album has to be fetched first: a row only carries the album, not its
