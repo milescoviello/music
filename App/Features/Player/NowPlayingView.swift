@@ -16,7 +16,7 @@ struct NowPlayingView: View {
     var onDismiss: () -> Void = {}
 
     @State private var mode: PlayerMode = .artwork
-    @State private var dragOffset: CGFloat = 0
+    @State private var drag = DismissDrag()
     @State private var similarTo: Song?
     @Namespace private var modeNamespace
 
@@ -33,19 +33,20 @@ struct NowPlayingView: View {
         // Its own stack: without one, the artist name and the menu's "Go to Album" are
         // links with nowhere to push, which is to say dead. Browsing from inside the
         // player is also what Plexamp does.
-        NavigationStack {
-            playerBody
-                .toolbar(.hidden, for: .navigationBar)
-                .musicDestinations()
-        }
         // The offset belongs out here, on the outermost layer.
         //
         // Applied inside the stack it moved only the *content*: the navigation stack's
         // own surface stayed exactly where it was and went on painting an opaque
         // background, so pulling the player down revealed a black wall rather than the
         // library. Whatever layer is opaque has to be the layer that moves.
-        .offset(y: dragOffset)
-        .onAppear { dragOffset = 0 }
+        DismissOffset(drag: drag) {
+            NavigationStack {
+                playerBody
+                    .toolbar(.hidden, for: .navigationBar)
+                    .musicDestinations()
+            }
+        }
+        .onAppear { drag.offset = 0 }
         .sheet(item: $similarTo) { song in
             SimilarTracksView(song: song)
         }
@@ -109,7 +110,7 @@ struct NowPlayingView: View {
     private var dismissDrag: some Gesture {
         // `.global` is the whole fix, and the reason this kept feeling broken no matter
         // what else was tuned: the gesture is attached to the same view that
-        // `.offset(y: dragOffset)` moves, and a `DragGesture` measures translation in its
+        // `DismissOffset` moves, and a `DragGesture` measures translation in its
         // own **local** space. So the finger moved the view, the view moved the space the
         // finger was being measured in, and the next reading was taken against a moved
         // ruler -- a feedback loop that reads as jitter. A global space does not move with
@@ -122,7 +123,7 @@ struct NowPlayingView: View {
                     return
                 }
                 // Downward only: allowing up would let the screen be pulled off the top.
-                dragOffset = max(0, value.translation.height)
+                drag.offset = max(0, value.translation.height)
             }
             .onEnded { value in
                 // Distance *or* speed, so a quick flick works without travelling far.
@@ -133,7 +134,7 @@ struct NowPlayingView: View {
                     onDismiss()
                 } else {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        dragOffset = 0
+                        drag.offset = 0
                     }
                 }
             }
@@ -292,7 +293,7 @@ struct NowPlayingView: View {
                 }
 
             case .visualizer:
-                VisualizerView(isPaused: dragOffset != 0)
+                VisualizerView(isPaused: drag.isMoved)
             }
         }
         .animation(.easeInOut(duration: 0.25), value: mode)
@@ -619,6 +620,36 @@ struct NowPlayingView: View {
         }
         .accessibilityLabel(String(describing: target).capitalized)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
+
+/// How far the player has been pulled down. An object rather than `@State` on the player,
+/// so that only `DismissOffset` reads `offset`: as state on the player it was read by the
+/// player's body, which then ran on every frame of the drag — the whole screen rebuilt
+/// sixty or a hundred and twenty times a second to move it.
+@MainActor
+@Observable
+private final class DismissDrag {
+    var offset: CGFloat = 0 {
+        didSet {
+            // Written only when it flips, so the player's body, which reads this, runs at
+            // the start and end of a drag and not in between.
+            if (offset != 0) != isMoved { isMoved = offset != 0 }
+        }
+    }
+
+    /// Whether the player is off its resting place at all.
+    private(set) var isMoved = false
+}
+
+/// Moves the player with the drag. The content is built by the player and only offset
+/// here, so a change of offset re-runs this body and nothing inside it.
+private struct DismissOffset<Content: View>: View {
+    let drag: DismissDrag
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content.offset(y: drag.offset)
     }
 }
 
