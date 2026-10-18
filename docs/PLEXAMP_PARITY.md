@@ -44,7 +44,7 @@ ahead is already half that).
 | Sleep timer | 5/10/15/30 min, 1 hour, end of track, end of album (only when Up Next is one album) |
 | Show Similar Tracks | Navidrome's similar songs, titled Related Tracks |
 | Show Full Player, Keep Screen On | Experience settings |
-| Seekbar style (Smooth / Bars / Line) | Smooth and Bars draw the track's loudness outline, measured from the file once it is local (`TrackShape.envelope`) |
+| Seekbar style (Smooth / Bars / Line) | Smooth and Bars draw the track's momentary loudness through Plexamp's own transform (`SeekbarShape`), from our sonic service's `/levels` for any track it has analysed, else measured from the file once it is local (`TrackShape.levels`); tap or drag to seek (`SeekbarLevels.swift`) |
 | Player background (Flat / Smooth / Ultrablur) | Artwork average colour flat or as a gradient, or the blurred artwork |
 | Playback speed on the lock screen | Rate reported, so the lock-screen scrubber keeps up |
 
@@ -133,7 +133,9 @@ caching, prefer downloads), then Downloads, Offline & Library, Requests, Diagnos
 5. **Guest DJ** — pick DJ Gemini from the player menu, watch picks (✦) appear after tracks.
 6. **Stations** — Home → Stations, play Time Travel; it should top itself up forever.
 7. **AirPlay** — the processing tap and two players with AirPlay 2.
-8. **Seekbar** — once a track is cached (Wi-Fi), the Smooth seekbar should show its
-   loudness outline within a second or two; scrubbing along it should seek on release.
+8. **Seekbar** — with the sonic service up, the Smooth seekbar should grow its shape as
+   each track starts, streamed or not, and at once on a replay; with it down, once the
+   track is cached. Tap or drag along it to seek on release; a swipe down that starts on
+   it should not seek.
 9. **Tracks and Folders** — both depend on how this Navidrome version answers an empty
    `search3` and `getIndexes`; each screen says so if it gets nothing.
