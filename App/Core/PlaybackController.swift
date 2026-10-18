@@ -44,7 +44,7 @@ final class PlaybackController {
 
     private let session = AudioSessionCoordinator()
     private let nowPlaying = NowPlayingCenter()
-    private let store = PlaybackQueueStore(url: Paths.queue)
+    private let store = PlaybackQueueStore(directory: Paths.root, legacyURL: Paths.queue)
     private let tracker = PlayTracker()
     private weak var appState: AppState?
 
