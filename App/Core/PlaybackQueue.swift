@@ -39,6 +39,8 @@ struct PlaybackQueue: Codable, Sendable {
     /// where the next Add to Up Next goes. Optional so a queue saved before it existed
     /// still decodes.
     var lastAddedTrackIndex: Int?
+    /// Set when the queue is a station, which tops itself up as it plays.
+    var station: Station?
 
     var isEmpty: Bool { tracks.isEmpty }
 
@@ -86,7 +88,8 @@ struct PlaybackQueue: Codable, Sendable {
         startingAt index: Int,
         shuffled: Bool,
         source: String,
-        repeatMode: RepeatMode = .off
+        repeatMode: RepeatMode = .off,
+        station: Station? = nil
     ) -> PlaybackQueue {
         var queue = PlaybackQueue(
             tracks: tracks,
@@ -94,7 +97,8 @@ struct PlaybackQueue: Codable, Sendable {
             position: 0,
             repeatMode: repeatMode,
             isShuffled: false,
-            sourceDescription: source
+            sourceDescription: source,
+            station: station
         )
         queue.position = queue.order.firstIndex(of: index) ?? 0
 

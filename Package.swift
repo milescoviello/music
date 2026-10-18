@@ -30,6 +30,7 @@ let package = Package(
                 "TrackShape.swift",
                 "Autoplay.swift",
                 "GuestDJ.swift",
+                "Stations.swift",
             ]
         ),
         .testTarget(

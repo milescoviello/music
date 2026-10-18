@@ -128,3 +128,60 @@ struct GuestDJTests {
         #expect(bridge.last == "i1")
     }
 }
+
+struct StationTests {
+    private func song(_ id: String, year: Int? = nil, plays: Int? = nil) -> Song {
+        var song = Song(id: id, title: id)
+        song.year = year
+        song.playCount = plays
+        return song
+    }
+
+    @Test func aStationIsToppedUpWithFiveLeftAndAnAdventureNever() {
+        let songs = (1...8).map { song("s\($0)") }
+        var queue = PlaybackQueue.make(tracks: songs, startingAt: 0, shuffled: false, source: "R", station: .library)
+        #expect(!StationRules.needsRefill(queue))
+        queue.jump(toOrderIndex: 2)
+        #expect(StationRules.needsRefill(queue))
+
+        queue.station = .adventure(fromID: "a", toID: "b")
+        #expect(!StationRules.needsRefill(queue))
+        queue.station = nil
+        #expect(!StationRules.needsRefill(queue))
+    }
+
+    @Test func aStationSurvivesBeingSaved() throws {
+        let queue = PlaybackQueue.make(tracks: [song("a")], startingAt: 0, shuffled: false, source: "R", station: .decade(1990))
+        let decoded = try JSONDecoder().decode(PlaybackQueue.self, from: JSONEncoder().encode(queue))
+        #expect(decoded.station == .decade(1990))
+    }
+
+    @Test func deepCutsAreTheLeastPlayed() {
+        let picked = StationRules.deepCuts([song("hit", plays: 40), song("never"), song("once", plays: 1), song("zero", plays: 0)], limit: 3)
+        #expect(picked.map(\.id) == ["never", "zero", "once"])
+    }
+
+    @Test func timeTravelMovesForwardAndWrapsAround() {
+        #expect(StationRules.nextTimeTravelSpan(after: nil, earliest: 1960, latest: 2024) == 1960...1964)
+        #expect(StationRules.nextTimeTravelSpan(after: 1964, earliest: 1960, latest: 2024) == 1965...1969)
+        #expect(StationRules.nextTimeTravelSpan(after: 2022, earliest: 1960, latest: 2024) == 2023...2024)
+        #expect(StationRules.nextTimeTravelSpan(after: 2024, earliest: 1960, latest: 2024) == 1960...1964)
+        let ordered = StationRules.chronological([song("b", year: 1999), song("x"), song("a", year: 1971)])
+        #expect(ordered.map(\.id) == ["a", "b"])
+    }
+
+    @Test func freshDropsWhatIsQueuedAndRepeats() {
+        let fresh = StationRules.fresh([song("a"), song("b"), song("b"), song("c")], excluding: [song("a")])
+        #expect(fresh.map(\.id) == ["b", "c"])
+    }
+
+    @Test func mixesTakeOneFromEachInTurn() {
+        let mixed = StationRules.interleave([[song("a1"), song("a2")], [song("b1")], [song("c1"), song("c2")]])
+        #expect(mixed.map(\.id) == ["a1", "b1", "c1", "a2", "c2"])
+    }
+
+    @Test func mixTitlesNameTheirArtists() {
+        #expect(Station.artistMix(ids: ["1"], names: ["Radiohead"]).title == "Radiohead Mix")
+        #expect(Station.artistMix(ids: ["1", "2", "3"], names: ["A", "B", "C"]).title == "A, B & 1 More")
+    }
+}
