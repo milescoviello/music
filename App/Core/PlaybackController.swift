@@ -751,7 +751,7 @@ final class PlaybackController {
 
         // Autoplay goes on half a minute before the end, so its first track is there in
         // time to fade or run gaplessly into, however long Sweet Fades makes the overlap.
-        if !autoplayRequested, isPlaying, queue.upNext.isEmpty, duration > 0,
+        if !autoplayRequested, isPlaying, !queue.hasUpNext, duration > 0,
            duration - elapsed < 30, let autoplay = appState?.autoplay, autoplay.isActive {
             autoplayRequested = true
             Task { await autoplay.extend() }

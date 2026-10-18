@@ -73,7 +73,7 @@ struct QueueView: View {
                 Button("Clear Play Queue", systemImage: "trash", role: .destructive) {
                     isConfirmingClear = true
                 }
-                .disabled(player.queue.upNext.isEmpty && player.queue.earlier.isEmpty)
+                .disabled(!player.queue.hasUpNext && player.queue.position == 0)
             } label: {
                 Image(systemName: "ellipsis.circle")
                     .foregroundStyle(.white.opacity(0.8))
@@ -86,7 +86,7 @@ struct QueueView: View {
 
     private var upNextList: some View {
         List {
-            if !player.queue.sourceDescription.isEmpty, !player.queue.upNext.isEmpty {
+            if !player.queue.sourceDescription.isEmpty, player.queue.hasUpNext {
                 Text("Playing from \(player.queue.sourceDescription)")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.6))
@@ -130,7 +130,7 @@ struct QueueView: View {
         // expected without first tapping an Edit button.
         .environment(\.editMode, .constant(.active))
         .overlay {
-            if player.queue.upNext.isEmpty, !(autoplay.isActive && !autoplay.options.isEmpty) {
+            if !player.queue.hasUpNext, !(autoplay.isActive && !autoplay.options.isEmpty) {
                 placeholder("Nothing queued")
             }
         }
@@ -194,7 +194,9 @@ struct QueueView: View {
         let start = queue.position + 1
         guard start < queue.order.count else { return [] }
 
-        return (start..<queue.order.count).map { index in
+        // The next few hundred: a 28,000-track queue as a list is a lag spike every time
+        // it is drawn, and nobody scrolls that far.
+        return (start..<min(queue.order.count, start + 300)).map { index in
             (orderIndex: index, song: queue.tracks[queue.order[index]])
         }
     }

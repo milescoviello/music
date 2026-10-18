@@ -263,12 +263,28 @@ actor DownloadCatalogStore {
     /// - A pending entry whose file *is* on disk is promoted. That is the crash
     ///   window between the delegate's move and the catalog write; without this the
     ///   download would appear to have failed while occupying storage.
+    /// A small file starting with a JSON or XML envelope: an error, not audio.
+    static func isErrorBody(_ url: URL) -> Bool {
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
+        guard size < 8_192, let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        guard let head = try? handle.read(upToCount: 64) else { return false }
+        let text = String(decoding: head, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.hasPrefix("{") || text.hasPrefix("<")
+    }
+
     func reconcile() -> DownloadCatalog {
         _ = load()
         var changed = false
 
         for (id, entry) in catalog.entries {
             if !FileManager.default.fileExists(atPath: entry.url.path) {
+                catalog.entries.removeValue(forKey: id)
+                changed = true
+            } else if Self.isErrorBody(entry.url) {
+                // A server error saved as a track (see `DownloadSessionDelegate`): it
+                // would "play" as silence, so it goes, and the song can be fetched again.
+                try? FileManager.default.removeItem(at: entry.url)
                 catalog.entries.removeValue(forKey: id)
                 changed = true
             }

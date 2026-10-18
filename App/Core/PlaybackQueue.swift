@@ -57,6 +57,11 @@ struct PlaybackQueue: Codable, Sendable {
         return order[start..<min(start + count, order.count)].map { tracks[$0] }
     }
 
+    /// How many tracks follow the current one — without building them, which for a
+    /// 28,000-track queue is what made checking it four times a second expensive.
+    var upNextCount: Int { max(order.count - position - 1, 0) }
+    var hasUpNext: Bool { upNextCount > 0 }
+
     /// Everything after the current track, for the queue view.
     var upNext: [Song] {
         upcoming(max(order.count - position - 1, 0))

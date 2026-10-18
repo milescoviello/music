@@ -1,11 +1,12 @@
 import Foundation
 import Observation
 
-/// Keeps playlists on the phone automatically.
+/// Keeps chosen playlists on the phone automatically.
 ///
-/// On by default, for every playlist, because the whole reason this app exists is that
-/// offline music was paywalled elsewhere — so the sensible default is "it's already
-/// there" rather than "remember to press download".
+/// **Opt-in, per playlist.** It used to be on for every playlist, which was fine until
+/// the library gained Plex's smart playlists: "All Music" alone is every track, and the
+/// phone set about downloading the whole library. Now nothing is kept offline until it
+/// is chosen in Offline & Library, and smart playlists are never chosen for you.
 ///
 /// Two guard rails, because "download everything" is a big promise on a phone:
 ///
@@ -22,7 +23,10 @@ final class PlaylistSync {
         static let enabled = "playlistSync.enabled"
         static let wifiOnly = "playlistSync.wifiOnly"
         static let excluded = "playlistSync.excludedIDs"
+        static let included = "playlistSync.includedIDs"
         static let favourites = "playlistSync.favourites"
+        /// Set once the opt-in switch-over has run on this phone.
+        static let optIn = "playlistSync.optInMigrated"
     }
 
     /// Default **on**: everything is kept offline unless told otherwise.
@@ -40,10 +44,10 @@ final class PlaylistSync {
         didSet { UserDefaults.standard.set(includesFavourites, forKey: Key.favourites) }
     }
 
-    /// Playlists deliberately left out. Stored as ids so renaming one keeps the choice.
-    private(set) var excludedIDs: Set<String> {
+    /// Playlists chosen to keep offline. Stored as ids so renaming one keeps the choice.
+    private(set) var includedIDs: Set<String> {
         didSet {
-            UserDefaults.standard.set(Array(excludedIDs), forKey: Key.excluded)
+            UserDefaults.standard.set(Array(includedIDs), forKey: Key.included)
         }
     }
 
@@ -59,10 +63,47 @@ final class PlaylistSync {
         let defaults = UserDefaults.standard
         // `object(forKey:)` rather than `bool(forKey:)`, because a missing key has to
         // mean "on" here and `bool` would report false.
-        isEnabled = defaults.object(forKey: Key.enabled) as? Bool ?? true
+        var migrated = false
+        if !defaults.bool(forKey: Key.optIn) {
+            // The switch from "every playlist" to "only the ones you choose": off, nothing
+            // chosen. Whatever the old default queued is cancelled by `stopUnchosen`.
+            defaults.set(false, forKey: Key.enabled)
+            defaults.set(false, forKey: Key.favourites)
+            defaults.removeObject(forKey: Key.excluded)
+            defaults.set(true, forKey: Key.optIn)
+            migrated = true
+        }
+        isEnabled = defaults.object(forKey: Key.enabled) as? Bool ?? false
         isWiFiOnly = defaults.object(forKey: Key.wifiOnly) as? Bool ?? true
-        includesFavourites = defaults.object(forKey: Key.favourites) as? Bool ?? true
-        excludedIDs = Set(defaults.stringArray(forKey: Key.excluded) ?? [])
+        includesFavourites = defaults.object(forKey: Key.favourites) as? Bool ?? false
+        includedIDs = Set(defaults.stringArray(forKey: Key.included) ?? [])
+        needsStop = migrated
+    }
+
+    /// Cancels every download still waiting that was queued for a playlist (or the
+    /// favourites) that is not chosen — what the old everything-by-default queued.
+    /// Finished downloads are left alone; removing those stays a choice in Downloads.
+    func stopUnchosen() {
+        guard let downloads else { return }
+        let waiting = downloads.catalog.pending.values.filter { entry in
+            // An album's download is grouped by its album id: never touched here.
+            guard let group = entry.groupID, group != entry.song.albumId else { return false }
+            if group == "favourites" { return !(isEnabled && includesFavourites) }
+            return !(isEnabled && includedIDs.contains(group))
+        }
+        guard !waiting.isEmpty else { return }
+        downloads.remove(waiting.map(\.song.id))
+        lastSummary = "Cancelled \(waiting.count) downloads"
+    }
+
+    /// Set by the switch-over, and acted on once the download catalog has loaded.
+    @ObservationIgnored private var needsStop = false
+
+    /// Called by `DownloadCenter` once its catalog is loaded.
+    func catalogLoaded() {
+        guard needsStop else { return }
+        needsStop = false
+        stopUnchosen()
     }
 
     func configure(
@@ -76,14 +117,15 @@ final class PlaylistSync {
     }
 
     func isIncluded(_ playlist: Playlist) -> Bool {
-        isEnabled && !excludedIDs.contains(playlist.id)
+        isEnabled && includedIDs.contains(playlist.id)
     }
 
     func setIncluded(_ included: Bool, for playlist: Playlist) {
         if included {
-            excludedIDs.remove(playlist.id)
+            includedIDs.insert(playlist.id)
         } else {
-            excludedIDs.insert(playlist.id)
+            includedIDs.remove(playlist.id)
+            stopUnchosen()
         }
     }
 
@@ -108,7 +150,7 @@ final class PlaylistSync {
         guard let playlists = try? await client.playlists() else { return }
 
         var queued = 0
-        for playlist in playlists where !excludedIDs.contains(playlist.id) {
+        for playlist in playlists where includedIDs.contains(playlist.id) {
             guard let detail = try? await client.playlistDetail(id: playlist.id) else { continue }
 
             let missing = detail.songs.filter { downloads.status(for: $0.id) == .none }
@@ -146,7 +188,7 @@ final class PlaylistSync {
     /// used to assume — that figure is only correct for 16-bit 44.1 kHz FLAC.
     func estimatedSize(for playlists: [Playlist], bytesPerSecond: Double = 1_000_000) -> Int64 {
         let seconds = playlists
-            .filter { !excludedIDs.contains($0.id) }
+            .filter { includedIDs.contains($0.id) }
             .reduce(0) { $0 + ($1.duration ?? 0) }
         return Int64(Double(seconds) * bytesPerSecond)
     }

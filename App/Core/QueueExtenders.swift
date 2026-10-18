@@ -87,7 +87,7 @@ final class AutoplayService {
         guard isEnabled, let player = appState?.player else { return false }
         return AutoplayRules.isActive(
             repeatMode: player.queue.repeatMode,
-            upNextCount: player.queue.upNext.count,
+            upNextCount: player.queue.upNextCount,
             isSelfExtending: player.isSelfExtending
         )
     }

@@ -14,7 +14,7 @@ services:
       SONIC_NAVIDROME_DB: /navidrome/navidrome.db
       # Navidrome's library roots, as Navidrome sees them, to where they are mounted here.
       SONIC_PATH_MAP: /music/my_music=/mnt/hdd-pool-media/my_music,/music/music=/mnt/hdd-pool-media/music
-      SONIC_WORKERS: "12"
+      SONIC_WORKERS: "4"
       SONIC_RESYNC_HOURS: "6"
     volumes:
       - ./data:/data
@@ -22,4 +22,5 @@ services:
       - /mnt/hdd-pool-media/my_music:/mnt/hdd-pool-media/my_music:ro,rslave
       - /mnt/hdd-pool-media/music:/mnt/hdd-pool-media/music:ro,rslave
     # Leave the host room for everything else it runs.
-    cpus: 14
+    cpus: 6
+    mem_limit: 6g

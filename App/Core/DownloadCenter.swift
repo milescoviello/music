@@ -55,6 +55,7 @@ final class DownloadCenter {
         Task {
             catalog = await store.reconcile()
             await adoptRunningTasks()
+            appState.playlistSync.catalogLoaded()
         }
     }
 
@@ -236,6 +237,17 @@ final class DownloadCenter {
 final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     weak var center: DownloadCenter?
 
+    /// A Subsonic error body, however it was labelled: small, and starting with its JSON
+    /// or XML envelope. No audio file is under 8 KB and starts like that.
+    static func isErrorBody(_ url: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
+        defer { try? handle.close() }
+        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
+        guard size < 8_192, let head = try? handle.read(upToCount: 64) else { return false }
+        let text = String(decoding: head, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.hasPrefix("{") || text.hasPrefix("<")
+    }
+
     func urlSession(
         _ session: URLSession,
         downloadTask: URLSessionDownloadTask,
@@ -263,6 +275,13 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
         // would otherwise be filed as a music file that plays as silence.
         if let response = downloadTask.response as? HTTPURLResponse,
            !(200...299).contains(response.statusCode) {
+            MainActor.assumeIsolated { center?.taskFailed(songID: songID) }
+            return
+        }
+        // Navidrome answers a refused download — downloads disabled, a missing file —
+        // with HTTP 200 and a JSON error. That is not music either.
+        let type = downloadTask.response?.mimeType ?? ""
+        if type.contains("json") || type.contains("xml") || DownloadSessionDelegate.isErrorBody(location) {
             MainActor.assumeIsolated { center?.taskFailed(songID: songID) }
             return
         }

@@ -32,8 +32,8 @@ struct OfflineSettingsView: View {
             } footer: {
                 if sync.isEnabled {
                     Text("""
-                    Every playlist is downloaded at full quality and kept up to date as \
-                    you add to it. Estimated \(sync.estimatedSize(for: playlists.playlists, bytesPerSecond: appState.downloads.catalog.measuredBytesPerSecond).asFileSize) \
+                    The playlists switched on below are downloaded at full quality and \
+                    kept up to date as you add to them — none until you choose. Estimated \(sync.estimatedSize(for: playlists.playlists, bytesPerSecond: appState.downloads.catalog.measuredBytesPerSecond).asFileSize) \
                     for the playlists selected below. Nothing is ever deleted \
                     automatically — removing a track from a playlist leaves its download \
                     alone, and reclaiming space stays a choice in Downloads.

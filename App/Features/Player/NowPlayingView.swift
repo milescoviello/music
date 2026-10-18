@@ -926,7 +926,9 @@ struct SleepTimerMenu: View {
     private var albumPlaying: String? {
         let queue = appState.player.queue
         guard let album = queue.current?.albumId,
-              !queue.upNext.isEmpty,
+              queue.hasUpNext,
+              // Only checked for a queue short enough to be one album.
+              queue.upNextCount < 200,
               queue.upNext.allSatisfy({ $0.albumId == album })
         else { return nil }
         return album

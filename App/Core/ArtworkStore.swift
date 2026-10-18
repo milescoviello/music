@@ -42,6 +42,17 @@ final class ArtworkStore {
         configuration.requestCachePolicy = .returnCacheDataElseLoad
         configuration.timeoutIntervalForRequest = 12
         session = URLSession(configuration: configuration)
+
+        // Covers fetched while Navidrome was rebuilding its artwork came back wrong, and
+        // `returnCacheDataElseLoad` keeps whatever it got forever. Cleared once, so every
+        // cover is fetched again from the server as it is now.
+        let version = 2
+        if UserDefaults.standard.integer(forKey: "artwork.cacheVersion") < version {
+            configuration.urlCache?.removeAllCachedResponses()
+            let saved = (try? FileManager.default.contentsOfDirectory(at: Paths.artwork, includingPropertiesForKeys: nil)) ?? []
+            for file in saved { try? FileManager.default.removeItem(at: file) }
+            UserDefaults.standard.set(version, forKey: "artwork.cacheVersion")
+        }
     }
 
     /// Where a size is kept on disk. Keyed by cover id, so the many tracks sharing an
