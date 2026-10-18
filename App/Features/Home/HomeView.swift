@@ -7,6 +7,11 @@ struct HomeView: View {
     @State private var model = HomeModel()
     /// -1 means both libraries. Its own setting, not the browsing scope.
     @AppStorage("mixes.folderID") private var mixFolderID = -1
+    /// Plexamp's home editor: which shelves, in what order.
+    @AppStorage("home.layout") private var layoutData: Data?
+    @State private var isEditingLayout = false
+
+    private var layout: HomeLayout { HomeLayout.restored(from: layoutData) }
 
     var body: some View {
         NavigationStack {
@@ -24,13 +29,9 @@ struct HomeView: View {
                         }
                         .padding(.top, 60)
                     } else {
-                        mixShelf
-                        StationsShelf()
-                        albumShelf("Recently Played", model.recentlyPlayed, sort: .recent)
-                        albumShelf("Recently Added", model.recentlyAdded, sort: .newest)
-                        favoriteSongs
-                        albumShelf("Most Played", model.mostPlayed, sort: .frequent)
-                        forgottenFavourites
+                        ForEach(layout.visible) { hub in
+                            shelf(hub)
+                        }
 
                         // The bottom of the page asks for more mixes too, so scrolling
                         // down keeps the shelf growing without touching it sideways.
@@ -60,10 +61,20 @@ struct HomeView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) { LibraryScopeMenu() }
                 ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink(value: Destination.settings) {
+                    Menu {
+                        Button("Edit Home", systemImage: "rectangle.3.group") {
+                            isEditingLayout = true
+                        }
+                        NavigationLink(value: Destination.settings) {
+                            Label("Settings", systemImage: "gearshape")
+                        }
+                    } label: {
                         Image(systemName: "gearshape")
                     }
                 }
+            }
+            .sheet(isPresented: $isEditingLayout) {
+                HomeEditorView(layoutData: $layoutData)
             }
             .refreshable {
                 await model.load(appState: appState, scope: scope.scope)
@@ -76,6 +87,63 @@ struct HomeView: View {
             // by every pull-to-refresh.
             .task(id: mixFolderID) {
                 appState.mixes.load(appState: appState, scope: mixScope)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func shelf(_ hub: HomeHub) -> some View {
+        switch hub {
+        case .madeForYou: mixShelf
+        case .stations: StationsShelf()
+        case .recentlyPlayed: albumShelf("Recently Played", model.recentlyPlayed, sort: .recent)
+        case .recentlyAdded: albumShelf("Recently Added", model.recentlyAdded, sort: .newest)
+        case .favourites: favoriteSongs
+        case .mostPlayed: albumShelf("Most Played", model.mostPlayed, sort: .frequent)
+        case .forgottenFavourites: forgottenFavourites
+        case .onThisDay: onThisDay
+        case .moreInGenre:
+            if let genre = model.moreInGenre {
+                albumShelf("More in \(genre.name)", genre.albums, seeAll: .genre(genre.name))
+            }
+        case .bestOfLastYear:
+            albumShelf("Best of \(model.lastYear)", model.bestOfLastYear,
+                       seeAll: .albumCollection(title: "Best of \(model.lastYear)", albums: model.bestOfLastYear))
+        case .notPlayedLately:
+            albumShelf("Haven't Played Lately", model.notPlayedLately,
+                       seeAll: .albumCollection(title: "Haven't Played Lately", albums: model.notPlayedLately))
+        }
+    }
+
+    /// Plexamp's On This Day: albums released on today's date in years past, each with
+    /// how long ago.
+    @ViewBuilder
+    private var onThisDay: some View {
+        if !model.onThisDay.isEmpty {
+            VStack(alignment: .leading, spacing: Metrics.headerToContent) {
+                ShelfHeader(title: "On This Day")
+
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: Metrics.itemSpacing) {
+                        ForEach(model.onThisDay, id: \.album.id) { entry in
+                            NavigationLink(value: Destination.album(AlbumRef(entry.album))) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    AlbumCard(album: entry.album)
+                                    Text(entry.years == 1 ? "1 year ago today" : "\(entry.years) years ago today")
+                                        .font(.caption2.weight(.medium))
+                                        .foregroundStyle(Color.appTint)
+                                }
+                                .frame(width: Metrics.cardWidth)
+                            }
+                            .buttonStyle(.plain)
+                            .albumMenu(entry.album)
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.viewAligned)
+                .contentMargins(.horizontal, Metrics.gutter, for: .scrollContent)
+                .scrollIndicators(.hidden)
             }
         }
     }
@@ -196,11 +264,15 @@ struct HomeView: View {
         }
     }
 
-    @ViewBuilder
     private func albumShelf(_ title: String, _ albums: [Album], sort: AlbumSort) -> some View {
+        albumShelf(title, albums, seeAll: .albums(sort))
+    }
+
+    @ViewBuilder
+    private func albumShelf(_ title: String, _ albums: [Album], seeAll: Destination?) -> some View {
         if !albums.isEmpty {
             VStack(alignment: .leading, spacing: Metrics.headerToContent) {
-                ShelfHeader(title: title, seeAll: .albums(sort))
+                ShelfHeader(title: title, seeAll: seeAll)
 
                 ScrollView(.horizontal) {
                     LazyHStack(spacing: Metrics.itemSpacing) {
@@ -290,11 +362,18 @@ final class HomeModel {
     var mostPlayed: [Album] = []
     var favoriteSongs: [Song] = []
     var forgotten = Rediscovery.Forgotten()
+    var onThisDay: [(album: Album, years: Int)] = []
+    var bestOfLastYear: [Album] = []
+    var notPlayedLately: [Album] = []
+    var moreInGenre: (name: String, albums: [Album])?
     var hasLoaded = false
+
+    var lastYear: Int { Calendar.current.component(.year, from: .now) - 1 }
 
     var isEmpty: Bool {
         recentlyPlayed.isEmpty && recentlyAdded.isEmpty
             && mostPlayed.isEmpty && favoriteSongs.isEmpty && forgotten.songs.isEmpty
+            && onThisDay.isEmpty && bestOfLastYear.isEmpty && notPlayedLately.isEmpty
     }
 
     /// Shelves load concurrently and a failing shelf is simply dropped: one dead
@@ -331,5 +410,67 @@ final class HomeModel {
         favoriteSongs = Array((await starred?.songs ?? []).prefix(4))
         forgotten = await neglected
         hasLoaded = true
+
+        // The shelves cut from the whole album list. After the rest, so they never hold
+        // Home up; the list itself is kept on disk and only refetched every few hours.
+        if let genre = recentlyPlayed.lazy.compactMap(\.genre).first(where: { !$0.isEmpty }) {
+            let seen = Set(recentlyPlayed.map(\.id))
+            let albums = (try? await client.albums(type: .random, size: 20, scope: scope, genre: genre)) ?? []
+            let fresh = albums.filter { !seen.contains($0.id) }
+            moreInGenre = fresh.isEmpty ? nil : (genre, fresh)
+        }
+
+        let index = appState.libraryIndex
+        await index.ensureLoaded(scope: scope)
+        onThisDay = LibraryFacets.onThisDay(index.albums, on: .now)
+        bestOfLastYear = LibraryFacets.bestOf(year: lastYear, in: index.albums)
+        let sixMonthsAgo = Calendar.current.date(byAdding: .month, value: -6, to: .now) ?? .now
+        notPlayedLately = LibraryFacets.notPlayedSince(sixMonthsAgo, in: index.albums)
+    }
+}
+
+/// Plexamp's home editor: show or hide each shelf, drag to reorder, reset.
+struct HomeEditorView: View {
+    @Binding var layoutData: Data?
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var layout = HomeLayout.default
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(layout.order) { hub in
+                        Toggle(hub.title, isOn: Binding(
+                            get: { layout.isVisible(hub) },
+                            set: { layout.setVisible($0, hub) }
+                        ))
+                    }
+                    .onMove { layout.move(fromOffsets: $0, toOffset: $1) }
+                } footer: {
+                    Text("Drag to reorder. Shelves with nothing to show stay out of the way on their own.")
+                }
+
+                Section {
+                    Button("Reset to Default") { layout = .default }
+                        .disabled(layout == .default)
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("Edit Home")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        layoutData = layout.encoded
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .onAppear { layout = HomeLayout.restored(from: layoutData) }
     }
 }
