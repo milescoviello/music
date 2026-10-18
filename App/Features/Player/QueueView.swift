@@ -4,6 +4,8 @@ import SwiftUI
 /// played, so a track you half-heard is a tap away rather than gone.
 struct QueueView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AutoplayService.self) private var autoplay
+    @Environment(GuestDJService.self) private var guestDJ
 
     @State private var tab: Tab = .upNext
     @State private var isSavingAsPlaylist = false
@@ -113,6 +115,14 @@ struct QueueView: View {
                     to: start + destination
                 )
             }
+
+            if autoplay.isActive, !autoplay.options.isEmpty {
+                AutoplayCarousel()
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                    .moveDisabled(true)
+                    .deleteDisabled(true)
+            }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -120,7 +130,7 @@ struct QueueView: View {
         // expected without first tapping an Edit button.
         .environment(\.editMode, .constant(.active))
         .overlay {
-            if player.queue.upNext.isEmpty {
+            if player.queue.upNext.isEmpty, !(autoplay.isActive && !autoplay.options.isEmpty) {
                 placeholder("Nothing queued")
             }
         }
@@ -153,7 +163,16 @@ struct QueueView: View {
         Button {
             player.jump(toOrderIndex: entry.orderIndex)
         } label: {
-            SongRow(song: entry.song, style: .withArtwork)
+            HStack(spacing: 6) {
+                SongRow(song: entry.song, style: .withArtwork)
+                if guestDJ.isPick(entry.song) {
+                    // Plexamp marks the DJ's picks, so you can tell its taste from yours.
+                    Image(systemName: "sparkles")
+                        .font(.caption)
+                        .foregroundStyle(Color.appTint)
+                        .accessibilityLabel("Picked by \(guestDJ.dj?.name ?? "the DJ")")
+                }
+            }
         }
         .buttonStyle(.plain)
         .listRowBackground(Color.clear)
@@ -186,5 +205,73 @@ struct QueueView: View {
         return (0..<queue.position).map { index in
             (orderIndex: index, song: queue.tracks[queue.order[index]])
         }
+    }
+}
+
+/// Plexamp's Autoplay carousel: what plays when the queue runs out, each choice shown as
+/// what it actually is — the album, the radio — so picking one is not a guess.
+private struct AutoplayCarousel: View {
+    @Environment(AutoplayService.self) private var autoplay
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "infinity")
+                Text("Autoplay")
+                if autoplay.isAdding {
+                    ProgressView().controlSize(.mini)
+                }
+            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.7))
+            .padding(.horizontal, 24)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(autoplay.options) { option in
+                        card(option)
+                    }
+                }
+                .padding(.horizontal, 24)
+            }
+        }
+        .padding(.vertical, 12)
+    }
+
+    private func card(_ option: AutoplayService.Option) -> some View {
+        let isSelected = autoplay.selected == option.choice
+
+        return Button {
+            autoplay.select(option.choice)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8).fill(.white.opacity(0.08))
+                    if let cover = option.coverArt {
+                        ArtworkImage(id: cover, size: .thumb, cornerRadius: 8)
+                    } else {
+                        Image(systemName: option.choice.symbol)
+                            .font(.title2)
+                            .foregroundStyle(.white.opacity(0.7))
+                    }
+                }
+                .frame(width: 96, height: 96)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(isSelected ? Color.appTint : .clear, lineWidth: 2)
+                }
+
+                Text(option.title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Text(option.subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
+            }
+            .frame(width: 96, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }

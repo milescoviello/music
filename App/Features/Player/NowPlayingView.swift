@@ -9,6 +9,7 @@ struct NowPlayingView: View {
     @Environment(SleepTimer.self) private var sleepTimer
     @Environment(DownloadCenter.self) private var downloads
     @Environment(PlayerSettings.self) private var playerSettings
+    @Environment(GuestDJService.self) private var guestDJ
     /// Called instead of `dismiss()`: this is no longer a modal, it is a layer drawn
     /// above the library, so closing it is the presenter's business.
     var onDismiss: () -> Void = {}
@@ -201,6 +202,7 @@ struct NowPlayingView: View {
                     }
                     Divider()
 
+                    GuestDJMenu()
                     PlaybackSpeedMenu()
                     // Next to the sleep timer deliberately: one puts the music to sleep,
                     // the other stops the screen doing it, and they get reached for in the
@@ -388,6 +390,12 @@ struct NowPlayingView: View {
                 Text("·")
                 Text("\(player.queue.position + 1) of \(player.queue.order.count)")
                     .monospacedDigit()
+            }
+
+            if let dj = guestDJ.dj {
+                Text("·")
+                Label(dj.name, systemImage: "sparkles")
+                    .foregroundStyle(Color.appTint)
             }
 
             if player.speed != 1 {
@@ -732,6 +740,44 @@ struct PlaybackSpeedMenu: View {
             Label(
                 player.speed == 1 ? "Playback Speed" : String(format: "Playback Speed — %.1f×", player.speed),
                 systemImage: "gauge.with.dots.needle.67percent"
+            )
+        }
+    }
+}
+
+/// Plexamp's Guest DJ picker. Choosing one starts it on the track playing; choosing Off
+/// takes its upcoming picks out of the queue with it.
+struct GuestDJMenu: View {
+    @Environment(GuestDJService.self) private var guestDJ
+
+    var body: some View {
+        Menu {
+            Button {
+                guestDJ.setDJ(nil)
+            } label: {
+                if guestDJ.dj == nil {
+                    Label("Off", systemImage: "checkmark")
+                } else {
+                    Text("Off")
+                }
+            }
+
+            ForEach(GuestDJ.allCases) { dj in
+                Button {
+                    guestDJ.setDJ(dj)
+                } label: {
+                    if guestDJ.dj == dj {
+                        Label(dj.name, systemImage: "checkmark")
+                    } else {
+                        Text(dj.name)
+                    }
+                    Text(dj.summary)
+                }
+            }
+        } label: {
+            Label(
+                guestDJ.dj.map { "Guest DJ — \($0.name)" } ?? "Guest DJ",
+                systemImage: "sparkles"
             )
         }
     }

@@ -55,6 +55,10 @@ final class PlaybackController {
     /// remote queue is genuinely newer.
     private(set) var lastSavedAt: Date?
 
+    /// Set once Autoplay has been asked to extend the queue for the track ending now, so
+    /// the 4 Hz tick asks once rather than every quarter second.
+    private var autoplayRequested = false
+
     /// Current + 2 upcoming. Preloading the next item is what makes the boundary
     /// gapless; inserting a 292-track playlist would be a connection stampede.
     private let windowSize = 3
@@ -265,6 +269,7 @@ final class PlaybackController {
             source: source,
             repeatMode: queue.repeatMode
         )
+        appState?.guestDJ.queueReplaced()
         rebuildOutput(startPlaying: false, seekTo: positionSeconds)
         persistNow()
     }
@@ -307,6 +312,7 @@ final class PlaybackController {
             source: source,
             repeatMode: queue.repeatMode
         )
+        appState?.guestDJ.queueReplaced()
 
         // A saved position only applies when the caller did not ask for one, and only to
         // tracks long enough for it to matter -- `ResumeStore` decides both.
@@ -585,7 +591,7 @@ final class PlaybackController {
         }
 
         output.load(window: window, startAt: seconds)
-        planCache()
+        queueChanged()
 
         duration = Double(current.duration ?? 0)
         elapsed = seconds
@@ -621,7 +627,39 @@ final class PlaybackController {
     /// Keeps the preload window topped up without disturbing what is playing.
     private func refillWindow() {
         output.updateUpcoming(Array(currentWindow.dropFirst()))
+        queueChanged()
+    }
+
+    /// Everything that follows the queue: the cache ahead, Autoplay's carousel, and the
+    /// Guest DJ. Each is cheap when nothing it cares about moved.
+    private func queueChanged() {
         planCache()
+        autoplayRequested = false
+        appState?.autoplay.queueChanged()
+        appState?.guestDJ.queueChanged()
+    }
+
+    /// A mix or a station tops itself up, so Autoplay must not cap it with a carousel.
+    var isSelfExtending: Bool {
+        guard let appState else { return false }
+        return appState.mixes.mixes.contains {
+            $0.title == queue.sourceDescription && $0.isExhausted != true
+        }
+    }
+
+    /// A Guest DJ's picks, where it says. Not additions for Add to Up Next.
+    func insertPicks(_ songs: [Song], afterOrderIndex index: Int) {
+        guard !songs.isEmpty else { return }
+        queue.insertPicks(songs, afterOrderIndex: index)
+        refillWindow()
+        persist()
+    }
+
+    func removeUpcoming(ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        queue.removeUpcoming(ids: ids)
+        refillWindow()
+        persist()
     }
 
     /// Containers iOS cannot decode natively. Kept explicit rather than inverted from
@@ -679,6 +717,14 @@ final class PlaybackController {
             tracker.trackChanged(to: queue.current, duration: duration)
         }
 
+        // Autoplay goes on half a minute before the end, so its first track is there in
+        // time to fade or run gaplessly into, however long Sweet Fades makes the overlap.
+        if !autoplayRequested, isPlaying, queue.upNext.isEmpty, duration > 0,
+           duration - elapsed < 30, let autoplay = appState?.autoplay, autoplay.isActive {
+            autoplayRequested = true
+            Task { await autoplay.extend() }
+        }
+
         // A stalled stream still ticks, so listening time is only credited while the
         // audio is genuinely moving.
         if isPlaying, isMoving {
@@ -701,6 +747,17 @@ final class PlaybackController {
             }
             if queue.advance() {
                 rebuildOutput(startPlaying: true, seekTo: 0)
+            } else if let autoplay = appState?.autoplay, autoplay.isActive, autoplay.selectedOption != nil {
+                // The end came before Autoplay's tracks did — a short last track, or a
+                // slow server. Wait for them rather than stopping.
+                Task {
+                    if await autoplay.extend(), queue.advance() {
+                        rebuildOutput(startPlaying: true, seekTo: 0)
+                    } else {
+                        appState?.sleepTimer.trackDidFinish(next: nil)
+                        pause()
+                    }
+                }
             } else {
                 appState?.sleepTimer.trackDidFinish(next: nil)
                 pause()

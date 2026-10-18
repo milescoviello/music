@@ -9,10 +9,12 @@ import SwiftUI
 struct AudioSettingsView: View {
     @Environment(AudioSettings.self) private var audio
     @Environment(PlayerSettings.self) private var playerSettings
+    @Environment(AutoplayService.self) private var autoplay
 
     var body: some View {
         @Bindable var audio = audio
         @Bindable var playerSettings = playerSettings
+        @Bindable var autoplay = autoplay
 
         Form {
             Section {
@@ -54,6 +56,14 @@ struct AudioSettingsView: View {
                 }
             } footer: {
                 Text("Ten bands, with presets and your own saved curves.")
+            }
+
+            Section {
+                Toggle("Autoplay", isOn: $autoplay.isEnabled)
+            } footer: {
+                Text("""
+                When the queue is about to run out, keep going with whatever is chosen at                 the bottom of Up Next — the next album, a radio, the same decade. Never                 with repeat on, and never for a mix, which keeps itself going.
+                """)
             }
 
             Section {
