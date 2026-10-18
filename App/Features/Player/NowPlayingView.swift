@@ -15,6 +15,7 @@ struct NowPlayingView: View {
     @State private var mode: PlayerMode = .artwork
     @State private var drag = DismissDrag()
     @State private var similarTo: Song?
+    @State private var showsVisualizerPicker = false
     @Namespace private var modeNamespace
 
     private var player: PlaybackController { appState.player }
@@ -46,6 +47,10 @@ struct NowPlayingView: View {
         .onAppear { drag.offset = 0 }
         .sheet(item: $similarTo) { song in
             SimilarTracksView(song: song)
+        }
+        .sheet(isPresented: $showsVisualizerPicker) {
+            // Choosing one from the artwork shows it, as in Plexamp.
+            VisualizerPicker(onSelect: { mode = .visualizer })
         }
     }
 
@@ -214,6 +219,10 @@ struct NowPlayingView: View {
                     }
 
                     SleepTimerMenu()
+
+                    Button("Select Visualizer…", systemImage: "waveform") {
+                        showsVisualizerPicker = true
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.body.weight(.semibold))
@@ -280,6 +289,10 @@ struct NowPlayingView: View {
                 .scaleEffect(player.isPlaying ? 1 : 0.86)
                 .animation(.spring(duration: 0.35), value: player.isPlaying)
                 .matchedGeometryEffect(id: "artwork", in: modeNamespace)
+                // Plexamp's artwork is the visualiser's other side: a tap turns it over,
+                // a long press picks which one.
+                .onTapGesture { mode = .visualizer }
+                .onLongPressGesture { showsVisualizerPicker = true }
 
             case .queue:
                 QueueView()
@@ -290,7 +303,11 @@ struct NowPlayingView: View {
                 }
 
             case .visualizer:
-                VisualizerView(isPaused: drag.isMoved)
+                VisualizerView(
+                    isPaused: drag.isMoved,
+                    onTap: { mode = .artwork },
+                    onLongPress: { showsVisualizerPicker = true }
+                )
             }
         }
         .animation(.easeInOut(duration: 0.25), value: mode)
