@@ -123,6 +123,10 @@ final class QueuePlayerOutput: AudioOutput {
     /// has not started is rebuilt from wherever `locate` now says. The track playing is
     /// left alone: swapping it would be a seek, and an audible one.
     func sourceChanged(for songID: String) {
+        // Too close to the end, the next item is already being buffered for a gapless
+        // start, and swapping it now would cost the boundary. The stream plays fine.
+        if duration > 0, duration - elapsed < 20 { return }
+
         let activePlayer = players[active]
         let idlePlayer = players[idle]
         let waiting = Array(activePlayer.items().dropFirst()) + (isFading ? [] : idlePlayer.items())
