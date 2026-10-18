@@ -29,9 +29,16 @@ struct StreamingPolicyTests {
 
     @Test func undecodableContainersAreAlwaysConverted() {
         var policy = StreamingPolicy()
+        #if os(Linux)
+        // FFmpeg decodes them all, so they are only converted when the quality asks.
+        #expect(policy.variant(for: song(suffix: "opus", bitRate: 160), on: .wifi) == .original)
+        policy.wifiQuality = .kbps192
+        #expect(policy.variant(for: song(suffix: "opus", bitRate: 160), on: .wifi) == .original)
+        #else
         #expect(policy.variant(for: song(suffix: "opus", bitRate: 160), on: .wifi) == .mp3(kbps: 320))
         policy.wifiQuality = .kbps192
         #expect(policy.variant(for: song(suffix: "ogg"), on: .wifi) == .mp3(kbps: 192))
+        #endif
     }
 
     @Test func downloadsWinAccordingToTheSettingButAlwaysOffline() {

@@ -1,8 +1,10 @@
-import AVFoundation
 import Foundation
-import MediaPlayer
 import Observation
+#if canImport(UIKit)
+import AVFoundation
+import MediaPlayer
 import UIKit
+#endif
 
 /// Everything the UI talks to for playback.
 ///

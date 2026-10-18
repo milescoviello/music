@@ -1,0 +1,5 @@
+module CPulse [system] {
+    header "CPulse.h"
+    link "pulse"
+    export *
+}

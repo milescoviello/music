@@ -1,7 +1,10 @@
+#if canImport(Accelerate)
 import Accelerate
+#endif
 import Foundation
 import Observation
 
+#if canImport(Accelerate)
 /// The FFT itself, and the buffers it needs.
 ///
 /// Separate from `SpectrumAnalyser` for one concrete reason: a `@MainActor` class
@@ -73,6 +76,7 @@ private final class RealFFT: @unchecked Sendable {
         return true
     }
 }
+#endif
 
 /// Turns the sample ring into a handful of band magnitudes, on the main actor.
 ///

@@ -1,5 +1,10 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Talking to the Hermes agent: one signed write, then poll for the answer.
 ///

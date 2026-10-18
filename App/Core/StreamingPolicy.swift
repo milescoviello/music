@@ -137,8 +137,15 @@ struct StreamingPolicy: Codable, Equatable, Sendable {
     /// Containers iOS cannot decode natively. Kept explicit rather than inverted from
     /// a supported list, so a container that merely lacks a MIME mapping is not
     /// needlessly transcoded.
+    ///
+    /// None on Linux: FFmpeg decodes every one of them, so the original is streamed, can be
+    /// seeked, and keeps its beats where they were measured.
     static func needsTranscode(_ suffix: String?) -> Bool {
-        ["ogg", "oga", "opus", "wma", "ape", "wv"].contains(suffix?.lowercased() ?? "")
+        #if os(Linux)
+        return false
+        #else
+        return ["ogg", "oga", "opus", "wma", "ape", "wv"].contains(suffix?.lowercased() ?? "")
+        #endif
     }
 
     /// The server request for a variant: the endpoint and its query.
