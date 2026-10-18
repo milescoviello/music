@@ -104,6 +104,9 @@ final class PlaybackController {
         output.transition = { [weak self] from, to in
             self?.transitionOverlap(from: from, to: to)
         }
+        output.beatMatch = { [weak self] from, to, overlap in
+            self?.beatMatch(from: from, to: to, overlap: overlap)
+        }
 
         // A mix that is playing keeps growing, so the queue never runs out mid-listen.
         appState.mixes.onExtended = { [weak self] mix, added in
@@ -150,6 +153,51 @@ final class PlaybackController {
             outgoing: appState.shapes.shape(for: current.id) ?? appState.sonic.shape(for: current.id),
             incoming: appState.shapes.shape(for: next.id) ?? appState.sonic.shape(for: next.id)
         )
+    }
+
+    /// A beat-matched start for a fade Sweet Fades has already decided on, when the setting
+    /// is on and both tracks' beats are here and steady enough; nil leaves the fade as it is.
+    ///
+    /// Only for tracks playing from their stored files. The beats were measured on those,
+    /// and a server conversion to MP3 can begin with tens of milliseconds of encoder delay
+    /// that the stored file does not have — enough to put every beat audibly off.
+    private func beatMatch(from current: Song, to next: Song, overlap: Double) -> BeatMatch.Plan? {
+        guard let appState, appState.audio.beatMatchedFades,
+              playsStoredFile(current), playsStoredFile(next),
+              let outgoing = appState.rhythms.rhythm(for: current.id),
+              let incoming = appState.rhythms.rhythm(for: next.id)
+        else { return nil }
+        return BeatMatch.plan(outgoing: outgoing, incoming: incoming, overlap: overlap)
+    }
+
+    /// Whether `locate` plays a song from its stored file — downloaded, cached or streamed as
+    /// the original — rather than from a server conversion. The same order `locate` takes.
+    private func playsStoredFile(_ song: Song) -> Bool {
+        guard let appState, !Self.needsTranscode(song.suffix) else { return false }
+        let network = appState.reachability.network
+        let policy = appState.streaming.policy
+        let cache = appState.streamCache
+
+        if appState.downloads.localURL(for: song.id) != nil, policy.usesDownload(on: network) {
+            return appState.downloads.catalog.entries[song.id]?.quality == .original
+        }
+        let variant = policy.variant(for: song, on: network)
+        if network == .offline || cache.file(for: song.id, satisfying: variant) != nil {
+            return cache.file(for: song.id, satisfying: .original) != nil
+        }
+        return variant == .original
+    }
+
+    /// Fetches the beats of what is playing and what is next while Beat-Matched Fades is on,
+    /// so a matched fade is planned well before it is due.
+    private func requestRhythms(_ songs: [Song]) {
+        guard let appState, appState.audio.sweetFades, appState.audio.beatMatchedFades,
+              appState.reachability.network != .offline
+        else { return }
+        appState.rhythms.request(songs.map(\.id)) { [weak self] songID in
+            guard let self, currentWindow.contains(where: { $0.id == songID }) else { return }
+            output.refreshTransitions()
+        }
     }
 
     /// Where a song's bytes are, in Plexamp's order: a download (if the setting prefers
@@ -223,6 +271,7 @@ final class PlaybackController {
         if network != .offline, appState.playerSettings.seekbarStyle != .line {
             appState.seekbarLevels.request(window.map(\.id))
         }
+        requestRhythms(window)
         guard network != .offline, let signer = appState.signer, let current = window.first else {
             cache.pause()
             measureLocal(window)
@@ -303,9 +352,11 @@ final class PlaybackController {
         output.setSpectrumSink(spectrumSink)
     }
 
-    /// Sweet Fades was switched, so every planned transition is re-asked. The EQ and
-    /// leveling need nothing here: the tap of whatever is playing reads them live.
+    /// Sweet Fades or Beat-Matched Fades was switched, so every planned transition is
+    /// re-asked — and the beats it needs fetched, if it now needs them. The EQ and leveling
+    /// need nothing here: the tap of whatever is playing reads them live.
     func transitionSettingsChanged() {
+        requestRhythms(currentWindow)
         output.refreshTransitions()
     }
 

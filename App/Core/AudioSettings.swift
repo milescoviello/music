@@ -21,6 +21,7 @@ final class AudioSettings {
         static let preamp = "audio.preamp"
         static let limiter = "audio.limiter"
         static let sweetFades = "audio.sweetFades"
+        static let beatMatchedFades = "audio.beatMatchedFades"
         static let equalizer = "audio.eq.enabled"
         static let bands = "audio.eq.bands"
         static let equalizerPreamp = "audio.eq.preamp"
@@ -53,6 +54,16 @@ final class AudioSettings {
     var sweetFades: Bool {
         didSet {
             UserDefaults.standard.set(sweetFades, forKey: Key.sweetFades)
+            onTransitionsChange?()
+        }
+    }
+
+    /// Sweet Fades that land the incoming track's beats on the outgoing one's, for pairs
+    /// whose tempos allow it — see `BeatMatch`. Off unless asked for, and only ever on top
+    /// of Sweet Fades: with that off, this does nothing.
+    var beatMatchedFades: Bool {
+        didSet {
+            UserDefaults.standard.set(beatMatchedFades, forKey: Key.beatMatchedFades)
             onTransitionsChange?()
         }
     }
@@ -93,6 +104,7 @@ final class AudioSettings {
         preamp = defaults.object(forKey: Key.preamp) as? Double ?? LoudnessLeveling.defaultPreamp
         limiter = defaults.object(forKey: Key.limiter) as? Bool ?? true
         sweetFades = defaults.object(forKey: Key.sweetFades) as? Bool ?? true
+        beatMatchedFades = defaults.bool(forKey: Key.beatMatchedFades)
         equalizerPreamp = defaults.object(forKey: Key.equalizerPreamp) as? Float ?? 0
         presetName = defaults.string(forKey: Key.preset) ?? Preset.flat.name
 
