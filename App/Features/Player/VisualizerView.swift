@@ -34,6 +34,13 @@ struct VisualizerView: View {
     private var program: VisualizerProgram { VisualizerProgram.named(programName) }
     private var isIdle: Bool { !player.isPlaying && !program.displayWhenIdle }
 
+    /// The seekbar's loudness for this track: the same 128 LUFS points Plex hands
+    /// Plexamp, which is what its Soundprint draws.
+    private var loudness: [Float]? {
+        guard let id = player.currentSong?.id else { return nil }
+        return appState.seekbarLevels.levels(for: id)
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let side = max(0, min(geometry.size.width - 48, geometry.size.height))
@@ -76,11 +83,7 @@ struct VisualizerView: View {
         .overlay(alignment: .top) { nameLabel }
         .onAppear {
             player.startSpectrum()
-            if renderer == nil {
-                let feed = VisualizerFeed.shared(buffer: appState.spectrumBuffer)
-                feed.player = player
-                renderer = VisualizerRenderer.shared(feed: feed, program: program)
-            }
+            _ = activeRenderer()
         }
         // Plexamp sends the palette when the visualiser appears and on every track
         // change after, which is what fades it from one cover's colours to the next.
@@ -88,8 +91,25 @@ struct VisualizerView: View {
             guard let colours = await VisualizerArtworkPalette.colours(
                 for: player.currentSong?.coverArt, artwork: artwork
             ) else { return }
-            renderer?.feed.setPalette(colours)
+            activeRenderer()?.feed.setPalette(colours)
         }
+        // Sent when known; a track whose levels have not arrived keeps the last track's,
+        // as Plexamp keeps them when a track has none.
+        .onChange(of: loudness, initial: true) { _, levels in
+            guard let levels else { return }
+            activeRenderer()?.feed.setLoudness(VisualizerLoudness.texels(from: levels))
+        }
+    }
+
+    /// Made on first use rather than in `onAppear` alone, since the palette and loudness
+    /// can arrive in the same pass as the view does.
+    private func activeRenderer() -> VisualizerRenderer? {
+        if let renderer { return renderer }
+        let feed = VisualizerFeed.shared(buffer: appState.spectrumBuffer)
+        feed.player = player
+        let made = VisualizerRenderer.shared(feed: feed, program: program)
+        renderer = made
+        return made
     }
 
     private func show(_ next: VisualizerProgram) {

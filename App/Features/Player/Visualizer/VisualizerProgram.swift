@@ -33,6 +33,27 @@ struct VisualizerProgram: Identifiable, Hashable, Sendable {
     /// In name order, which is the order Plexamp lists and cycles them in.
     static let all: [VisualizerProgram] = [
         VisualizerProgram(
+            name: "Pulsar Joy",
+            function: "viz_pulsar_joy",
+            data: VisualizerData(frequencyHistory: true, frequency: false),
+            pixels: 512,
+            displayWhenIdle: false
+        ),
+        VisualizerProgram(
+            name: "Soundprint",
+            function: "viz_soundprint",
+            data: VisualizerData(frequencyHistory: false, frequency: false, peaks: false),
+            pixels: 512,
+            displayWhenIdle: true
+        ),
+        VisualizerProgram(
+            name: "Trails",
+            function: "viz_trails",
+            data: VisualizerData(frequencyHistory: true, frequency: false),
+            pixels: 375,
+            displayWhenIdle: false
+        ),
+        VisualizerProgram(
             name: "Aurora",
             function: "viz_aurora",
             data: VisualizerData(frequency: true, peaks: true, alpha: 0.3),
