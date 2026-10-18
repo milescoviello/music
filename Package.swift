@@ -26,6 +26,8 @@ let package = Package(
                 "TripPlanner.swift",
                 "DSP.swift",
                 "StreamCacheIndex.swift",
+                "StreamingPolicy.swift",
+                "TrackShape.swift",
             ]
         ),
         .testTarget(
