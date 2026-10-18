@@ -33,10 +33,45 @@ struct VisualizerProgram: Identifiable, Hashable, Sendable {
     /// In name order, which is the order Plexamp lists and cycles them in.
     static let all: [VisualizerProgram] = [
         VisualizerProgram(
+            name: "Freaqy",
+            function: "viz_freaqy",
+            data: VisualizerData(frequency: true),
+            pixels: 512,
+            displayWhenIdle: false
+        ),
+        VisualizerProgram(
+            name: "Neutrona",
+            function: "viz_neutrona",
+            data: VisualizerData(frequency: true, alpha: 0.3),
+            pixels: 375,
+            displayWhenIdle: false
+        ),
+        VisualizerProgram(
             name: "Retrospect",
             function: "viz_retrospect",
             data: VisualizerData(frequency: true),
             pixels: 512,
+            displayWhenIdle: false
+        ),
+        VisualizerProgram(
+            name: "Rothko",
+            function: "viz_rothko",
+            data: VisualizerData(frequency: true),
+            pixels: 375,
+            displayWhenIdle: true
+        ),
+        VisualizerProgram(
+            name: "Spectrum",
+            function: "viz_spectrum",
+            data: VisualizerData(frequency: true, peaks: true, alpha: 0.3),
+            pixels: 512,
+            displayWhenIdle: false
+        ),
+        VisualizerProgram(
+            name: "Strings",
+            function: "viz_strings",
+            data: VisualizerData(frequency: true, alpha: 0.3),
+            pixels: 375,
             displayWhenIdle: false
         ),
     ].sorted { $0.name < $1.name }
