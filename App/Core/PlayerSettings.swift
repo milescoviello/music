@@ -17,6 +17,7 @@ final class PlayerSettings {
         static let seekbar = "player.seekbar"
         static let background = "player.background"
         static let romanizesLyrics = "lyrics.romanize"
+        static let translatesLyrics = "lyrics.translate"
     }
 
     static let skipOptions = [10, 15, 30, 45]
@@ -79,6 +80,12 @@ final class PlayerSettings {
         didSet { UserDefaults.standard.set(romanizesLyrics, forKey: Key.romanizesLyrics) }
     }
 
+    /// Lyrics not in English with each line's English translation beneath it, made on the
+    /// phone. Set from the lyrics screen's menu too.
+    var translatesLyrics: Bool {
+        didSet { UserDefaults.standard.set(translatesLyrics, forKey: Key.translatesLyrics) }
+    }
+
     init() {
         let defaults = UserDefaults.standard
         opensPlayerOnPlay = defaults.bool(forKey: Key.opensPlayer)
@@ -89,5 +96,6 @@ final class PlayerSettings {
         skipBackSeconds = defaults.object(forKey: Key.skipBack) as? Int ?? 10
         skipForwardSeconds = defaults.object(forKey: Key.skipForward) as? Int ?? 30
         romanizesLyrics = defaults.bool(forKey: Key.romanizesLyrics)
+        translatesLyrics = defaults.bool(forKey: Key.translatesLyrics)
     }
 }
