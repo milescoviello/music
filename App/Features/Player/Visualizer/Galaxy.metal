@@ -14,10 +14,6 @@ static float galaxyHash(float n) {
     return fract(precise::sin(sn) * c);
 }
 
-static float3 galaxyClosestPoint(float3 ro, float3 rd, float3 p) {
-    return ro + max(0., dot(p - ro, rd)) * rd;
-}
-
 static float3 galaxyClosestPointFromLineToLine(float3 l1Start, float3 l1End, float3 l2Start, float3 l2End,
                                                thread float &dist) {
     float3 u = l1End - l1Start;
