@@ -115,6 +115,98 @@ struct DownloadCatalogTests {
         #expect(after.entries.isEmpty)
     }
 
+    /// What `reconcile()` relies on: a song is on disk as pending before its transfer
+    /// starts, so it is safe for its completion to be written a moment later.
+    @Test func pendingIsWrittenAtOnceAndFinishedSongsTogetherLater() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("c.json")
+
+        let store = DownloadCatalogStore(url: file, completionDelay: .seconds(60))
+        _ = await store.markPending(["a", "b"].map { entry($0, in: directory) })
+        #expect(Set(await DownloadCatalogStore(url: file).load().pending.keys) == ["a", "b"])
+
+        _ = await store.complete(songID: "a", byteCount: 4_096)
+        _ = await store.complete(songID: "b", byteCount: 8_192)
+        let beforeFlush = await DownloadCatalogStore(url: file).load()
+        #expect(beforeFlush.entries.isEmpty)
+        #expect(Set(beforeFlush.pending.keys) == ["a", "b"])
+
+        await store.flush()
+        let afterFlush = await DownloadCatalogStore(url: file).load()
+        #expect(afterFlush.pending.isEmpty)
+        #expect(afterFlush.entries["b"]?.byteCount == 8_192)
+    }
+
+    @Test func finishedSongsAreWrittenWithoutBeingAsked() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("c.json")
+
+        let store = DownloadCatalogStore(url: file, completionDelay: .milliseconds(50))
+        _ = await store.markPending(entry("a", in: directory))
+        _ = await store.complete(songID: "a", byteCount: 4_096)
+
+        var written = false
+        for _ in 0..<100 where !written {
+            try await Task.sleep(for: .milliseconds(50))
+            written = await DownloadCatalogStore(url: file).load().entries["a"] != nil
+        }
+        #expect(written)
+    }
+
+    /// Any other change writes the whole catalog, finished songs included.
+    @Test func anImmediateWriteCarriesTheFinishedSongsWithIt() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("c.json")
+
+        let store = DownloadCatalogStore(url: file, completionDelay: .seconds(60))
+        _ = await store.markPending(["a", "b"].map { entry($0, in: directory) })
+        _ = await store.complete(songID: "a", byteCount: 4_096)
+        _ = await store.cancelPending(songID: "b")
+
+        let written = await DownloadCatalogStore(url: file).load()
+        #expect(written.entries["a"] != nil)
+        #expect(written.pending.isEmpty)
+    }
+
+    /// A whole playlist is one write, so every song of it is pending the moment it lands.
+    @Test func aBatchIsPendingAllAtOnce() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = DownloadCatalogStore(url: directory.appendingPathComponent("c.json"))
+        let after = await store.markPending(["a", "b", "c"].map { entry($0, in: directory) })
+        #expect(Set(after.pending.keys) == ["a", "b", "c"])
+    }
+
+    /// Removing one album's or playlist's download takes its own songs, here or on their
+    /// way, and an album's single-song downloads — never a song another download brought.
+    @Test func aGroupsDownloadIsItsOwnSongsOnly() {
+        func entry(_ id: String, group: String?, album: String) -> DownloadCatalog.Entry {
+            var song = song(id)
+            song.albumId = album
+            return DownloadCatalog.Entry(
+                song: song, filename: "\(id).flac", byteCount: 1, addedAt: .now,
+                groupID: group, groupName: nil
+            )
+        }
+
+        var catalog = DownloadCatalog()
+        catalog.entries["a"] = entry("a", group: "album1", album: "album1")
+        catalog.pending["b"] = entry("b", group: "album1", album: "album1")
+        // Downloaded on its own: filed in its album's folder, so part of the album.
+        catalog.entries["c"] = entry("c", group: nil, album: "album1")
+        // The same album's song, but it came with a playlist.
+        catalog.entries["d"] = entry("d", group: "playlist1", album: "album1")
+        catalog.entries["e"] = entry("e", group: "playlist1", album: "album2")
+
+        #expect(Set(catalog.songIDs(downloadedAs: "album1")) == ["a", "b", "c"])
+        #expect(Set(catalog.songIDs(downloadedAs: "playlist1")) == ["d", "e"])
+        #expect(catalog.songIDs(downloadedAs: "nothing").isEmpty)
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("music-tests-\(UUID().uuidString)", isDirectory: true)

@@ -481,7 +481,14 @@ final class DailyMixes {
             "\(samples.count) samples (\(appState.history.plays.count) local plays)"
         )
 
-        let artists = MixEngine.ranked(MixEngine.artistScores(samples), limit: 16)
+        // Off the main actor: every sample through the calendar, up to 20,000 of them, and
+        // this runs as Home first appears after launch.
+        let (artists, recent) = await Task.detached(priority: .userInitiated) {
+            (
+                MixEngine.ranked(MixEngine.artistScores(samples), limit: 16),
+                MixEngine.songIDs(samples, playedWithin: 7)
+            )
+        }.value
         let candidates = await artistCandidates(appState: appState, artists: Array(artists.prefix(8)))
         let genres = await topGenres(
             appState: appState, samples: samples, candidates: candidates,
@@ -492,7 +499,7 @@ final class DailyMixes {
             samples: samples,
             artists: artists,
             genres: genres,
-            recent: MixEngine.songIDs(samples, playedWithin: 7),
+            recent: recent,
             artistCandidates: candidates
         )
         context = built
@@ -689,9 +696,13 @@ final class DailyMixes {
     /// play count, so day one is personal instead of random. Server rows have no genre —
     /// only the app's own log does — which is why the genre mix has its own fallback.
     private func samples(appState: AppState) async -> [MixEngine.Sample] {
-        var samples = appState.history.plays.map {
-            MixEngine.Sample(songID: $0.songID, artist: $0.artist, genre: $0.genre, at: $0.at)
-        }
+        // The mixes are built once a day and kept, so they must not be built from a log
+        // that, just after launch, has not been read yet.
+        await appState.history.loaded()
+        let plays = appState.history.plays
+        var samples = await Task.detached(priority: .userInitiated) {
+            plays.map { MixEngine.Sample(songID: $0.songID, artist: $0.artist, genre: $0.genre, at: $0.at) }
+        }.value
 
         guard samples.count < 40 else { return samples }
 
@@ -786,7 +797,9 @@ final class DailyMixes {
         scope: LibraryScope,
         limit: Int
     ) async -> [String] {
-        let scored = MixEngine.ranked(MixEngine.genreScores(samples), limit: limit)
+        let scored = await Task.detached(priority: .userInitiated) {
+            MixEngine.ranked(MixEngine.genreScores(samples), limit: limit)
+        }.value
         if !scored.isEmpty { return scored }
 
         // Cold start: the play log has no genres yet, but the tracks by favourite artists
@@ -868,7 +881,8 @@ final class DailyMixes {
     ) async -> Mix? {
         var pool: [Song] = []
 
-        for seed in seeds(from: samples) {
+        let seedIDs = await Task.detached(priority: .userInitiated) { Self.seeds(from: samples) }.value
+        for seed in seedIDs {
             let similar = (try? await appState.client.similarSongs(toSongID: seed, count: 50)) ?? []
             pool += similar
         }
@@ -912,7 +926,7 @@ final class DailyMixes {
     ///
     /// Song ids, not artist ids: `getSimilarSongs2` returns nothing for an artist id on
     /// this server, which is already noted where the client method is defined.
-    private func seeds(from samples: [MixEngine.Sample]) -> [String] {
+    nonisolated private static func seeds(from samples: [MixEngine.Sample]) -> [String] {
         var weights: [String: Double] = [:]
         for sample in samples { weights[sample.songID, default: 0] += sample.weight }
         return MixEngine.ranked(weights, limit: 3)

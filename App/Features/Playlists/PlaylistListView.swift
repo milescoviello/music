@@ -123,22 +123,20 @@ struct PlaylistListView: View {
         .task { await store.loadIfNeeded() }
     }
 
-    /// Download, or — once every track is on the phone — remove it, the way an album's
-    /// download button works. A partial download offers to finish.
+    /// The same toggle as the download button on the playlist's own screen: Download,
+    /// or Remove Download once any of it is here or on its way.
     @ViewBuilder
     private func downloadItems(for playlist: Playlist) -> some View {
-        let onPhone = downloads.catalog.entries.values.filter { $0.groupID == playlist.id }.count
-        let total = playlist.songCount ?? 0
-        if total > 0, onPhone >= total {
-            Button("Remove Download", systemImage: "trash", role: .destructive) {
-                let ids = downloads.catalog.entries.values.filter { $0.groupID == playlist.id }.map(\.song.id)
-                downloads.remove(ids)
-            }
-        } else {
-            Button(onPhone > 0 ? "Finish Download" : "Download", systemImage: "arrow.down.circle") {
+        if !downloads.hasDownload(group: playlist.id) {
+            Button("Download", systemImage: "arrow.down.circle") {
                 withSongs(playlist) { songs in
                     downloads.download(songs, groupID: playlist.id, groupName: playlist.name)
                 }
+            }
+        } else {
+            Button("Remove Download", systemImage: "trash", role: .destructive) {
+                appState.playlistSync.stopSyncing(groupID: playlist.id)
+                downloads.removeGroup(playlist.id)
             }
         }
     }
@@ -226,7 +224,11 @@ struct PlaylistDetailView: View {
             }
 
             // Playlist order is the server's order; never re-sorted.
-            ForEach(Array(songs.enumerated()), id: \.offset) { index, _ in
+            //
+            // The indices, not `Array(songs.enumerated())`: the same identities, without
+            // copying every song into a new array on each redraw, which for a smart
+            // playlist of the whole library is 28,000 of them.
+            ForEach(songs.indices, id: \.self) { index in
                 PlayableSongRow(
                     songs: songs, index: index, source: playlist.name, selection: selection
                 )

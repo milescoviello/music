@@ -26,21 +26,32 @@ enum RepeatMode: String, Codable, Sendable, CaseIterable {
 /// the snapshot small.
 struct PlaybackQueue: Codable, Sendable {
     /// Always the original, unshuffled order.
-    var tracks: [Song] = []
+    var tracks: [Song] = [] { didSet { listID = UUID() } }
     /// A permutation of indices into `tracks`; the identity when unshuffled.
-    var order: [Int] = []
+    var order: [Int] = [] { didSet { listID = UUID() } }
     /// Index into `order`, not into `tracks`.
     var position: Int = 0
     var repeatMode: RepeatMode = .off
-    var isShuffled: Bool = false
+    var isShuffled: Bool = false { didSet { listID = UUID() } }
     /// "Kid A", "Freedom" -- shown in the player as the source of the queue.
-    var sourceDescription: String = ""
+    var sourceDescription: String = "" { didSet { listID = UUID() } }
     /// Index into `tracks` of the last song put in with Play Next or Add to Up Next:
     /// where the next Add to Up Next goes. Optional so a queue saved before it existed
     /// still decodes.
-    var lastAddedTrackIndex: Int?
+    var lastAddedTrackIndex: Int? { didSet { listID = UUID() } }
     /// Set when the queue is a station, which tops itself up as it plays.
-    var station: Station?
+    var station: Station? { didSet { listID = UUID() } }
+
+    /// Changes whenever the list does: the tracks, their order, or anything kept with
+    /// them. Never for `position` or `repeatMode`, which change every track and with a
+    /// tap. It is how the store knows whether the long part of the queue, which can be
+    /// tens of thousands of songs, has to be written again, and how sync knows whether
+    /// to upload it. Not saved in the queue's own coding: the store keeps it beside it.
+    var listID = UUID()
+
+    private enum CodingKeys: String, CodingKey {
+        case tracks, order, position, repeatMode, isShuffled, sourceDescription, lastAddedTrackIndex, station
+    }
 
     var isEmpty: Bool { tracks.isEmpty }
 
@@ -269,7 +280,8 @@ struct PlaybackQueue: Codable, Sendable {
     }
 }
 
-/// What is written to disk: the queue plus where we were in the current track.
+/// A saved queue: the queue plus where we were in the current track. Also the format the
+/// whole queue was once written in, as one file, which `PlaybackQueueStore` still reads.
 struct QueueSnapshot: Codable, Sendable {
     var queue: PlaybackQueue
     var positionSeconds: Double
@@ -277,25 +289,144 @@ struct QueueSnapshot: Codable, Sendable {
 }
 
 /// Persists the queue so a relaunch resumes where you were.
+///
+/// In two files, because the queue is two very different things. The list -- every
+/// track, the order, what it was started from -- can be tens of thousands of songs and
+/// changes only when the queue is edited. Where it has got to -- the position, the
+/// seconds into the track, the repeat mode -- changes on every track and every pause.
+/// Written as one file, all of it was encoded and written for each of those: several
+/// megabytes for a smart playlist of the whole library, every few minutes. Now the list
+/// is written when its `listID` differs from the one on disk, and the position always,
+/// which is a few dozen bytes.
+///
+/// The list is written first, and the position names the list it belongs to. A crash
+/// between the two leaves a position for the previous list; on loading, that position
+/// is found again in the new list by the current song's id, which is as close as it can
+/// be got.
 actor PlaybackQueueStore {
-    private let url: URL
+    private let listURL: URL
+    private let positionURL: URL
+    /// Where the whole queue used to be written. Read when the two files are not there
+    /// yet, so the queue survives the update, and deleted once they are.
+    private let legacyURL: URL?
+    /// The list on disk, so an unchanged one is not written again.
+    private var writtenListID: UUID?
 
-    init(url: URL) {
-        self.url = url
+    init(directory: URL, legacyURL: URL? = nil) {
+        listURL = directory.appendingPathComponent("queue-list.json")
+        positionURL = directory.appendingPathComponent("queue-position.json")
+        self.legacyURL = legacyURL
+    }
+
+    /// Everything kept with the tracks: what changes only when the list does.
+    private struct SavedList: Codable {
+        var id: UUID
+        var tracks: [Song]
+        var order: [Int]
+        var isShuffled: Bool
+        var sourceDescription: String
+        var lastAddedTrackIndex: Int?
+        var station: Station?
+    }
+
+    private struct SavedPosition: Codable {
+        var listID: UUID
+        var position: Int
+        /// To find the position again if the list on disk is not the one it was saved
+        /// with.
+        var currentID: String?
+        var repeatMode: RepeatMode
+        var positionSeconds: Double
+        var savedAt: Date
     }
 
     func load() -> QueueSnapshot? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
+        guard let listData = try? Data(contentsOf: listURL),
+              let list = try? JSONDecoder().decode(SavedList.self, from: listData)
+        else { return loadLegacy() }
+
+        let saved = (try? Data(contentsOf: positionURL))
+            .flatMap { try? JSONDecoder().decode(SavedPosition.self, from: $0) }
+
+        var queue = PlaybackQueue(
+            tracks: list.tracks,
+            order: list.order,
+            position: 0,
+            repeatMode: saved?.repeatMode ?? .off,
+            isShuffled: list.isShuffled,
+            sourceDescription: list.sourceDescription,
+            lastAddedTrackIndex: list.lastAddedTrackIndex,
+            station: list.station
+        )
+        // Whether the saved position still points at the track it was saved on.
+        var isSameTrack = false
+        if let saved {
+            if saved.listID == list.id {
+                queue.position = saved.position
+                isSameTrack = true
+            } else if let currentID = saved.currentID,
+                      let index = queue.order.firstIndex(where: {
+                          queue.tracks.indices.contains($0) && queue.tracks[$0].id == currentID
+                      }) {
+                queue.position = index
+                isSameTrack = true
+            }
+        }
+        queue.position = min(max(queue.position, 0), max(queue.order.count - 1, 0))
+        queue.listID = list.id
+        writtenListID = list.id
+
+        return QueueSnapshot(
+            queue: queue,
+            // Seconds into a track only mean something for the track they were saved for.
+            positionSeconds: isSameTrack ? saved?.positionSeconds ?? 0 : 0,
+            savedAt: saved?.savedAt ?? .distantPast
+        )
+    }
+
+    private func loadLegacy() -> QueueSnapshot? {
+        guard let legacyURL, let data = try? Data(contentsOf: legacyURL) else { return nil }
         return try? JSONDecoder().decode(QueueSnapshot.self, from: data)
     }
 
     func save(_ snapshot: QueueSnapshot) {
-        guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        // Atomic: a crash mid-write must not leave a half-written queue.
-        try? data.write(to: url, options: .atomic)
+        let queue = snapshot.queue
+        if queue.listID != writtenListID {
+            let list = SavedList(
+                id: queue.listID,
+                tracks: queue.tracks,
+                order: queue.order,
+                isShuffled: queue.isShuffled,
+                sourceDescription: queue.sourceDescription,
+                lastAddedTrackIndex: queue.lastAddedTrackIndex,
+                station: queue.station
+            )
+            // Atomic: a crash mid-write must not leave a half-written queue.
+            guard let data = try? JSONEncoder().encode(list),
+                  (try? data.write(to: listURL, options: .atomic)) != nil
+            else { return }
+            writtenListID = queue.listID
+        }
+
+        let position = SavedPosition(
+            listID: queue.listID,
+            position: queue.position,
+            currentID: queue.current?.id,
+            repeatMode: queue.repeatMode,
+            positionSeconds: snapshot.positionSeconds,
+            savedAt: snapshot.savedAt
+        )
+        guard let data = try? JSONEncoder().encode(position),
+              (try? data.write(to: positionURL, options: .atomic)) != nil
+        else { return }
+
+        if let legacyURL { try? FileManager.default.removeItem(at: legacyURL) }
     }
 
     func clear() {
-        try? FileManager.default.removeItem(at: url)
+        for url in [listURL, positionURL] + (legacyURL.map { [$0] } ?? []) {
+            try? FileManager.default.removeItem(at: url)
+        }
+        writtenListID = nil
     }
 }

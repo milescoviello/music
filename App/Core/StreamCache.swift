@@ -29,7 +29,15 @@ final class StreamCache {
         let url: URL
     }
 
-    private(set) var index = StreamCacheIndex()
+    /// What is cached. Observed only when a file arrives or goes, which is all a screen
+    /// shows of it, and not when one is marked used: that happens on every item the player
+    /// builds and every queue change, and as an observed change it redrew the player each
+    /// time, for nothing it displays.
+    var index: StreamCacheIndex {
+        access(keyPath: \.index)
+        return storage
+    }
+    @ObservationIgnored private var storage = StreamCacheIndex()
     /// The song being fetched now, for the settings screen.
     private(set) var fetchingSongID: String?
 
@@ -73,14 +81,14 @@ final class StreamCache {
     /// A cached file that can stand in for `wanted`, or nil to stream. Synchronous: the
     /// player asks on every item it builds.
     func file(for songID: String, satisfying wanted: StreamVariant) -> URL? {
-        guard let entry = index.entry(for: songID, satisfying: wanted) else { return nil }
+        guard let entry = storage.entry(for: songID, satisfying: wanted) else { return nil }
         return verified(entry)
     }
 
     /// Any cached copy at all, whatever its quality. For when there is no network and a
     /// lower-quality file is better than nothing.
     func anyFile(for songID: String) -> URL? {
-        guard let entry = index.entries[songID] else { return nil }
+        guard let entry = storage.entries[songID] else { return nil }
         return verified(entry)
     }
 
@@ -88,11 +96,11 @@ final class StreamCache {
         let url = directory.appendingPathComponent(entry.fileName)
         guard FileManager.default.fileExists(atPath: url.path) else {
             // Purged by iOS behind the index's back.
-            index.remove(entry.songID)
+            withMutation(keyPath: \.index) { _ = storage.remove(entry.songID) }
             scheduleSave()
             return nil
         }
-        index.touch(entry.songID)
+        storage.touch(entry.songID)
         scheduleSave()
         return url
     }
@@ -106,7 +114,7 @@ final class StreamCache {
     func prefetch(_ requests: [Request]) {
         protected = Set(requests.map(\.song.id))
         plan = requests.filter { request in
-            index.entry(for: request.song.id, satisfying: request.variant) == nil
+            storage.entry(for: request.song.id, satisfying: request.variant) == nil
                 && !failed.contains(request.song.id)
         }
 
@@ -126,7 +134,7 @@ final class StreamCache {
         pause()
         try? FileManager.default.removeItem(at: directory)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        index.removeAll()
+        withMutation(keyPath: \.index) { storage.removeAll() }
         scheduleSave()
     }
 
@@ -189,13 +197,15 @@ final class StreamCache {
 
         let size = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?
             .int64Value ?? 0
-        let previous = index.insert(StreamCacheIndex.Entry(
-            songID: songID,
-            variant: request.variant,
-            fileName: fileName,
-            bytes: size,
-            lastUsed: .now
-        ))
+        let previous = withMutation(keyPath: \.index) {
+            storage.insert(StreamCacheIndex.Entry(
+                songID: songID,
+                variant: request.variant,
+                fileName: fileName,
+                bytes: size,
+                lastUsed: .now
+            ))
+        }
         if let previous, previous.fileName != fileName {
             try? FileManager.default.removeItem(at: directory.appendingPathComponent(previous.fileName))
         }
@@ -206,9 +216,14 @@ final class StreamCache {
     }
 
     private func evict() {
-        for entry in index.evictions(toFit: maxBytes, protecting: protected) {
-            try? FileManager.default.removeItem(at: directory.appendingPathComponent(entry.fileName))
-            index.remove(entry.songID)
+        let evictions = storage.evictions(toFit: maxBytes, protecting: protected)
+        if !evictions.isEmpty {
+            withMutation(keyPath: \.index) {
+                for entry in evictions {
+                    try? FileManager.default.removeItem(at: directory.appendingPathComponent(entry.fileName))
+                    storage.remove(entry.songID)
+                }
+            }
         }
         scheduleSave()
     }
@@ -233,14 +248,14 @@ final class StreamCache {
     private func load() {
         if let data = try? Data(contentsOf: indexURL),
            let stored = try? JSONDecoder().decode(StreamCacheIndex.self, from: data) {
-            index = stored
+            storage = stored
         }
 
         let present = Set((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? [])
-        for entry in index.entries.values where !present.contains(entry.fileName) {
-            index.remove(entry.songID)
+        for entry in storage.entries.values where !present.contains(entry.fileName) {
+            storage.remove(entry.songID)
         }
-        let claimed = Set(index.entries.values.map(\.fileName))
+        let claimed = Set(storage.entries.values.map(\.fileName))
         for name in present where name != "index.json" && !claimed.contains(name) {
             try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
         }
@@ -248,7 +263,7 @@ final class StreamCache {
 
     private func scheduleSave() {
         saveTask?.cancel()
-        let snapshot = index
+        let snapshot = storage
         let url = indexURL
         saveTask = Task {
             try? await Task.sleep(for: .seconds(2))

@@ -34,9 +34,9 @@ enum Paths {
     static let metadata = root.appendingPathComponent("Metadata", isDirectory: true)
 
     /// Things that can be fetched or measured again: the stream cache, the measured
-    /// shapes of tracks, and the seekbar levels our sonic service gave. Caches,
-    /// deliberately — iOS may purge it while the app is not running, and every store
-    /// checks for its files rather than trusting an index.
+    /// shapes of tracks, the seekbar levels our sonic service gave, and translated
+    /// lyrics. Caches, deliberately — iOS may purge it while the app is not running,
+    /// and every store checks for its files rather than trusting an index.
     static let caches: URL = {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent(folder, isDirectory: true)
@@ -44,6 +44,8 @@ enum Paths {
     static let streamCache = caches.appendingPathComponent("Streams", isDirectory: true)
     static let trackShapes = caches.appendingPathComponent("Shapes", isDirectory: true)
     static let seekbarLevels = caches.appendingPathComponent("Levels", isDirectory: true)
+    /// English translations of lyrics, made on the phone.
+    static let lyricTranslations = caches.appendingPathComponent("Translations", isDirectory: true)
 
     static let catalog = root.appendingPathComponent("catalog.json")
     static let queue = root.appendingPathComponent("queue.json")
@@ -54,7 +56,7 @@ enum Paths {
     /// download session's delegate can fire before any UI exists. The exclusion flag
     /// is re-applied every launch: it is lost whenever a directory is recreated.
     static func bootstrap() {
-        for directory in [root, media, incoming, artwork, outbox, lyrics, metadata, streamCache, trackShapes, seekbarLevels] {
+        for directory in [root, media, incoming, artwork, outbox, lyrics, metadata, streamCache, trackShapes, seekbarLevels, lyricTranslations] {
             try? FileManager.default.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true

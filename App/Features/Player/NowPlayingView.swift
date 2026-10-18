@@ -7,17 +7,17 @@ enum PlayerMode: String, CaseIterable {
 
 struct NowPlayingView: View {
     @Environment(AppState.self) private var appState
-    @Environment(SleepTimer.self) private var sleepTimer
-    @Environment(DownloadCenter.self) private var downloads
     @Environment(PlayerSettings.self) private var playerSettings
-    @Environment(GuestDJService.self) private var guestDJ
     /// Called instead of `dismiss()`: this is no longer a modal, it is a layer drawn
     /// above the library, so closing it is the presenter's business.
     var onDismiss: () -> Void = {}
 
     @State private var mode: PlayerMode = .artwork
-    @State private var dragOffset: CGFloat = 0
+    /// Written by a sideways swipe over the visualiser; `VisualizerView` reads the same key.
+    @AppStorage(VisualizerProgram.storageKey) private var visualizerName = VisualizerProgram.defaultName
+    @State private var drag = DismissDrag()
     @State private var similarTo: Song?
+    @State private var showsVisualizerPicker = false
     @Namespace private var modeNamespace
 
     private var player: PlaybackController { appState.player }
@@ -33,21 +33,26 @@ struct NowPlayingView: View {
         // Its own stack: without one, the artist name and the menu's "Go to Album" are
         // links with nowhere to push, which is to say dead. Browsing from inside the
         // player is also what Plexamp does.
-        NavigationStack {
-            playerBody
-                .toolbar(.hidden, for: .navigationBar)
-                .musicDestinations()
-        }
         // The offset belongs out here, on the outermost layer.
         //
         // Applied inside the stack it moved only the *content*: the navigation stack's
         // own surface stayed exactly where it was and went on painting an opaque
         // background, so pulling the player down revealed a black wall rather than the
         // library. Whatever layer is opaque has to be the layer that moves.
-        .offset(y: dragOffset)
-        .onAppear { dragOffset = 0 }
+        DismissOffset(drag: drag) {
+            NavigationStack {
+                playerBody
+                    .toolbar(.hidden, for: .navigationBar)
+                    .musicDestinations()
+            }
+        }
+        .onAppear { drag.offset = 0 }
         .sheet(item: $similarTo) { song in
             SimilarTracksView(song: song)
+        }
+        .sheet(isPresented: $showsVisualizerPicker) {
+            // Choosing one from the artwork shows it, as in Plexamp.
+            VisualizerPicker(onSelect: { mode = .visualizer })
         }
     }
 
@@ -64,7 +69,7 @@ struct NowPlayingView: View {
                 // scrolls, so nothing competes for the gesture here.
                 VStack(spacing: 0) {
                     metadata(song)
-                    detailLine(song)
+                    PlayerDetailLine(song: song)
                 }
                 .contentShape(Rectangle())
                 .gesture(dismissDrag)
@@ -109,7 +114,7 @@ struct NowPlayingView: View {
     private var dismissDrag: some Gesture {
         // `.global` is the whole fix, and the reason this kept feeling broken no matter
         // what else was tuned: the gesture is attached to the same view that
-        // `.offset(y: dragOffset)` moves, and a `DragGesture` measures translation in its
+        // `DismissOffset` moves, and a `DragGesture` measures translation in its
         // own **local** space. So the finger moved the view, the view moved the space the
         // finger was being measured in, and the next reading was taken against a moved
         // ruler -- a feedback loop that reads as jitter. A global space does not move with
@@ -122,9 +127,23 @@ struct NowPlayingView: View {
                     return
                 }
                 // Downward only: allowing up would let the screen be pulled off the top.
-                dragOffset = max(0, value.translation.height)
+                drag.offset = max(0, value.translation.height)
             }
             .onEnded { value in
+                // Over the visualiser, a mostly sideways swipe is Plexamp's next or
+                // previous visualiser. Read here rather than by a drag of the visualiser's
+                // own, which would take the downward pull from this one.
+                let dx = value.translation.width
+                if mode == .visualizer, abs(dx) > abs(value.translation.height), abs(dx) >= 50 {
+                    let program = VisualizerProgram.named(visualizerName)
+                    visualizerName = (dx < 0 ? program.next : program.previous).name
+                    // A swipe can start downward enough to have moved the player.
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        drag.offset = 0
+                    }
+                    return
+                }
+
                 // Distance *or* speed, so a quick flick works without travelling far.
                 let isFarEnough = value.translation.height > 130
                 let isFastEnough = value.predictedEndTranslation.height > 320
@@ -133,7 +152,7 @@ struct NowPlayingView: View {
                     onDismiss()
                 } else {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        dragOffset = 0
+                        drag.offset = 0
                     }
                 }
             }
@@ -164,7 +183,7 @@ struct NowPlayingView: View {
                 Text("Playing From")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.5))
-                Text(source)
+                QueueSourceText()
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
@@ -216,6 +235,10 @@ struct NowPlayingView: View {
                     }
 
                     SleepTimerMenu()
+
+                    Button("Select Visualizer…", systemImage: "waveform") {
+                        showsVisualizerPicker = true
+                    }
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.body.weight(.semibold))
@@ -233,11 +256,6 @@ struct NowPlayingView: View {
         .padding(.horizontal, 8)
         .contentShape(Rectangle())
         .gesture(dismissDrag, including: isScrollingMode ? .all : .subviews)
-    }
-
-    private var source: String {
-        let described = player.queue.sourceDescription
-        return described.isEmpty ? "Queue" : described
     }
 
     /// Blurred artwork behind everything: the only place colour comes from content.
@@ -282,6 +300,10 @@ struct NowPlayingView: View {
                 .scaleEffect(player.isPlaying ? 1 : 0.86)
                 .animation(.spring(duration: 0.35), value: player.isPlaying)
                 .matchedGeometryEffect(id: "artwork", in: modeNamespace)
+                // Plexamp's artwork is the visualiser's other side: a tap turns it over,
+                // a long press picks which one.
+                .onTapGesture { mode = .visualizer }
+                .onLongPressGesture { showsVisualizerPicker = true }
 
             case .queue:
                 QueueView()
@@ -292,7 +314,11 @@ struct NowPlayingView: View {
                 }
 
             case .visualizer:
-                VisualizerView(isPaused: dragOffset != 0)
+                VisualizerView(
+                    isPaused: drag.isMoved,
+                    onTap: { mode = .artwork },
+                    onLongPress: { showsVisualizerPicker = true }
+                )
             }
         }
         .animation(.easeInOut(duration: 0.25), value: mode)
@@ -380,10 +406,196 @@ struct NowPlayingView: View {
         .foregroundStyle(.white.opacity(0.5))
     }
 
-    /// The quiet line Plexamp gets right: what you are actually hearing, and where you
-    /// are in the queue. Every part is omitted when unknown rather than shown as a
-    /// placeholder.
-    private func detailLine(_ song: Song) -> some View {
+    /// Shown for a few seconds when playback started part-way through a long track.
+    ///
+    /// A silent auto-seek with no way back is the failure mode this exists to avoid: the
+    /// strip says where it resumed from and offers the undo, then gets out of the way.
+    @ViewBuilder
+    private var resumeStrip: some View {
+        if let notice = appState.player.resumeNotice,
+           notice.songID == appState.player.currentSong?.id {
+            HStack(spacing: 10) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.caption)
+                Text("Resumed from \(Int(notice.seconds).asDuration)")
+                    .font(.caption)
+                Button("Start over") {
+                    appState.player.startOver()
+                }
+                .font(.caption.weight(.semibold))
+            }
+            .foregroundStyle(.white.opacity(0.85))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+            .padding(.top, 8)
+            .transition(.opacity)
+            .task(id: notice) {
+                try? await Task.sleep(for: .seconds(8))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.3)) {
+                    appState.player.resumeNotice = nil
+                }
+            }
+        }
+    }
+
+    private var transport: some View {
+        let showsSkip = playerSettings.showsSkipButtons
+
+        return HStack(spacing: showsSkip ? 16 : 28) {
+            ShuffleButton()
+
+            if showsSkip {
+                Button { player.skip(by: -Double(playerSettings.skipBackSeconds)) } label: {
+                    Image(systemName: "gobackward.\(playerSettings.skipBackSeconds)").font(.title3)
+                }
+                .accessibilityLabel("Back \(playerSettings.skipBackSeconds) seconds")
+            }
+
+            Button { player.previous() } label: {
+                Image(systemName: "backward.fill").font(.title2)
+            }
+            .accessibilityLabel("Previous track")
+
+            Button { player.togglePlayPause() } label: {
+                Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.system(size: 56))
+            }
+            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+
+            Button { player.next() } label: {
+                Image(systemName: "forward.fill").font(.title2)
+            }
+            .accessibilityLabel("Next track")
+
+            if showsSkip {
+                Button { player.skip(by: Double(playerSettings.skipForwardSeconds)) } label: {
+                    Image(systemName: "goforward.\(playerSettings.skipForwardSeconds)").font(.title3)
+                }
+                .accessibilityLabel("Forward \(playerSettings.skipForwardSeconds) seconds")
+            }
+
+            RepeatButton()
+        }
+        .foregroundStyle(.white)
+        .padding(.top, Metrics.itemSpacing)
+    }
+
+    /// The system slider, flanked by the usual two icons so it reads as volume rather
+    /// than a second progress bar.
+    private var volumeRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "speaker.fill")
+            SystemVolumeSlider()
+            Image(systemName: "speaker.wave.3.fill")
+        }
+        .font(.caption2)
+        .foregroundStyle(.white.opacity(0.5))
+        .padding(.horizontal, 24)
+        .padding(.top, Metrics.itemSpacing)
+    }
+
+    private var bottomRow: some View {
+        HStack {
+            modeButton(.lyrics, "quote.bubble")
+            Spacer()
+            modeButton(.artwork, "photo")
+            Spacer()
+            modeButton(.visualizer, "waveform")
+            Spacer()
+            modeButton(.queue, "list.bullet")
+            Spacer()
+            // Fixed, not a minimum: this is a fixed-size glyph rather than text, and a
+            // minimum let it grow to fill the row. Centred in a touch-target-sized box.
+            AudioRoutePicker()
+                .frame(width: 22, height: 22)
+                .frame(width: Metrics.minimumTouchTarget, height: Metrics.minimumTouchTarget)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+        .padding(.bottom, 4)
+    }
+
+    /// Selection is shown by tint and weight, not by swapping in a `.fill` variant.
+    /// Appending ".fill" was a guess that does not hold: `waveform.fill` and
+    /// `list.bullet.fill` are not real symbols, and an unknown name renders as blank.
+    private func modeButton(_ target: PlayerMode, _ symbol: String) -> some View {
+        let isSelected = mode == target
+
+        return Button {
+            mode = isSelected ? .artwork : target
+        } label: {
+            Image(systemName: symbol)
+                .font(.title3.weight(isSelected ? .bold : .regular))
+                .foregroundStyle(isSelected ? Color.appTint : .white.opacity(0.6))
+                .frame(minWidth: Metrics.minimumTouchTarget, minHeight: Metrics.minimumTouchTarget)
+        }
+        .accessibilityLabel(String(describing: target).capitalized)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
+
+// The three things the player shows that are about the queue rather than the track:
+// views of their own, so that reading `queue` for them makes a queue edit redraw them and
+// not the whole player.
+
+/// Where the queue came from: "Kid A", or just "Queue".
+private struct QueueSourceText: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        let described = appState.player.queue.sourceDescription
+        Text(described.isEmpty ? "Queue" : described)
+    }
+}
+
+private struct ShuffleButton: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        let player = appState.player
+        Button { player.toggleShuffle() } label: {
+            Image(systemName: "shuffle")
+                .foregroundStyle(player.queue.isShuffled ? Color.appTint : .white.opacity(0.7))
+        }
+        .accessibilityLabel(player.queue.isShuffled ? "Shuffle on" : "Shuffle off")
+    }
+}
+
+private struct RepeatButton: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        let player = appState.player
+        Button { player.cycleRepeat() } label: {
+            Image(systemName: player.queue.repeatMode.symbol)
+                .foregroundStyle(
+                    player.queue.repeatMode == .off ? .white.opacity(0.7) : Color.appTint
+                )
+        }
+        .accessibilityLabel("Repeat: \(player.queue.repeatMode.rawValue)")
+    }
+}
+
+/// The quiet line Plexamp gets right: what you are actually hearing, and where you are
+/// in the queue. Every part is omitted when unknown rather than shown as a placeholder.
+///
+/// Its own view because of everything it reads: the downloads catalog, the stream cache,
+/// the network, the sleep timer, the Guest DJ. Inside the player's body, a download
+/// finishing anywhere in the library, or a file landing in the cache, re-ran the whole
+/// player; here it re-runs one line.
+private struct PlayerDetailLine: View {
+    @Environment(AppState.self) private var appState
+    @Environment(SleepTimer.self) private var sleepTimer
+    @Environment(DownloadCenter.self) private var downloads
+    @Environment(GuestDJService.self) private var guestDJ
+
+    let song: Song
+
+    private var player: PlaybackController { appState.player }
+
+    var body: some View {
         HStack(spacing: 6) {
             if downloads.isDownloaded(song.id) {
                 Label("Downloaded", systemImage: "arrow.down.circle.fill")
@@ -481,144 +693,35 @@ struct NowPlayingView: View {
             ? String(Int(value))
             : String(format: "%.1f", value)
     }
+}
 
-    /// Shown for a few seconds when playback started part-way through a long track.
-    ///
-    /// A silent auto-seek with no way back is the failure mode this exists to avoid: the
-    /// strip says where it resumed from and offers the undo, then gets out of the way.
-    @ViewBuilder
-    private var resumeStrip: some View {
-        if let notice = appState.player.resumeNotice,
-           notice.songID == appState.player.currentSong?.id {
-            HStack(spacing: 10) {
-                Image(systemName: "clock.arrow.circlepath")
-                    .font(.caption)
-                Text("Resumed from \(Int(notice.seconds).asDuration)")
-                    .font(.caption)
-                Button("Start over") {
-                    appState.player.startOver()
-                }
-                .font(.caption.weight(.semibold))
-            }
-            .foregroundStyle(.white.opacity(0.85))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(.ultraThinMaterial, in: Capsule())
-            .padding(.top, 8)
-            .transition(.opacity)
-            .task(id: notice) {
-                try? await Task.sleep(for: .seconds(8))
-                guard !Task.isCancelled else { return }
-                withAnimation(.easeOut(duration: 0.3)) {
-                    appState.player.resumeNotice = nil
-                }
-            }
+/// How far the player has been pulled down. An object rather than `@State` on the player,
+/// so that only `DismissOffset` reads `offset`: as state on the player it was read by the
+/// player's body, which then ran on every frame of the drag — the whole screen rebuilt
+/// sixty or a hundred and twenty times a second to move it.
+@MainActor
+@Observable
+private final class DismissDrag {
+    var offset: CGFloat = 0 {
+        didSet {
+            // Written only when it flips, so the player's body, which reads this, runs at
+            // the start and end of a drag and not in between.
+            if (offset != 0) != isMoved { isMoved = offset != 0 }
         }
     }
 
-    private var transport: some View {
-        let showsSkip = playerSettings.showsSkipButtons
+    /// Whether the player is off its resting place at all.
+    private(set) var isMoved = false
+}
 
-        return HStack(spacing: showsSkip ? 16 : 28) {
-            Button { player.toggleShuffle() } label: {
-                Image(systemName: "shuffle")
-                    .foregroundStyle(player.queue.isShuffled ? Color.appTint : .white.opacity(0.7))
-            }
-            .accessibilityLabel(player.queue.isShuffled ? "Shuffle on" : "Shuffle off")
+/// Moves the player with the drag. The content is built by the player and only offset
+/// here, so a change of offset re-runs this body and nothing inside it.
+private struct DismissOffset<Content: View>: View {
+    let drag: DismissDrag
+    @ViewBuilder let content: Content
 
-            if showsSkip {
-                Button { player.skip(by: -Double(playerSettings.skipBackSeconds)) } label: {
-                    Image(systemName: "gobackward.\(playerSettings.skipBackSeconds)").font(.title3)
-                }
-                .accessibilityLabel("Back \(playerSettings.skipBackSeconds) seconds")
-            }
-
-            Button { player.previous() } label: {
-                Image(systemName: "backward.fill").font(.title2)
-            }
-            .accessibilityLabel("Previous track")
-
-            Button { player.togglePlayPause() } label: {
-                Image(systemName: player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: 56))
-            }
-            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
-
-            Button { player.next() } label: {
-                Image(systemName: "forward.fill").font(.title2)
-            }
-            .accessibilityLabel("Next track")
-
-            if showsSkip {
-                Button { player.skip(by: Double(playerSettings.skipForwardSeconds)) } label: {
-                    Image(systemName: "goforward.\(playerSettings.skipForwardSeconds)").font(.title3)
-                }
-                .accessibilityLabel("Forward \(playerSettings.skipForwardSeconds) seconds")
-            }
-
-            Button { player.cycleRepeat() } label: {
-                Image(systemName: player.queue.repeatMode.symbol)
-                    .foregroundStyle(
-                        player.queue.repeatMode == .off ? .white.opacity(0.7) : Color.appTint
-                    )
-            }
-            .accessibilityLabel("Repeat: \(player.queue.repeatMode.rawValue)")
-        }
-        .foregroundStyle(.white)
-        .padding(.top, Metrics.itemSpacing)
-    }
-
-    /// The system slider, flanked by the usual two icons so it reads as volume rather
-    /// than a second progress bar.
-    private var volumeRow: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "speaker.fill")
-            SystemVolumeSlider()
-            Image(systemName: "speaker.wave.3.fill")
-        }
-        .font(.caption2)
-        .foregroundStyle(.white.opacity(0.5))
-        .padding(.horizontal, 24)
-        .padding(.top, Metrics.itemSpacing)
-    }
-
-    private var bottomRow: some View {
-        HStack {
-            modeButton(.lyrics, "quote.bubble")
-            Spacer()
-            modeButton(.artwork, "photo")
-            Spacer()
-            modeButton(.visualizer, "waveform")
-            Spacer()
-            modeButton(.queue, "list.bullet")
-            Spacer()
-            // Fixed, not a minimum: this is a fixed-size glyph rather than text, and a
-            // minimum let it grow to fill the row. Centred in a touch-target-sized box.
-            AudioRoutePicker()
-                .frame(width: 22, height: 22)
-                .frame(width: Metrics.minimumTouchTarget, height: Metrics.minimumTouchTarget)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 4)
-        .padding(.bottom, 4)
-    }
-
-    /// Selection is shown by tint and weight, not by swapping in a `.fill` variant.
-    /// Appending ".fill" was a guess that does not hold: `waveform.fill` and
-    /// `list.bullet.fill` are not real symbols, and an unknown name renders as blank.
-    private func modeButton(_ target: PlayerMode, _ symbol: String) -> some View {
-        let isSelected = mode == target
-
-        return Button {
-            mode = isSelected ? .artwork : target
-        } label: {
-            Image(systemName: symbol)
-                .font(.title3.weight(isSelected ? .bold : .regular))
-                .foregroundStyle(isSelected ? Color.appTint : .white.opacity(0.6))
-                .frame(minWidth: Metrics.minimumTouchTarget, minHeight: Metrics.minimumTouchTarget)
-        }
-        .accessibilityLabel(String(describing: target).capitalized)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    var body: some View {
+        content.offset(y: drag.offset)
     }
 }
 
@@ -883,9 +986,12 @@ private struct ArtworkColorBackdrop: View {
         }
         .animation(.easeInOut(duration: 0.6), value: color)
         .task(id: coverArt) {
-            guard let image = await artwork.image(for: coverArt, size: .thumb),
-                  let average = image.averageColor
-            else { return }
+            guard let image = await artwork.image(for: coverArt, size: .thumb) else { return }
+            // Off the main thread: it makes a Core Image context and renders with it, once
+            // per track, and on the main thread that landed just as the new track's screen
+            // was being drawn.
+            let average = await Task.detached(priority: .userInitiated) { image.averageColor }.value
+            guard let average, !Task.isCancelled else { return }
             color = average
         }
     }

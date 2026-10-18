@@ -18,6 +18,7 @@ struct ChartsView: View {
     @State private var period: ChartPeriod?
     @State private var kind: Kind = .tracks
     @State private var serverAlbums: [Album] = []
+    @State private var ranked: Ranked?
 
     private enum Kind: String, CaseIterable {
         case tracks = "Tracks"
@@ -99,15 +100,71 @@ struct ChartsView: View {
             guard span == .all else { return }
             serverAlbums = (try? await appState.client.albums(type: .frequent, size: limit, scope: scope.scope)) ?? []
         }
+        .task(id: rankKey) { await rank(rankKey) }
     }
 
-    private var plays: [ChartPlay] { history.plays.map(\.chartPlay) }
+    // MARK: - Ranking
+
+    /// One chart, and what it was ranked for.
+    private struct Ranked {
+        let key: RankKey
+        let rows: [ChartRow]
+    }
+
+    /// What a chart depends on: which chart, the period, its length, and the play log, by
+    /// its length and its two ends.
+    private struct RankKey: Equatable, Sendable {
+        let kind: Kind
+        let period: ChartPeriod
+        let limit: Int
+        let count: Int
+        let first: UUID?
+        let last: UUID?
+    }
+
+    private var rankKey: RankKey {
+        let plays = history.plays
+        return RankKey(
+            kind: kind, period: shown, limit: limit,
+            count: plays.count, first: plays.first?.id, last: plays.last?.id
+        )
+    }
+
+    /// The chart on screen, or nil for the moment it takes to rank.
+    private var rows: [ChartRow]? {
+        guard let ranked, ranked.key == rankKey else { return nil }
+        return ranked.rows
+    }
+
+    /// Ranked off the main thread. It is the whole log, up to 20,000 plays, mapped and
+    /// counted, and in the body it ran on every redraw: every tap on the picker or the
+    /// period arrows, and every server answer, rebuilt the chart from scratch.
+    private func rank(_ key: RankKey) async {
+        guard ranked?.key != key else { return }
+        let plays = history.plays
+        let rows = await Task.detached(priority: .userInitiated) { () -> [ChartRow] in
+            let chart = plays.map { $0.chartPlay }
+            switch key.kind {
+            case .tracks: return Charts.topTracks(chart, in: key.period, limit: key.limit)
+            case .albums: return Charts.topAlbums(chart, in: key.period, limit: key.limit)
+            case .artists: return Charts.topArtists(chart, in: key.period, limit: key.limit)
+            }
+        }.value
+        guard !Task.isCancelled else { return }
+        ranked = Ranked(key: key, rows: rows)
+    }
 
     // MARK: - Rows
 
     @ViewBuilder
     private var trackRows: some View {
-        let rows = Charts.topTracks(plays, in: shown, limit: limit)
+        if let rows {
+            trackList(rows)
+        }
+    }
+
+    @ViewBuilder
+    private func trackList(_ rows: [ChartRow]) -> some View {
         if rows.isEmpty {
             empty
         } else {
@@ -124,13 +181,18 @@ struct ChartsView: View {
 
     @ViewBuilder
     private var albumRows: some View {
-        let rows = span == .all && !serverAlbums.isEmpty
-            ? serverAlbums.map { album in
+        if span == .all && !serverAlbums.isEmpty {
+            albumList(serverAlbums.map { album in
                 ChartRow(id: album.id, title: album.name, subtitle: album.artist, plays: album.playCount ?? 0,
                          albumID: album.id, artistID: album.artistId, coverArt: album.coverArt)
-            }
-            : Charts.topAlbums(plays, in: shown, limit: limit)
+            })
+        } else if let rows {
+            albumList(rows)
+        }
+    }
 
+    @ViewBuilder
+    private func albumList(_ rows: [ChartRow]) -> some View {
         if rows.isEmpty {
             empty
         } else {
@@ -148,7 +210,13 @@ struct ChartsView: View {
 
     @ViewBuilder
     private var artistRows: some View {
-        let rows = Charts.topArtists(plays, in: shown, limit: limit)
+        if let rows {
+            artistList(rows)
+        }
+    }
+
+    @ViewBuilder
+    private func artistList(_ rows: [ChartRow]) -> some View {
         if rows.isEmpty {
             empty
         } else {

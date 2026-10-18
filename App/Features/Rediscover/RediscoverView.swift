@@ -117,6 +117,7 @@ final class RediscoverModel {
 
         // Resolved one request at a time, so only run when there is actually something
         // there — which, for a log that started this month, is nothing yet.
+        await appState.history.loaded()
         let year = Rediscovery.plays(from: appState.history, daysAgo: 365)
         let month = Rediscovery.plays(from: appState.history, daysAgo: 30)
         yearAgo = year.isEmpty ? [] : await Rediscovery.resolve(year, appState: appState)
