@@ -95,6 +95,7 @@ struct HomeView: View {
     private func shelf(_ hub: HomeHub) -> some View {
         switch hub {
         case .madeForYou: mixShelf
+        case .recentPlays: RecentPlaysShelf()
         case .stations: StationsShelf()
         case .recentlyPlayed: albumShelf("Recently Played", model.recentlyPlayed, sort: .recent)
         case .recentlyAdded: albumShelf("Recently Added", model.recentlyAdded, sort: .newest)
@@ -492,5 +493,80 @@ struct HomeEditorView: View {
             }
         }
         .onAppear { layout = HomeLayout.restored(from: layoutData) }
+    }
+}
+
+/// Plexamp's Recent Plays: the albums, playlists, artists and stations you started, a tap
+/// from starting again.
+struct RecentPlaysShelf: View {
+    @Environment(RecentPlaysStore.self) private var store
+    @Environment(StationService.self) private var stations
+
+    var body: some View {
+        if !store.recent.origins.isEmpty {
+            VStack(alignment: .leading, spacing: Metrics.headerToContent) {
+                ShelfHeader(title: "Recent Plays")
+
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: Metrics.itemSpacing) {
+                        ForEach(store.recent.origins) { origin in
+                            item(origin)
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.viewAligned)
+                .contentMargins(.horizontal, Metrics.gutter, for: .scrollContent)
+                .scrollIndicators(.hidden)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func item(_ origin: PlayOrigin) -> some View {
+        switch origin {
+        case let .album(id, name, artist, coverArt):
+            NavigationLink(value: Destination.album(AlbumRef(id: id, name: name, artist: artist, coverArt: coverArt))) {
+                card(origin)
+            }
+            .buttonStyle(.plain)
+        case let .playlist(id, name, coverArt):
+            NavigationLink(value: Destination.playlist(PlaylistRef(id: id, name: name, coverArt: coverArt))) {
+                card(origin)
+            }
+            .buttonStyle(.plain)
+        case let .artist(id, name, coverArt):
+            NavigationLink(value: Destination.artist(ArtistRef(id: id, name: name, coverArt: coverArt))) {
+                card(origin)
+            }
+            .buttonStyle(.plain)
+        case let .station(station, _):
+            Button { stations.play(station) } label: { card(origin) }
+                .buttonStyle(.plain)
+        }
+    }
+
+    private func card(_ origin: PlayOrigin) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ArtworkImage(id: origin.coverArt, size: .card, fallbackText: origin.title)
+                .aspectRatio(1, contentMode: .fit)
+                .overlay(alignment: .bottomTrailing) {
+                    if case let .station(station, _) = origin {
+                        Image(systemName: station.symbol)
+                            .font(.caption.weight(.semibold))
+                            .padding(6)
+                            .background(.ultraThinMaterial, in: Circle())
+                            .padding(6)
+                    }
+                }
+            Text(origin.title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+            Text(origin.subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(width: Metrics.cardWidth * 0.85, alignment: .leading)
     }
 }

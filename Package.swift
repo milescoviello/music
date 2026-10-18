@@ -35,6 +35,7 @@ let package = Package(
                 "Charts.swift",
                 "HomeLayout.swift",
                 "SearchRanking.swift",
+                "RecentPlays.swift",
             ]
         ),
         .testTarget(

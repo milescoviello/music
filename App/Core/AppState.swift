@@ -50,6 +50,7 @@ final class AppState {
     let guestDJ = GuestDJService()
     let stations = StationService()
     let libraryIndex = LibraryIndex()
+    let recentPlays = RecentPlaysStore()
     let streamCache = StreamCache()
     let shapes = TrackShapeStore()
     /// Shared PCM ring. One buffer for the whole app, because only one thing can be

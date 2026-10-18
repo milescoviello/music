@@ -3,6 +3,7 @@ import Foundation
 /// The shelves Home can show — Plexamp's hubs, as far as Navidrome can fill them.
 enum HomeHub: String, Codable, CaseIterable, Identifiable, Sendable {
     case madeForYou
+    case recentPlays
     case stations
     case recentlyPlayed
     case onThisDay
@@ -20,6 +21,7 @@ enum HomeHub: String, Codable, CaseIterable, Identifiable, Sendable {
     var title: String {
         switch self {
         case .madeForYou: return "Made for You"
+        case .recentPlays: return "Recent Plays"
         case .stations: return "Stations"
         case .recentlyPlayed: return "Recently Played"
         case .onThisDay: return "On This Day"

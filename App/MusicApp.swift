@@ -30,6 +30,7 @@ struct MusicApp: App {
                 .environment(appState.guestDJ)
                 .environment(appState.stations)
                 .environment(appState.libraryIndex)
+                .environment(appState.recentPlays)
                 .environment(appState.streamCache)
                 .environment(appState.spectrum)
                 .preferredColorScheme(.dark)

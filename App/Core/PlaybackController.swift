@@ -315,6 +315,11 @@ final class PlaybackController {
             station: station
         )
         appState?.guestDJ.queueReplaced()
+        if let appState {
+            appState.recentPlays.record(PlayOrigin.infer(
+                songs: songs, source: source, station: station, playlists: appState.playlistStore.playlists
+            ))
+        }
 
         // A saved position only applies when the caller did not ask for one, and only to
         // tracks long enough for it to matter -- `ResumeStore` decides both.
