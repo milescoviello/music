@@ -9,7 +9,7 @@ enum Pages {
         case .home: return HomePage.make(env)
         case .library: return LibraryHub.make(env)
         case .search: return SearchPage.make(env)
-        case .downloads: return pending("Downloads", env: env)
+        case .downloads: return DownloadsPage.make(env)
         case .settings: return pending("Settings", env: env)
         }
     }
@@ -62,6 +62,10 @@ enum Pages {
             return StatsPage.make(env)
         case .charts:
             return ChartsPage.make(env)
+        case .downloads:
+            return DownloadsPage.make(env)
+        case let .downloadFolder(id):
+            return DownloadFolderPage.make(env, id: id)
         default:
             return pending(String(describing: destination), env: env)
         }
