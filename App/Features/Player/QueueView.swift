@@ -180,6 +180,8 @@ struct QueueView: View {
         .listRowBackground(Color.clear)
         .contextMenu {
             SongMenu(song: entry.song, showsNavigation: false)
+            Divider()
+            SongJumpItems(song: entry.song)
         }
     }
 

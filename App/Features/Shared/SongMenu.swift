@@ -127,6 +127,33 @@ struct SongMenu: View {
     }
 }
 
+/// Go to Album and Go to Artist for menus inside the player, as jumps rather than
+/// pushes: `SongMenu`'s own are `NavigationLink`s, which would push inside the player —
+/// a screen with no tab bar and no way back but a swipe that loses it. These close the
+/// player and open the destination in the Library tab (`Navigator`).
+struct SongJumpItems: View {
+    @Environment(AppState.self) private var appState
+
+    let song: Song
+
+    var body: some View {
+        if let albumId = song.albumId, let album = song.album {
+            Button("Go to Album", systemImage: "square.stack") {
+                appState.navigator.open(.album(AlbumRef(
+                    id: albumId, name: album,
+                    artist: song.artist, coverArt: song.coverArt
+                )))
+            }
+        }
+
+        if let artistId = song.artistId, let artist = song.artist {
+            Button("Go to Artist", systemImage: "music.mic") {
+                appState.navigator.open(.artist(ArtistRef(id: artistId, name: artist)))
+            }
+        }
+    }
+}
+
 /// Five taps, no gesture recognisers: a drag-across-the-stars control is a nice
 /// flourish that fights `List` scrolling on a phone.
 struct RatingStars: View {
