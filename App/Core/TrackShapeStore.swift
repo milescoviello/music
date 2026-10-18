@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Observation
 
 /// Reads a local file's first and last seconds for Sweet Fades.
 enum TrackAnalyzer {
@@ -17,7 +18,49 @@ enum TrackAnalyzer {
               let outro = read(file, from: outroStart, count: length - outroStart)
         else { return nil }
 
-        return TrackShape.measure(intro: intro, outro: outro, sampleRate: sampleRate)
+        return TrackShape.measure(intro: intro, outro: outro, sampleRate: sampleRate, power: power(of: file))
+    }
+
+    /// Mean-square power of each of `TrackShape.envelopePoints` equal slices of the whole
+    /// track, for the seekbar. Read in one-second blocks, so a long track costs time but
+    /// never memory. Nil if any block fails: a partial outline would draw a lie.
+    private static func power(of file: AVAudioFile) -> [Double]? {
+        let length = file.length
+        let slices = TrackShape.envelopePoints
+        guard length >= AVAudioFramePosition(slices) else { return nil }
+
+        let block = AVAudioFrameCount(max(4_096, Int(file.processingFormat.sampleRate)))
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: block) else { return nil }
+
+        var sums = [Double](repeating: 0, count: slices)
+        var counts = [Int](repeating: 0, count: slices)
+        file.framePosition = 0
+        var position: AVAudioFramePosition = 0
+
+        while position < length {
+            do {
+                try file.read(into: buffer, frameCount: min(block, AVAudioFrameCount(length - position)))
+            } catch {
+                return nil
+            }
+            let frames = Int(buffer.frameLength)
+            guard frames > 0, let data = buffer.floatChannelData else { break }
+            let channels = min(Int(buffer.format.channelCount), 2)
+
+            for frame in 0..<frames {
+                var square: Double = 0
+                for channel in 0..<channels {
+                    let sample = Double(data[channel][frame])
+                    square += sample * sample
+                }
+                let slice = min(slices - 1, Int((position + AVAudioFramePosition(frame)) * AVAudioFramePosition(slices) / length))
+                sums[slice] += square
+                counts[slice] += 1
+            }
+            position += AVAudioFramePosition(frames)
+        }
+
+        return zip(sums, counts).map { $1 > 0 ? $0 / Double($1) : 0 }
     }
 
     /// Non-interleaved channels, at most two: BS.1770 weights front left and right
@@ -56,16 +99,28 @@ enum TrackAnalyzer {
 /// purge by iOS loses nothing that cannot be measured again, and a shape is read once per
 /// track per session and then held in memory.
 @MainActor
+@Observable
 final class TrackShapeStore {
-    private var known: [String: TrackShape] = [:]
+    /// Observed, so the seekbar redraws when the track playing gets its outline.
+    private(set) var known: [String: TrackShape] = [:]
     /// Looked for on disk and not there, so the planner can ask on every queue change
     /// without touching the file system each time.
-    private var absent: Set<String> = []
-    private var measuring: Set<String> = []
+    @ObservationIgnored private var absent: Set<String> = []
+    @ObservationIgnored private var measuring: Set<String> = []
+    /// Measured this session, successfully or not. A file that cannot give an outline is
+    /// not decoded again on every queue change.
+    @ObservationIgnored private var attempted: Set<String> = []
 
     /// A track was measured. The transitions either side of it can now be planned
     /// properly instead of guessed.
-    var onMeasured: ((String) -> Void)?
+    @ObservationIgnored var onMeasured: ((String) -> Void)?
+
+    /// For a view body: what is already in memory, without touching the disk — reading
+    /// from disk here would write `known` while the view is being drawn. Call
+    /// `shape(for:)` from a `.task` to load it.
+    func loadedShape(for songID: String) -> TrackShape? {
+        known[songID]
+    }
 
     func shape(for songID: String) -> TrackShape? {
         if let shape = known[songID] { return shape }
@@ -83,7 +138,9 @@ final class TrackShapeStore {
     /// Measures a local file, once. Cheap to call repeatedly: a known or in-progress
     /// track returns at once.
     func measure(songID: String, at url: URL) {
-        guard shape(for: songID) == nil, !measuring.contains(songID) else { return }
+        // Shapes measured before the seekbar outline existed are measured again, once.
+        guard !attempted.contains(songID), shape(for: songID)?.envelope == nil else { return }
+        attempted.insert(songID)
         measuring.insert(songID)
 
         let destination = file(for: songID)

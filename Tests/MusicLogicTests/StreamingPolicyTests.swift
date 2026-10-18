@@ -154,4 +154,22 @@ struct TrackShapeTests {
         let decoded = try JSONDecoder().decode(TrackShape.self, from: JSONEncoder().encode(shape))
         #expect(decoded == shape)
     }
+
+    @Test func theEnvelopeIsRelativeToTheLoudestSliceAndFloored() throws {
+        let envelope = try #require(TrackShape.envelope(fromPower: [1, 0.1, 0, 1e-9]))
+        #expect(envelope[0] == 1)
+        // 10 dB down on a 36 dB scale.
+        #expect(abs(envelope[1] - 26.0 / 36.0) < 0.001)
+        #expect(envelope[2] == 0)
+        // 90 dB down is below the floor.
+        #expect(envelope[3] == 0)
+        #expect(TrackShape.envelope(fromPower: []) == nil)
+        #expect(TrackShape.envelope(fromPower: [0, 0]) == nil)
+    }
+
+    @Test func aShapeWithoutAnEnvelopeStillDecodes() throws {
+        let old = #"{"intro":{"levels":[-20],"hop":0.1},"outro":{"levels":[-20],"hop":0.1}}"#
+        let shape = try JSONDecoder().decode(TrackShape.self, from: Data(old.utf8))
+        #expect(shape.envelope == nil)
+    }
 }
