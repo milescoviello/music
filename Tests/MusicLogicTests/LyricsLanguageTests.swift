@@ -32,6 +32,11 @@ struct LyricsLanguageTests {
         #expect(LyricsLanguage.resolve(lines: lines, tag: "eng", detected: "zh-Hans") == "ja")
     }
 
+    @Test func aStrayKanaDoesNotMakeChineseJapanese() {
+        let lines = ["我の世界", "你是我的唯一", "永远爱你"]
+        #expect(LyricsLanguage.resolve(lines: lines, tag: nil, detected: "zh-Hans") == "zh-Hans")
+    }
+
     @Test func hangulSettlesItAsKorean() {
         #expect(LyricsLanguage.resolve(lines: ["사랑해", "I love you"], tag: nil, detected: "en") == "ko")
     }

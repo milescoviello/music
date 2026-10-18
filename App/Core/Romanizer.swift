@@ -7,7 +7,9 @@ import CoreFoundation
 ///
 /// Japanese is read word by word with the system's Japanese tokenizer, because the
 /// general transform reads every kanji as Mandarin: 罪 comes out "zuì", not "tsumi".
-/// Everything else -- hangul, Chinese, Cyrillic, Greek, Arabic, Thai -- goes through the
+/// Korean and Cyrillic are spelled by hand, the way readers expect them -- "saranghae",
+/// "Ya tebya lyublyu" -- where the general transform writes "salanghae" and
+/// "Â tebâ lûblû". Everything else -- Chinese, Greek, Arabic, Thai -- goes through the
 /// general transform. Diacritics are stripped throughout ("Tokyo", not "Tōkyō"): this is
 /// read at a glance mid-song, and the marks were noise more often than help.
 enum Romanizer {
@@ -24,10 +26,11 @@ enum Romanizer {
     /// Latin letters would only be repeated beneath itself.
     static func romanize(_ lines: [String], language: String?) -> [String?] {
         let style = style(forLanguage: language)
-        return lines.map { romanize($0, style: style) }
+        return lines.map { romanize($0, style: style, language: language) }
     }
 
-    static func romanize(_ line: String, style: Style) -> String? {
+    /// `language` only picks the Cyrillic spelling: Ukrainian's г is "h", Bulgarian's ъ "a".
+    static func romanize(_ line: String, style: Style, language: String? = nil) -> String? {
         guard needsRomanization(line) else { return nil }
         let raw: String?
         switch style {
@@ -39,7 +42,10 @@ enum Romanizer {
             raw = line.applyingTransform(.toLatin, reverse: false)
             #endif
         case .general:
-            raw = line.applyingTransform(.toLatin, reverse: false)
+            let spelled = cyrillic(hangul(line), language: LyricsLanguage.base(of: language))
+            // The general transform marks hard and soft signs outside the table with
+            // primes, which say nothing to someone reading along.
+            raw = spelled.applyingTransform(.toLatin, reverse: false)?.filter { $0 != "ʹ" && $0 != "ʺ" }
         }
         guard let raw else { return nil }
         let tidied = tidy(raw)
@@ -150,6 +156,140 @@ enum Romanizer {
         return tokens
     }
     #endif
+
+    // MARK: - Korean
+
+    /// Revised Romanization, a run of syllables at a time: the sound changes it writes
+    /// down happen inside a word, where one syllable's final meets the next one's initial.
+    /// 한국어 is "hangugeo", 합니다 "hamnida", 그렇게 "geureoke".
+    static func hangul(_ text: String) -> String {
+        var result = ""
+        var run: [Syllable] = []
+        for scalar in text.unicodeScalars {
+            if let syllable = Syllable(scalar) {
+                run.append(syllable)
+                continue
+            }
+            result += revised(run)
+            run.removeAll()
+            result.unicodeScalars.append(scalar)
+        }
+        return result + revised(run)
+    }
+
+    private struct Syllable {
+        let initial: Int
+        let vowel: Int
+        let final: Int
+
+        /// Unicode composes every syllable as 0xAC00 + (initial × 21 + vowel) × 28 + final.
+        init?(_ scalar: Unicode.Scalar) {
+            guard (0xAC00...0xD7A3).contains(scalar.value) else { return nil }
+            let index = Int(scalar.value - 0xAC00)
+            initial = index / 588
+            vowel = index % 588 / 28
+            final = index % 28
+        }
+    }
+
+    private static func revised(_ syllables: [Syllable]) -> String {
+        var result = ""
+        var carried: String?
+        for (index, syllable) in syllables.enumerated() {
+            result += carried ?? initials[syllable.initial]
+            result += vowels[syllable.vowel]
+            carried = nil
+            guard syllable.final != 0 else { continue }
+            guard index + 1 < syllables.count else {
+                result += finals[syllable.final]
+                continue
+            }
+            let (final, next) = joint(syllable.final, before: syllables[index + 1].initial)
+            result += final
+            carried = next
+        }
+        return result
+    }
+
+    /// How a final consonant is said before the next syllable's initial: the spelling of
+    /// the final, and the initial in its place when the meeting changes it.
+    private static func joint(_ final: Int, before initial: Int) -> (String, String?) {
+        switch (final, initial) {
+        case (_, 11):
+            // A silent ㅇ: the final carries across and is said as the next initial.
+            let (stays, moves) = liaison[final]
+            return (stays, moves.isEmpty ? nil : moves)
+        case (4, 5), (8, 5), (8, 2):
+            // ㄴ or ㄹ against ㄹ, and ㄹ against ㄴ, are all said as a long l.
+            return ("l", "l")
+        case (27, 0), (27, 3), (27, 12), (6, 0), (6, 3), (6, 12), (15, 0), (15, 3), (15, 12):
+            // ㅎ breathes into ㄱ, ㄷ and ㅈ.
+            return (final == 6 ? "n" : final == 15 ? "l" : "", aspirated[initial])
+        case (_, 2), (_, 6):
+            // Before ㄴ or ㅁ a stop turns nasal.
+            switch finals[final] {
+            case "k": return ("ng", nil)
+            case "t": return ("n", nil)
+            case "p": return ("m", nil)
+            case let spelling: return (spelling, nil)
+            }
+        default:
+            return (finals[final], nil)
+        }
+    }
+
+    private static let initials = [
+        "g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "", "j", "jj", "ch", "k", "t", "p", "h",
+    ]
+    private static let vowels = [
+        "a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa", "wae", "oe", "yo", "u", "wo", "we",
+        "wi", "yu", "eu", "ui", "i",
+    ]
+    /// A final at the end of a word or before another consonant.
+    private static let finals = [
+        "", "k", "k", "k", "n", "n", "n", "t", "l", "k", "m", "l", "l", "l", "p", "l", "m", "p", "p",
+        "t", "t", "ng", "t", "t", "k", "t", "p", "t",
+    ]
+    /// A final before a vowel: the part that stays, and the part said with the vowel.
+    private static let liaison: [(String, String)] = [
+        ("", ""), ("", "g"), ("", "kk"), ("k", "s"), ("", "n"), ("n", "j"), ("", "n"), ("", "d"),
+        ("", "r"), ("l", "g"), ("l", "m"), ("l", "b"), ("l", "s"), ("l", "t"), ("l", "p"), ("", "r"),
+        ("", "m"), ("", "b"), ("p", "s"), ("", "s"), ("", "ss"), ("ng", ""), ("", "j"), ("", "ch"),
+        ("", "k"), ("", "t"), ("", "p"), ("", ""),
+    ]
+    private static let aspirated = [0: "k", 3: "t", 12: "ch"]
+
+    // MARK: - Cyrillic
+
+    /// The common English spelling of Russian, with Ukrainian's and Belarusian's own
+    /// letters, and the few that Ukrainian and Bulgarian say differently. Serbian's own
+    /// letters and the rest are left to the general transform.
+    static func cyrillic(_ text: String, language: String?) -> String {
+        let overrides = cyrillicOverrides[language ?? ""] ?? [:]
+        var result = ""
+        for character in text {
+            let lower = character.lowercased()
+            guard let spelling = overrides[lower] ?? cyrillicLetters[lower] else {
+                result.append(character)
+                continue
+            }
+            result += character.isUppercase ? spelling.prefix(1).uppercased() + spelling.dropFirst() : spelling
+        }
+        return result
+    }
+
+    private static let cyrillicLetters: [String: String] = [
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "yo", "ж": "zh",
+        "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o",
+        "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f", "х": "kh", "ц": "ts",
+        "ч": "ch", "ш": "sh", "щ": "shch", "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu",
+        "я": "ya", "і": "i", "ї": "yi", "є": "ye", "ґ": "g", "ў": "w",
+    ]
+
+    private static let cyrillicOverrides: [String: [String: String]] = [
+        "uk": ["г": "h", "и": "y"],
+        "bg": ["ъ": "a", "щ": "sht", "х": "h"],
+    ]
 
     // MARK: - Tidying
 

@@ -22,8 +22,26 @@ struct RomanizerTests {
 
     @Test func otherScriptsGoThroughTheGeneralTransform() {
         #expect(Romanizer.romanize("Привет, мир!", style: .general) == "Privet, mir!")
-        #expect(Romanizer.romanize("사랑해", style: .general) == "salanghae")
         #expect(Romanizer.romanize("你好，世界！", style: .general) == "ni hao, shi jie!")
+        #expect(Romanizer.romanize("Γεια σου", style: .general) == "Geia sou")
+    }
+
+    @Test func koreanIsRevisedRomanization() {
+        #expect(Romanizer.romanize("사랑해요", style: .general) == "saranghaeyo")
+        #expect(Romanizer.romanize("한국어", style: .general) == "hangugeo")
+        // A stop before ㄴ turns nasal; ㅎ breathes into the ㄱ after it; ㄴ meeting ㄹ is a long l.
+        #expect(Romanizer.romanize("합니다", style: .general) == "hamnida")
+        #expect(Romanizer.romanize("그렇게", style: .general) == "geureoke")
+        #expect(Romanizer.romanize("신라", style: .general) == "silla")
+        // Sound changes stay inside a word.
+        #expect(Romanizer.romanize("밥 은", style: .general) == "bap eun")
+    }
+
+    @Test func cyrillicIsSpelledTheEnglishWay() {
+        #expect(Romanizer.romanize("Я тебя люблю", style: .general) == "Ya tebya lyublyu")
+        #expect(Romanizer.romanize("Жизнь, щастье", style: .general) == "Zhizn, shchaste")
+        #expect(Romanizer.romanize("Привіт", style: .general, language: "uk") == "Pryvit")
+        #expect(Romanizer.romanize("България", style: .general, language: "bg") == "Balgariya")
     }
 
     @Test func diacriticsAreStripped() {

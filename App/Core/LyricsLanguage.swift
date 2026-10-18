@@ -30,8 +30,11 @@ enum LyricsLanguage {
     static func resolve(lines: [String], tag: String?, detected: String?) -> String? {
         let scripts = Scripts(lines)
         if scripts.mostlyOther {
-            if scripts.hasKana { return "ja" }
-            if scripts.hasHangul { return "ko" }
+            // A share of the Chinese characters, not just any kana: a Chinese lyric can
+            // borrow a stray の for style, while Japanese is full of particles and verb
+            // endings that kanji cannot write.
+            if scripts.kana > 0, scripts.kana * 5 >= scripts.kana + scripts.han { return "ja" }
+            if scripts.hangul * 2 >= scripts.other { return "ko" }
         }
         return detected ?? code(fromTag: tag)
     }
@@ -53,8 +56,9 @@ enum LyricsLanguage {
     private struct Scripts {
         var latin = 0
         var other = 0
-        var hasKana = false
-        var hasHangul = false
+        var kana = 0
+        var han = 0
+        var hangul = 0
 
         init(_ lines: [String]) {
             for line in lines {
@@ -63,8 +67,9 @@ enum LyricsLanguage {
                         latin += 1
                     } else {
                         other += 1
-                        hasKana = hasKana || LyricsLanguage.isKana(scalar)
-                        hasHangul = hasHangul || LyricsLanguage.isHangul(scalar)
+                        if LyricsLanguage.isKana(scalar) { kana += 1 }
+                        if LyricsLanguage.isHan(scalar) { han += 1 }
+                        if LyricsLanguage.isHangul(scalar) { hangul += 1 }
                     }
                 }
             }
@@ -91,6 +96,15 @@ enum LyricsLanguage {
         case 0x3041...0x309F, 0x30A1...0x30FA, 0x30FD...0x30FF, 0x31F0...0x31FF, 0xFF66...0xFF9D:
             // Not ・ or ー (0x30FB-0x30FC) on their own: both turn up as decoration in
             // text that is not Japanese at all.
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isHan(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0x3005...0x3007, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xF900...0xFAFF, 0x20000...0x323AF:
             return true
         default:
             return false
