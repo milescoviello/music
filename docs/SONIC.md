@@ -54,6 +54,14 @@ scale to 0–100, square for contrast (×1.5/100), normalise to 90/2.2, `x^1.2 /
 scale so the loudest is 35 points; then linear interpolation to 128 points. That transform
 is `SeekbarShape` in `App/Core/SonicClient.swift`, tested.
 
+The app asks our service for `/levels?points=128` for the track playing and the two
+behind it (`SeekbarLevelsStore`, `App/Core/SeekbarLevels.swift`), keeps the answers in
+memory and in `Caches/Music/Levels`, and for a track the service has not analysed falls
+back to the same readings measured from the file once it is on the phone
+(`TrackShape.levels`): BS.1770 momentary every 100 ms over the whole track, floored at
+−40, averaged in dB over spans `i·n/128 ..< (i+1)·n/128`, rounded to 0.1 dB — the
+service buckets identically, so the two sources draw the same.
+
 The same stream also carries Plex's loudness analysis — `ld:gain`, `ld:loudness`,
 `ld:lra`, `ld:peak`, and `ld:startRamp` / `ld:endRamp` as `"<loudness> <seconds>;…"`
 pairs, which is what Sweet Fades sizes its overlaps from.

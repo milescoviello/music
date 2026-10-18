@@ -54,6 +54,7 @@ final class AppState {
     let sonic = SonicService()
     let streamCache = StreamCache()
     let shapes = TrackShapeStore()
+    let seekbarLevels = SeekbarLevelsStore()
     /// Shared PCM ring. One buffer for the whole app, because only one thing can be
     /// visualised at a time and it must survive an output switch.
     let spectrumBuffer = AudioSampleBuffer()
@@ -81,6 +82,13 @@ final class AppState {
         stations.configure(appState: self)
         libraryIndex.configure(appState: self)
         sonic.configure(appState: self)
+        // The seekbar's fallback, for a track the sonic service has not analysed.
+        seekbarLevels.measured = { [shapes] in shapes.loadedShape(for: $0)?.levels }
+        // Asked of the service at whatever address Settings has for it.
+        seekbarLevels.fetch = { [sonic] songID in
+            let client = SonicClient(configuration: await sonic.configuration)
+            return try await client.levels(songID: songID, points: TrackShape.levelPoints)?.levels
+        }
         player.attach(appState: self)
 
         sleepTimer.onFire = { [weak self] in

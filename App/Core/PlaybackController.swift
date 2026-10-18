@@ -217,6 +217,12 @@ final class PlaybackController {
         cache.maxBytes = policy.cacheBytes
 
         let window = currentWindow
+        // The seekbar's shapes for what is playing and what is next, so a track's is
+        // there when it starts. From the service, which has them whether or not the
+        // track is cached.
+        if network != .offline, appState.playerSettings.seekbarStyle != .line {
+            appState.seekbarLevels.request(window.map(\.id))
+        }
         guard network != .offline, let signer = appState.signer, let current = window.first else {
             cache.pause()
             measureLocal(window)

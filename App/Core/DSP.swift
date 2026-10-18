@@ -521,44 +521,9 @@ enum LoudnessMeter {
 
     /// One value per hop, in LUFS. `channels` are equal-length, non-interleaved.
     static func momentary(channels: [[Float]], sampleRate: Double) -> [Float] {
-        guard let length = channels.first?.count, length > 0, sampleRate > 0 else { return [] }
-
-        let shelf = Biquad.highShelf(frequency: 1_500, gain: 4, q: 1 / 2.squareRoot(), sampleRate: sampleRate)
-        let highPass = Biquad.highPass(frequency: 38, q: 0.5, sampleRate: sampleRate)
-
-        // Squared, weighted samples summed across channels (equal channel weights: front
-        // left and right, which is everything this app will meet).
-        var power = [Double](repeating: 0, count: length)
-        for samples in channels {
-            var z = (Float(0), Float(0), Float(0), Float(0))
-            for index in 0..<min(length, samples.count) {
-                let x = samples[index]
-                let y1 = shelf.b0 * x + z.0
-                z.0 = shelf.b1 * x - shelf.a1 * y1 + z.1
-                z.1 = shelf.b2 * x - shelf.a2 * y1
-                let y2 = highPass.b0 * y1 + z.2
-                z.2 = highPass.b1 * y1 - highPass.a1 * y2 + z.3
-                z.3 = highPass.b2 * y1 - highPass.a2 * y2
-                power[index] += Double(y2 * y2)
-            }
-        }
-
-        let windowFrames = max(1, Int(window * sampleRate))
-        let hopFrames = max(1, Int(hop * sampleRate))
-
-        // Prefix sums turn every window into one subtraction.
-        var prefix = [Double](repeating: 0, count: length + 1)
-        for index in 0..<length { prefix[index + 1] = prefix[index] + power[index] }
-
-        var levels: [Float] = []
-        var start = 0
-        while start < length {
-            let end = min(length, start + windowFrames)
-            let mean = (prefix[end] - prefix[start]) / Double(end - start)
-            levels.append(Float(mean > 0 ? -0.691 + 10 * log10(mean) : -120))
-            start += hopFrames
-        }
-        return levels
+        guard var meter = MomentaryLoudness(sampleRate: sampleRate, channels: channels.count) else { return [] }
+        meter.add(channels)
+        return meter.finish()
     }
 
     /// Gated integrated loudness of whatever was measured: BS.1770's −70 LUFS absolute
@@ -573,6 +538,90 @@ enum LoudnessMeter {
         guard !kept.isEmpty else { return nil }
         let keptPower = kept.reduce(0.0) { $0 + pow(10, Double($1) / 10) } / Double(kept.count)
         return 10 * log10(keptPower)
+    }
+}
+
+/// `LoudnessMeter.momentary` a block at a time, so a whole track can be measured in the
+/// memory of one block rather than of the whole file: the seekbar draws a track's
+/// momentary loudness from its first second to its last.
+///
+/// Fed in one piece or in many, the readings are the same, to the bit.
+struct MomentaryLoudness {
+    private let shelf: Biquad
+    private let highPass: Biquad
+    private let windowFrames: Int
+    private let hopFrames: Int
+    /// Each channel's filter state, carried from one block into the next.
+    private var state: [(Float, Float, Float, Float)]
+    /// Weighted power summed since the first frame, so a window is one subtraction.
+    private var total: Double = 0
+    private var frames = 0
+    private var nextStart = 0
+    /// Windows begun and not yet full: where each starts, and the total there.
+    private var open: [(start: Int, total: Double)] = []
+    /// One block's weighted power, kept between blocks to save reallocating it.
+    private var power: [Double] = []
+    private var levels: [Float] = []
+
+    /// Nil for no channels or no sample rate, which measure nothing.
+    init?(sampleRate: Double, channels: Int) {
+        guard sampleRate > 0, channels > 0 else { return nil }
+        shelf = Biquad.highShelf(frequency: 1_500, gain: 4, q: 1 / 2.squareRoot(), sampleRate: sampleRate)
+        highPass = Biquad.highPass(frequency: 38, q: 0.5, sampleRate: sampleRate)
+        windowFrames = max(1, Int(LoudnessMeter.window * sampleRate))
+        hopFrames = max(1, Int(LoudnessMeter.hop * sampleRate))
+        state = Array(repeating: (0, 0, 0, 0), count: channels)
+    }
+
+    /// The next frames of every channel, equal-length and non-interleaved.
+    mutating func add(_ channels: [[Float]]) {
+        guard let length = channels.first?.count, length > 0 else { return }
+        if power.count < length { power = [Double](repeating: 0, count: length) }
+        for index in 0..<length { power[index] = 0 }
+
+        // Squared, weighted samples summed across channels (equal channel weights: front
+        // left and right, which is everything this app will meet).
+        for (channel, samples) in channels.prefix(state.count).enumerated() {
+            var z = state[channel]
+            for index in 0..<min(length, samples.count) {
+                let x = samples[index]
+                let y1 = shelf.b0 * x + z.0
+                z.0 = shelf.b1 * x - shelf.a1 * y1 + z.1
+                z.1 = shelf.b2 * x - shelf.a2 * y1
+                let y2 = highPass.b0 * y1 + z.2
+                z.2 = highPass.b1 * y1 - highPass.a1 * y2 + z.3
+                z.3 = highPass.b2 * y1 - highPass.a2 * y2
+                power[index] += Double(y2 * y2)
+            }
+            state[channel] = z
+        }
+
+        for index in 0..<length {
+            if frames == nextStart {
+                open.append((frames, total))
+                nextStart += hopFrames
+            }
+            total += power[index]
+            frames += 1
+            // Windows fill in the order they began, so only the oldest can be full.
+            if let oldest = open.first, frames - oldest.start == windowFrames {
+                close(oldest)
+                open.removeFirst()
+            }
+        }
+    }
+
+    /// One value per hop, in LUFS. The last windows run past the end and are measured
+    /// over what there is.
+    mutating func finish() -> [Float] {
+        for window in open { close(window) }
+        open.removeAll()
+        return levels
+    }
+
+    private mutating func close(_ window: (start: Int, total: Double)) {
+        let mean = (total - window.total) / Double(frames - window.start)
+        levels.append(Float(mean > 0 ? -0.691 + 10 * log10(mean) : -120))
     }
 }
 

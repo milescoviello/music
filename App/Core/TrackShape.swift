@@ -1,7 +1,8 @@
 import Foundation
 
 /// How a track starts and how it ends, as loudness over its first and last seconds —
-/// what Sweet Fades needs to know to size the overlap between two tracks.
+/// what Sweet Fades needs to know to size the overlap between two tracks — and its
+/// loudness all the way through, which the seekbar draws.
 ///
 /// Measured from a file on the phone, a download or a cached stream, never from a
 /// stream in flight: the end of a track is only readable once the whole file is here.
@@ -9,42 +10,51 @@ struct TrackShape: Codable, Hashable, Sendable {
     var intro: LoudnessRamp
     /// Index 0 is the last measurement, the track's end. See `LoudnessRamp`.
     var outro: LoudnessRamp
-    /// Integrated loudness of what was measured. Used only for tracks the server has no
-    /// ReplayGain for; the server's figure covers the whole track and is better.
+    /// Integrated loudness of the whole track. Used only for tracks the server has no
+    /// ReplayGain for.
     var measuredLoudness: Double?
-    /// The whole track's loudness, start to end, as `envelopePoints` values from 0 (quiet)
-    /// to 1 (its loudest): what Plexamp's seekbar draws. Optional, as shapes measured
-    /// before it existed have none.
-    var envelope: [Float]?
+    /// The whole track's momentary loudness as the seekbar wants it: `levelPoints` means
+    /// in LUFS over equal spans, start to end, of readings floored at `levelFloor` — the
+    /// same as our sonic service's `/levels?points=128` and Plex's `?subsample=128`, so
+    /// `SeekbarShape` draws either the same way. Optional: shapes measured before it
+    /// existed have none, and are measured again.
+    var levels: [Float]?
 
-    static let envelopePoints = 120
-    /// How far below the loudest point counts as silence on the seekbar.
-    static let envelopeRange: Float = 36
+    static let levelPoints = 128
+    /// Where Plex's readings bottom out. `SeekbarShape` draws nothing below −35 anyway;
+    /// this keeps a long silence from dragging a bucket's mean down with it.
+    static let levelFloor: Float = -40
 
-    /// Mean-square power per equal slice of the track, to the seekbar's 0…1 scale: decibels
-    /// relative to the loudest slice, floored `envelopeRange` below it.
-    static func envelope(fromPower power: [Double]) -> [Float]? {
-        guard !power.isEmpty, let loudest = power.max(), loudest > 0 else { return nil }
-        let ceiling = 10 * log10(loudest)
-        return power.map { value in
-            guard value > 0 else { return 0 }
-            let relative = Float(10 * log10(value) - ceiling)
-            return max(0, (relative + envelopeRange) / envelopeRange)
-        }
+    /// Momentary readings to the seekbar's levels: floored, then averaged in decibels over
+    /// `points` equal spans, reading `i * n / points` up to the next. A track with no more
+    /// readings than points keeps them all, and the seekbar interpolates between them.
+    static func levels(fromMomentary readings: [Float], points: Int = levelPoints) -> [Float] {
+        let floored = readings.map { max($0, levelFloor) }
+        guard points > 0, floored.count > points else { return rounded(floored) }
+        return rounded((0..<points).map { bucket in
+            let span = floored[bucket * floored.count / points..<(bucket + 1) * floored.count / points]
+            return span.reduce(0, +) / Float(span.count)
+        })
     }
 
-    /// `intro` and `outro` are non-interleaved channels of the first and last
-    /// `SweetFades.analysedSeconds` (or the whole track, if it is shorter).
-    static func measure(intro: [[Float]], outro: [[Float]], sampleRate: Double, power: [Double]? = nil) -> TrackShape {
-        let introLevels = LoudnessMeter.momentary(channels: intro, sampleRate: sampleRate)
-        let outroLevels = LoudnessMeter.momentary(channels: outro, sampleRate: sampleRate)
+    /// One whole track's momentary readings (`LoudnessMeter.momentary`, a reading per
+    /// `hop`), to its shape: the first and last `SweetFades.analysedSeconds` are the
+    /// ramps, and all of it is the loudness and the seekbar's levels. Nil for nothing.
+    static func measure(momentary readings: [Float], hop: Double = LoudnessMeter.hop) -> TrackShape? {
+        guard !readings.isEmpty, hop > 0 else { return nil }
+        let rampReadings = Int((SweetFades.analysedSeconds / hop).rounded())
         return TrackShape(
-            intro: LoudnessRamp(levels: rounded(introLevels)),
+            intro: LoudnessRamp(levels: rounded(Array(readings.prefix(rampReadings))), hop: hop),
             // Measured forwards like everything else, read backwards from the end.
-            outro: LoudnessRamp(levels: rounded(outroLevels.reversed())),
-            measuredLoudness: LoudnessMeter.integrated(introLevels + outroLevels),
-            envelope: power.flatMap(envelope(fromPower:)).map { $0.map { ($0 * 100).rounded() / 100 } }
+            outro: LoudnessRamp(levels: rounded(readings.suffix(rampReadings).reversed()), hop: hop),
+            measuredLoudness: LoudnessMeter.integrated(readings),
+            levels: levels(fromMomentary: readings)
         )
+    }
+
+    /// `channels` are a whole track, non-interleaved.
+    static func measure(channels: [[Float]], sampleRate: Double) -> TrackShape? {
+        measure(momentary: LoudnessMeter.momentary(channels: channels, sampleRate: sampleRate))
     }
 
     /// A tenth of a decibel is far finer than any threshold this is compared against,
