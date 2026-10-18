@@ -21,6 +21,7 @@ let package = Package(
                 "PlaybackQueue.swift",
                 "PlayTracker.swift",
                 "DownloadCatalog.swift",
+                "DownloadFolders.swift",
                 "HermesResults.swift",
                 "MixEngine.swift",
                 "TripPlanner.swift",
