@@ -56,7 +56,7 @@ struct CollectionDownloadButton: View {
                 .font(.system(size: 20))
                 .foregroundStyle(.secondary)
         case let .working(fraction):
-            DownloadRing(fraction: fraction)
+            ToolbarDownloadRing(fraction: fraction)
         case .complete:
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 20))
@@ -117,7 +117,7 @@ struct CollectionDownloadButton: View {
 /// The App Store's ring: a track filling clockwise, with a stop square in the middle
 /// saying that a tap stops it. Drawn rather than a circular `ProgressView`, which on iOS
 /// ignores its value and spins.
-struct DownloadRing: View {
+private struct ToolbarDownloadRing: View {
     let fraction: Double
 
     var body: some View {
