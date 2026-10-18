@@ -35,6 +35,10 @@ struct PlaybackQueue: Codable, Sendable {
     var isShuffled: Bool = false
     /// "Kid A", "Freedom" -- shown in the player as the source of the queue.
     var sourceDescription: String = ""
+    /// Index into `tracks` of the last song put in with Play Next or Add to Up Next:
+    /// where the next Add to Up Next goes. Optional so a queue saved before it existed
+    /// still decodes.
+    var lastAddedTrackIndex: Int?
 
     var isEmpty: Bool { tracks.isEmpty }
 
@@ -54,6 +58,27 @@ struct PlaybackQueue: Codable, Sendable {
     /// Everything after the current track, for the queue view.
     var upNext: [Song] {
         upcoming(max(order.count - position - 1, 0))
+    }
+
+    /// What already played, oldest first: the queue view's Earlier tab.
+    var earlier: [Song] {
+        guard position > 0, position <= order.count else { return [] }
+        return order[0..<position].compactMap { tracks.indices.contains($0) ? tracks[$0] : nil }
+    }
+
+    /// Plexamp offers Add to Up Next only once something has been added and is still to
+    /// come: before that, "after the last thing you added" means nothing.
+    var canAddToUpNext: Bool {
+        upNextInsertionPoint != nil
+    }
+
+    /// The order index after which Add to Up Next inserts, when there is one.
+    private var upNextInsertionPoint: Int? {
+        guard let lastAddedTrackIndex,
+              let orderIndex = order.firstIndex(of: lastAddedTrackIndex),
+              orderIndex >= position
+        else { return nil }
+        return orderIndex
     }
 
     static func make(
@@ -143,19 +168,48 @@ struct PlaybackQueue: Codable, Sendable {
         position = index
     }
 
+    /// Plexamp's Play Next: straight after the current track, ahead of anything added
+    /// before.
     mutating func insertNext(_ songs: [Song]) {
-        guard !songs.isEmpty else { return }
-        let insertAt = tracks.count
-        tracks.append(contentsOf: songs)
-        let newIndices = Array(insertAt..<tracks.count)
-        order.insert(contentsOf: newIndices, at: min(position + 1, order.count))
+        insert(songs, afterOrderIndex: position)
     }
 
+    /// Plexamp's Add to Up Next: after the last thing added, so a run of additions plays
+    /// in the order it was made — and straight after the current track when nothing
+    /// added is still to come.
+    mutating func addToUpNext(_ songs: [Song]) {
+        insert(songs, afterOrderIndex: upNextInsertionPoint ?? position)
+    }
+
+    /// Plexamp's Add to Queue: the very end. Deliberately not an "addition" for Add to
+    /// Up Next's purposes — that would push the next one to the end as well.
     mutating func append(_ songs: [Song]) {
         guard !songs.isEmpty else { return }
         let insertAt = tracks.count
         tracks.append(contentsOf: songs)
         order.append(contentsOf: Array(insertAt..<tracks.count))
+    }
+
+    private mutating func insert(_ songs: [Song], afterOrderIndex index: Int) {
+        guard !songs.isEmpty else { return }
+        let insertAt = tracks.count
+        tracks.append(contentsOf: songs)
+        let newIndices = Array(insertAt..<tracks.count)
+        order.insert(contentsOf: newIndices, at: min(index + 1, order.count))
+        lastAddedTrackIndex = newIndices.last
+    }
+
+    /// Plexamp's Clear Play Queue: everything goes except the track playing, which plays on.
+    mutating func clearAllButCurrent() {
+        guard let current else {
+            self = PlaybackQueue(repeatMode: repeatMode)
+            return
+        }
+        tracks = [current]
+        order = [0]
+        position = 0
+        isShuffled = false
+        lastAddedTrackIndex = nil
     }
 
     mutating func remove(atOrderIndex index: Int) {
@@ -171,6 +225,9 @@ struct PlaybackQueue: Codable, Sendable {
 
         // Every remaining index above the removed one now points one slot too high.
         order = order.map { $0 > trackIndex ? $0 - 1 : $0 }
+        if let last = lastAddedTrackIndex {
+            lastAddedTrackIndex = last == trackIndex ? nil : (last > trackIndex ? last - 1 : last)
+        }
 
         if index < position { position -= 1 }
         position = min(position, max(order.count - 1, 0))

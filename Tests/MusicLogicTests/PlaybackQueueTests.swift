@@ -197,4 +197,84 @@ struct PlaybackQueueTests {
         #expect(restored.queue.sourceDescription == "Kid A")
         #expect(restored.positionSeconds == 42.5)
     }
+
+    // MARK: - Plexamp's three insert points
+
+    private func ids(_ queue: PlaybackQueue) -> [String] {
+        queue.upNext.map(\.id)
+    }
+
+    @Test func addToUpNextFollowsTheLastAdditionSoAdditionsKeepTheirOrder() {
+        var queue = PlaybackQueue.make(tracks: songs(3), startingAt: 0, shuffled: false, source: "Album")
+        #expect(!queue.canAddToUpNext)
+
+        queue.insertNext([Song(id: "a", title: "A")])
+        #expect(queue.canAddToUpNext)
+        queue.addToUpNext([Song(id: "b", title: "B")])
+        queue.addToUpNext([Song(id: "c", title: "C")])
+        #expect(ids(queue) == ["a", "b", "c", "s2", "s3"])
+
+        // Play Next still jumps ahead of all of them.
+        queue.insertNext([Song(id: "d", title: "D")])
+        #expect(ids(queue) == ["d", "a", "b", "c", "s2", "s3"])
+    }
+
+    @Test func addToQueueGoesToTheEndAndIsNotAnAddition() {
+        var queue = PlaybackQueue.make(tracks: songs(3), startingAt: 0, shuffled: false, source: "Album")
+        queue.append([Song(id: "z", title: "Z")])
+        #expect(ids(queue) == ["s2", "s3", "z"])
+        #expect(!queue.canAddToUpNext)
+    }
+
+    @Test func onceTheLastAdditionHasPlayedUpNextIsAfterTheCurrentTrackAgain() {
+        var queue = PlaybackQueue.make(tracks: songs(3), startingAt: 0, shuffled: false, source: "Album")
+        queue.insertNext([Song(id: "a", title: "A")])
+        _ = queue.advance() // a
+        _ = queue.advance() // s2
+        #expect(!queue.canAddToUpNext)
+        queue.addToUpNext([Song(id: "b", title: "B")])
+        #expect(ids(queue) == ["b", "s3"])
+    }
+
+    @Test func removingTheLastAdditionForgetsIt() {
+        var queue = PlaybackQueue.make(tracks: songs(3), startingAt: 0, shuffled: false, source: "Album")
+        queue.insertNext([Song(id: "a", title: "A")])
+        queue.remove(atOrderIndex: 1)
+        #expect(!queue.canAddToUpNext)
+
+        // Removing a track stored before it shifts its index, not its identity.
+        queue.insertNext([Song(id: "b", title: "B")])
+        queue.remove(atOrderIndex: 0)
+        #expect(queue.current?.id == "b")
+        #expect(queue.canAddToUpNext)
+        queue.addToUpNext([Song(id: "c", title: "C")])
+        #expect(ids(queue) == ["c", "s2", "s3"])
+    }
+
+    @Test func earlierIsWhatAlreadyPlayedOldestFirst() {
+        var queue = PlaybackQueue.make(tracks: songs(4), startingAt: 2, shuffled: false, source: "Album")
+        #expect(queue.earlier.map(\.id) == ["s1", "s2"])
+        queue.jump(toOrderIndex: 0)
+        #expect(queue.earlier.isEmpty)
+    }
+
+    @Test func clearingKeepsOnlyTheTrackPlaying() {
+        var queue = PlaybackQueue.make(tracks: songs(5), startingAt: 2, shuffled: true, source: "Album")
+        let playing = queue.current?.id
+        queue.clearAllButCurrent()
+        #expect(queue.current?.id == playing)
+        #expect(queue.upNext.isEmpty)
+        #expect(queue.earlier.isEmpty)
+        #expect(!queue.isShuffled)
+    }
+
+    @Test func aQueueSavedBeforeAdditionsWereTrackedStillDecodes() throws {
+        let queue = PlaybackQueue.make(tracks: songs(2), startingAt: 0, shuffled: false, source: "Album")
+        var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(queue)) as! [String: Any]
+        object.removeValue(forKey: "lastAddedTrackIndex")
+        let data = try JSONSerialization.data(withJSONObject: object)
+        let decoded = try JSONDecoder().decode(PlaybackQueue.self, from: data)
+        #expect(decoded.lastAddedTrackIndex == nil)
+        #expect(decoded.current?.id == "s1")
+    }
 }

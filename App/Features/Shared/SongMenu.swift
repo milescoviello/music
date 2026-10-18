@@ -34,13 +34,7 @@ struct SongMenu: View {
             }
         }
 
-        Button("Play Next", systemImage: "text.insert") {
-            appState.player.playNext([song])
-        }
-
-        Button("Add to Queue", systemImage: "text.append") {
-            appState.player.append([song])
-        }
+        QueueInsertItems(songs: [song])
 
         Divider()
 

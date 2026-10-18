@@ -52,6 +52,8 @@ struct AlbumDetailView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    QueueInsertItems(songs: songs)
+                    Divider()
                     Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
                         startRadio()
                     }

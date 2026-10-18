@@ -340,6 +340,7 @@ final class PlaybackController {
         persist()
     }
 
+    /// Plexamp's Add to Queue: the very end.
     func append(_ songs: [Song]) {
         guard !songs.isEmpty else { return }
         if queue.isEmpty {
@@ -347,6 +348,28 @@ final class PlaybackController {
             return
         }
         queue.append(songs)
+        refillWindow()
+        persist()
+    }
+
+    /// Plexamp's Add to Up Next: after whatever was added last, so additions play in the
+    /// order they were made. Offered only once something has been added.
+    func addToUpNext(_ songs: [Song]) {
+        guard !songs.isEmpty else { return }
+        if queue.isEmpty {
+            play(songs: songs, startingAt: 0, source: "Queue")
+            return
+        }
+        queue.addToUpNext(songs)
+        refillWindow()
+        persist()
+    }
+
+    var canAddToUpNext: Bool { queue.canAddToUpNext }
+
+    /// Plexamp's Clear Play Queue: everything but the track playing, which plays on.
+    func clearQueue() {
+        queue.clearAllButCurrent()
         refillWindow()
         persist()
     }
