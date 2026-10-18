@@ -47,45 +47,78 @@ enum Keychain {
     }
 
     // MARK: - Plumbing
+    //
+    // Every call goes to libsecret on a thread of its own, never the UI's. A keyring can
+    // ask for a password or show a first-run wizard, and with some Secret Service builds
+    // its answer never arrives at all — KWallet's "Completed" signal carries a type
+    // libsecret does not expect, the call waits forever, and on the UI thread that froze
+    // the window for good. So reads wait a few seconds and then use the private file, and
+    // writes carry on in the background, falling back to the file if the keyring fails.
 
     private static func write(_ data: Data, account: String, label: String) {
         let secret = String(decoding: data, as: UTF8.self)
-        let stored = withAttributes(account) { attributes in
-            var error: UnsafeMutablePointer<GError>?
-            let ok = secret_password_storev_sync(
-                csecret_music_schema(), attributes, "default", label, secret, nil, &error
-            )
-            if let error { g_error_free(error) }
-            return ok != 0
+        DispatchQueue.global(qos: .userInitiated).async {
+            let stored = withTimeout(10) {
+                withAttributes(account) { attributes in
+                    var error: UnsafeMutablePointer<GError>?
+                    let ok = secret_password_storev_sync(
+                        csecret_music_schema(), attributes, "default", label, secret, nil, &error
+                    )
+                    if let error { g_error_free(error) }
+                    return ok != 0
+                }
+            } ?? false
+            if stored {
+                // A file left by an earlier session without a keyring would otherwise
+                // outlive the item that replaced it.
+                try? FileManager.default.removeItem(at: fallbackFile(account))
+            } else {
+                writeFallback(data, account: account)
+            }
         }
-        if stored {
-            // A file left by an earlier session without a keyring would otherwise outlive
-            // the item that replaced it.
-            try? FileManager.default.removeItem(at: fallbackFile(account))
-            return
-        }
-        writeFallback(data, account: account)
     }
 
     private static func read(account: String) -> Data? {
-        let found: Data? = withAttributes(account) { attributes in
-            var error: UnsafeMutablePointer<GError>?
-            let password = secret_password_lookupv_sync(csecret_music_schema(), attributes, nil, &error)
-            if let error { g_error_free(error) }
-            guard let password else { return nil }
-            defer { secret_password_free(password) }
-            return Data(String(cString: password).utf8)
-        }
+        let found: Data? = withTimeout(4) {
+            withAttributes(account) { attributes -> Data? in
+                var error: UnsafeMutablePointer<GError>?
+                let password = secret_password_lookupv_sync(csecret_music_schema(), attributes, nil, &error)
+                if let error { g_error_free(error) }
+                guard let password else { return nil }
+                defer { secret_password_free(password) }
+                return Data(String(cString: password).utf8)
+            }
+        } ?? nil
         return found ?? (try? Data(contentsOf: fallbackFile(account)))
     }
 
     private static func delete(account: String) {
-        _ = withAttributes(account) { attributes in
-            var error: UnsafeMutablePointer<GError>?
-            secret_password_clearv_sync(csecret_music_schema(), attributes, nil, &error)
-            if let error { g_error_free(error) }
-        }
         try? FileManager.default.removeItem(at: fallbackFile(account))
+        DispatchQueue.global(qos: .utility).async {
+            _ = withTimeout(10) {
+                withAttributes(account) { attributes in
+                    var error: UnsafeMutablePointer<GError>?
+                    secret_password_clearv_sync(csecret_music_schema(), attributes, nil, &error)
+                    if let error { g_error_free(error) }
+                }
+            }
+        }
+    }
+
+    /// Runs a keyring call on its own thread and waits at most `seconds` for it. Nil if it
+    /// did not answer in time; the thread is left to finish, or not, on its own.
+    private static func withTimeout<T: Sendable>(_ seconds: Double, _ body: @escaping @Sendable () -> T) -> T? {
+        let result = KeyringResult<T>()
+        let done = DispatchSemaphore(value: 0)
+        Thread {
+            result.value = body()
+            done.signal()
+        }.start()
+        guard done.wait(timeout: .now() + seconds) == .success else {
+            Task { await Diagnostics.shared.record("keyring", "the Secret Service did not answer in \(Int(seconds)) s") }
+            return nil
+        }
+        return result.value
     }
 
     private static func withAttributes<T>(_ account: String, _ body: (OpaquePointer?) -> T) -> T {
@@ -107,11 +140,16 @@ enum Keychain {
 
     private static func writeFallback(_ data: Data, account: String) {
         let url = fallbackFile(account)
-        FileManager.default.createFile(
+        _ = FileManager.default.createFile(
             atPath: url.path,
             contents: data,
             attributes: [.posixPermissions: 0o600]
         )
         Task { await Diagnostics.shared.record("keyring", "no Secret Service; \(account) kept in a private file") }
     }
+}
+
+/// What a keyring call on its own thread hands back.
+private final class KeyringResult<Value>: @unchecked Sendable {
+    var value: Value?
 }

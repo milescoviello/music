@@ -16,8 +16,14 @@ enum MainLoop {
     static func install() {
         guard !installed else { return }
         installed = true
-        let channel = g_io_channel_unix_new(_dispatch_get_main_queue_handle_4CF())
-        g_io_add_watch(channel, G_IO_IN, { _, _, _ in
+        let handle = _dispatch_get_main_queue_handle_4CF()
+        let channel = g_io_channel_unix_new(handle)
+        g_io_add_watch(channel, G_IO_IN, { channel, _, _ in
+            // The handle is an eventfd. It must be read, or it stays readable and this
+            // watch fires forever — a busy loop at default priority that starves GTK's
+            // own drawing, so no window ever appears. Foundation's RunLoop reads it too.
+            var count: UInt64 = 0
+            _ = read(g_io_channel_unix_get_fd(channel), &count, MemoryLayout<UInt64>.size)
             _dispatch_main_queue_callback_4CF(nil)
             return 1
         }, nil)
