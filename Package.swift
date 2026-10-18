@@ -31,6 +31,9 @@ let package = Package(
                 "Autoplay.swift",
                 "GuestDJ.swift",
                 "Stations.swift",
+                "LibraryFacets.swift",
+                "Charts.swift",
+                "HomeLayout.swift",
             ]
         ),
         .testTarget(
