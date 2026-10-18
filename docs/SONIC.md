@@ -26,6 +26,11 @@ how `server/sonic` rebuilds it.
   0.99987 and 0.99900 on the two tracks checked. (With Essentia's default "medium"
   resampler it is 0.994–0.999; the resampler was the difference.)
 
+Checked again once the service had analysed its first 252 tracks, against every vector
+Plex stored for the same files (`python -m sonic compare-plex`): cosine mean 0.99962,
+median 0.99977, 5th percentile 0.99872, worst 0.99647; and the ten nearest neighbours
+of each track agree with Plex's 92.6 % of the time.
+
 ## Where Plex keeps them
 
 `Plug-in Support/Databases/Music Analysis <section>/`:
