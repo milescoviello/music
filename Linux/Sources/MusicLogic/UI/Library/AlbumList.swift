@@ -21,10 +21,21 @@ final class AlbumList {
     private static let downloadedOnlyKey = "library.downloadedOnly"
 
     static func make(_ env: Env, sort: AlbumSort = .newest, genre: String? = nil, decade: Int? = nil) -> NavigationPage {
-        AlbumList(env, sort: sort, genre: genre, decade: decade).page
+        let list = AlbumList(env, sort: sort, genre: genre, decade: decade)
+        let title = genre ?? decade.map { "\($0)s" } ?? "Albums"
+        let page = Page.make(title, content: list.stack, scrolls: false, clamp: nil) { bar in
+            if genre == nil, decade == nil {
+                bar.end(list.sortButton())
+                bar.end(ScopeMenu.make(env.app))
+            }
+        }
+        return page
     }
 
-    private var page: NavigationPage!
+    /// Just the grid, for a page that has its own header: a genre's Albums.
+    static func embedded(_ env: Env, genre: String) -> Widget {
+        AlbumList(env, sort: .newest, genre: genre, decade: nil).stack
+    }
 
     private init(_ env: Env, sort: AlbumSort, genre: String?, decade: Int?) {
         self.env = env
@@ -36,24 +47,13 @@ final class AlbumList {
         stack.add(scroller, name: "grid")
         stack.add(Spinner().size(32).halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_CENTER), name: "loading")
         stack.add(status, name: "status")
+        stack.keep(self)
 
-        let title = genre ?? decade.map { "\($0)s" } ?? "Albums"
-        let sortButton = MenuButton(icon: "view-sort-descending-symbolic", label: sort.title, "flat") { [weak self] in
-            self?.menu() ?? Menu([])
-        }
-        page = Page.make(title, content: stack, scrolls: false, clamp: nil) { [env] bar in
-            if genre == nil, decade == nil {
-                bar.end(sortButton)
-                bar.end(ScopeMenu.make(env.app))
-            }
-        }
-        page.keep(self)
         let reference = WeakReference(self)
         scroller.onNearEnd { reference.value?.loadMore() }
         stack.observe {
             _ = env.app.scope.generation
             _ = env.app.reachability.isOnline
-            _ = UserDefaults.standard.bool(forKey: Self.downloadedOnlyKey)
             Task { @MainActor in reference.value?.reload() }
         }
         stack.observe {
@@ -62,6 +62,13 @@ final class AlbumList {
             guard let list = reference.value, list.isFilteringToDownloads else { return }
             list.showDownloaded()
         }
+    }
+
+    private func sortButton() -> Widget {
+        let reference = WeakReference(self)
+        return MenuButton(icon: "view-sort-descending-symbolic", "flat") {
+            reference.value?.menu() ?? Menu([])
+        }.tooltip("Sort")
     }
 
     private var downloadedOnly: Bool {

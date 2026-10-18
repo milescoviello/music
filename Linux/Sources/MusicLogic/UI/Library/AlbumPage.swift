@@ -63,7 +63,7 @@ enum AlbumPage {
         if let count = detail.songCount { subtitle.append("\(count) tracks") }
         if let duration = detail.duration { subtitle.append(duration.asLongDuration) }
 
-        let artistButton = Button(artist ?? "", "flat", "page-subtitle")
+        let artistButton = Button(artist ?? "", "flat", "link-button", "page-subtitle")
         artistButton.halign(GTK_ALIGN_START).isVisible = artist != nil
         if let id = detail.artistId, let artist {
             artistButton.onClicked { env.open(.artist(ArtistRef(id: id, name: artist))) }

@@ -22,6 +22,28 @@ enum Pages {
             return AlbumList.make(env, sort: sort)
         case let .decade(start):
             return AlbumList.make(env, decade: start)
+        case .artists:
+            return ArtistList.make(env)
+        case let .artist(ref):
+            return ArtistPage.make(env, artist: ref)
+        case .playlists:
+            return PlaylistList.make(env)
+        case let .playlist(ref):
+            return PlaylistPage.make(env, playlist: ref)
+        case .genres:
+            return GenreList.make(env)
+        case let .genre(name):
+            return GenrePage.make(env, genre: name)
+        case .favorites:
+            return FavoritesPage.make(env)
+        case let .folder(ref):
+            return FolderPage.make(env, folder: ref)
+        case .tracks:
+            return TracksPage.make(env)
+        case let .libraryFacet(facet):
+            return LibraryFacetPage.make(env, facet: facet)
+        case let .albumCollection(title, albums):
+            return AlbumCollection.make(env, title: title, albums: albums)
         default:
             return pending(String(describing: destination), env: env)
         }
