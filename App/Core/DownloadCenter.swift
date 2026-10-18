@@ -20,16 +20,33 @@ final class DownloadCenter {
     /// Mirrored on the main actor so views and the player can ask synchronously.
     /// A download check that has to `await` would mean every row and every track
     /// transition hops actors.
-    private(set) var catalog = DownloadCatalog()
+    private(set) var catalog = DownloadCatalog() {
+        didSet {
+            let present = Set(catalog.entries.values.compactMap(\.groupID))
+                .union(catalog.pending.values.compactMap(\.groupID))
+            if present != groups { groups = present }
+        }
+    }
+    /// The albums and playlists with a download here or on its way, by group id. Its own
+    /// property, changed only when one appears or goes, for the long-press menus on every
+    /// album card: reading `catalog` there redrew every card on screen per finished song.
+    private(set) var groups: Set<String> = []
     private(set) var progress: [String: Double] = [:] {
         didSet {
             // Its own property, changed only when the number does: the tab badge reads
             // this, and reading `progress` itself redrew the whole tab bar — the whole
             // app — on every chunk of every download.
             if progress.count != activeCount { activeCount = progress.count }
+            // The same for which songs: a row only shows whether its song is arriving,
+            // and reading `progress` for that redrew every visible row on every percent.
+            if progress.count != arriving.count || progress.keys.contains(where: { !arriving.contains($0) }) {
+                arriving = Set(progress.keys)
+            }
         }
     }
     private(set) var activeCount = 0
+    /// The songs with a transfer under way: `progress`'s keys, changed only when they do.
+    private(set) var arriving: Set<String> = []
     private(set) var isDownloading = false
 
     private let store = DownloadCatalogStore()
@@ -91,6 +108,12 @@ final class DownloadCenter {
         catalog.entries[songID] != nil
     }
 
+    /// Waiting or downloading, as `status(for:)` would say, but without the fraction, so
+    /// a view that asks this is not redrawn as the fraction moves.
+    func isArriving(_ songID: String) -> Bool {
+        catalog.entries[songID] == nil && (arriving.contains(songID) || catalog.pending[songID] != nil)
+    }
+
     /// The file to play, or nil to stream. Synchronous by design: the player asks
     /// this on every track transition.
     func localURL(for songID: String) -> URL? {
@@ -117,6 +140,7 @@ final class DownloadCenter {
         let wanted = songs.filter { status(for: $0.id) == .none }
         guard !wanted.isEmpty, let signer = appState?.signer else { return }
 
+        var queued: [(entry: DownloadCatalog.Entry, url: URL)] = []
         for song in wanted {
             // Original bytes unless asked otherwise -- except for containers iOS cannot
             // decode, which would otherwise land on disk as a perfect copy of something
@@ -143,20 +167,38 @@ final class DownloadCenter {
                 groupName: groupName,
                 qualityRaw: quality.rawValue
             )
+            queued.append((entry, url))
+        }
+        guard !queued.isEmpty else { return }
+        // Arriving from this moment, not from when the catalog write lands: a second tap
+        // in between read every song as not downloaded and queued it all again. In one
+        // assignment, so `progress`'s observers hear of a whole album once.
+        progress.merge(queued.map { ($0.entry.song.id, 0.0) }) { current, _ in current }
+        isDownloading = true
 
-            Task {
-                // Recorded before the transfer starts, so the crash window between
-                // "file landed" and "catalog knows" is recoverable at launch.
-                catalog = await store.markPending(entry)
+        Task {
+            // Recorded before the transfers start, so the crash window between "file
+            // landed" and "catalog knows" is recoverable at launch.
+            catalog = await store.markPending(queued.map(\.entry))
 
+            var withdrawn: [String] = []
+            for (entry, url) in queued {
+                // Removed again while the catalog was being written.
+                guard progress[entry.song.id] != nil else {
+                    withdrawn.append(entry.song.id)
+                    continue
+                }
                 let task = session.downloadTask(with: url)
                 // Survives app relaunch, which an in-memory map would not.
-                task.taskDescription = song.id
-                progress[song.id] = 0
-                isDownloading = true
+                task.taskDescription = entry.song.id
                 task.resume()
             }
+            if !withdrawn.isEmpty {
+                catalog = await store.remove(songIDs: withdrawn)
+            }
+        }
 
+        for song in wanted {
             // Lyrics and cover art are fetched now rather than at play time: offline is
             // exactly when they cannot be fetched, and a downloaded album that loses its
             // artwork on the train is the kind of half-measure this app exists to avoid.
@@ -168,12 +210,25 @@ final class DownloadCenter {
     }
 
     func remove(_ songIDs: [String]) {
+        // Gone from the screen at once; the files and the catalog follow.
+        let removed = Set(songIDs)
+        if progress.keys.contains(where: removed.contains) {
+            progress = progress.filter { !removed.contains($0.key) }
+        }
+        isDownloading = !progress.isEmpty
         Task {
             await cancelTasks(for: songIDs)
             catalog = await store.remove(songIDs: songIDs)
-            for id in songIDs { progress.removeValue(forKey: id) }
-            isDownloading = !progress.isEmpty
         }
+    }
+
+    func hasDownload(group groupID: String) -> Bool {
+        groups.contains(groupID)
+    }
+
+    /// Removes one album's or playlist's download: see `DownloadCatalog.songIDs(downloadedAs:)`.
+    func removeGroup(_ groupID: String) {
+        remove(catalog.songIDs(downloadedAs: groupID))
     }
 
     func removeAll() {
@@ -207,7 +262,9 @@ final class DownloadCenter {
         // Whole percents only: the delegate reports every few kilobytes, and each report
         // redraws whatever is watching.
         let stepped = (fraction * 100).rounded(.down) / 100
-        guard progress[songID] != stepped else { return }
+        // Only for a transfer still wanted: a cancelled one can report once more before
+        // its cancellation lands, and would bring a removed song back as arriving.
+        guard let current = progress[songID], current != stepped else { return }
         progress[songID] = stepped
     }
 

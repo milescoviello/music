@@ -73,7 +73,7 @@ struct MiniPlayerBar: View {
                             }
                         }
                 )
-                .overlay(alignment: .bottom) { progressLine }
+                .overlay(alignment: .bottom) { MiniProgressLine() }
                 // Capped, not disabled: the bar is 56pt of chrome above the tab bar, and
                 // at accessibility sizes an uncapped title pushes the transport buttons
                 // off the edge. Everything on a full screen still scales freely.
@@ -81,9 +81,19 @@ struct MiniPlayerBar: View {
             }
         }
     }
+}
 
-    /// Reads the controller's 4 Hz elapsed value; a 2pt line needs nothing finer.
-    private var progressLine: some View {
+/// Reads the controller's 4 Hz elapsed value; a 2pt line needs nothing finer.
+///
+/// A view of its own so that the tick is read here and nowhere else in the bar: as a
+/// property of the bar it relied on the geometry reader's closure being tracked apart
+/// from the bar's body, and if it was not, the artwork, title and buttons were rebuilt
+/// four times a second on every screen in the app.
+private struct MiniProgressLine: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        let player = appState.player
         GeometryReader { geometry in
             let fraction = player.duration > 0
                 ? min(max(player.elapsed / player.duration, 0), 1)

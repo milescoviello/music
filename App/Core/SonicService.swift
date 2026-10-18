@@ -141,9 +141,18 @@ final class SonicService {
         shapes[songID]
     }
 
-    /// Fetches the shapes of tracks that will be faded soon, once each.
-    func prefetchShapes(for songs: [Song], onShape: @escaping @MainActor (String) -> Void) {
-        guard isAvailable else { return }
+    /// Fetches the shapes of tracks that will be faded soon, once each. `onMissing` hears
+    /// of each one the service cannot give — not analysed yet, or no service to ask — so
+    /// the caller can measure it some other way.
+    func prefetchShapes(
+        for songs: [Song],
+        onShape: @escaping @MainActor (String) -> Void,
+        onMissing: @escaping @MainActor (String) -> Void = { _ in }
+    ) {
+        guard isAvailable else {
+            for song in songs where shapes[song.id] == nil { onMissing(song.id) }
+            return
+        }
         let client = client
         for song in songs where shapes[song.id] == nil && !fetchingShapes.contains(song.id) {
             fetchingShapes.insert(song.id)
@@ -152,7 +161,10 @@ final class SonicService {
                 defer { fetchingShapes.remove(id) }
                 guard let levels = try? await client.allLevels(songID: id),
                       let shape = TrackShape.fromLevels(levels.levels, hop: levels.hop)
-                else { return }
+                else {
+                    onMissing(id)
+                    return
+                }
                 shapes[id] = shape
                 onShape(id)
             }

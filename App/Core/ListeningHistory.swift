@@ -45,6 +45,9 @@ final class ListeningHistory {
     private let limit = 20_000
     private let url = Paths.root.appendingPathComponent("history.json")
     private var saveTask: Task<Void, Never>?
+    private let writer = HistoryWriter()
+    /// Counts saves, so the writer can tell an older one that arrives late from the newest.
+    @ObservationIgnored private var generation = 0
 
     init() {
         if let data = try? Data(contentsOf: url),
@@ -74,16 +77,21 @@ final class ListeningHistory {
 
     func clear() {
         plays = []
-        try? FileManager.default.removeItem(at: url)
+        saveTask?.cancel()
+        saveTask = nil
+        // Through the writer, so a save already on its way cannot put the file back.
+        generation += 1
+        let cleared = generation
+        Task { [writer, url] in await writer.remove(url, generation: cleared) }
     }
 
     /// Debounced, because `save()` encodes the **entire** log.
     ///
-    /// At the 20,000-entry cap that is a multi-megabyte encode and an atomic write on the
-    /// main actor, and it was running at every track boundary -- precisely when the player
-    /// is also rebuilding its output window. Same idiom as
-    /// `PlaybackController.persist()`: coalesce the writes, and force one when the app
-    /// goes to the background, which is the only moment the process may not come back.
+    /// At the 20,000-entry cap that is a multi-megabyte encode and an atomic write, and it
+    /// was running at every track boundary -- precisely when the player is also
+    /// rebuilding its output window. Same idiom as `PlaybackController.persist()`:
+    /// coalesce the writes, and force one when the app goes to the background, which is
+    /// the only moment the process may not come back.
     private func scheduleSave() {
         saveTask?.cancel()
         saveTask = Task { [weak self] in
@@ -99,9 +107,14 @@ final class ListeningHistory {
         save()
     }
 
+    /// Off the main actor, like the queue's own save: debouncing made the encode rare, but
+    /// at the cap it still froze the screen for a noticeable moment once a track, five
+    /// seconds after each boundary.
     private func save() {
-        guard let data = try? JSONEncoder().encode(plays) else { return }
-        try? data.write(to: url, options: .atomic)
+        generation += 1
+        let snapshot = plays
+        let saved = generation
+        Task { [writer, url] in await writer.write(snapshot, to: url, generation: saved) }
     }
 
     // MARK: - Statistics
@@ -251,5 +264,26 @@ final class ListeningHistory {
             cursor = previous
         }
         return count
+    }
+}
+
+/// Encodes and writes the history away from the main actor, one save at a time.
+private actor HistoryWriter {
+    /// The newest save written, or the clear that replaced it.
+    private var written = 0
+
+    func write(_ plays: [ListeningHistory.Play], to url: URL, generation: Int) {
+        // Tasks are not guaranteed to arrive in the order they were made, and an older
+        // snapshot must never overwrite a newer one.
+        guard generation > written else { return }
+        written = generation
+        guard let data = try? JSONEncoder().encode(plays) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+
+    func remove(_ url: URL, generation: Int) {
+        guard generation > written else { return }
+        written = generation
+        try? FileManager.default.removeItem(at: url)
     }
 }

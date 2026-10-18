@@ -423,8 +423,14 @@ final class HomeModel {
         hasLoaded = true
 
         // From this phone's own history: the server counts plays but never dates them.
-        let plays = appState.history.plays.map(\.chartPlay)
-        mostPlayedThisMonth = Charts.topAlbums(plays, in: ChartPeriod.current(.month), limit: 12).compactMap { row in
+        // Worked out off the main actor: it is the whole log, up to 20,000 plays, at the
+        // moment Home is first drawn and being scrolled.
+        let history = appState.history.plays
+        let month = ChartPeriod.current(.month)
+        let monthRows = await Task.detached(priority: .userInitiated) {
+            Charts.topAlbums(history.map { $0.chartPlay }, in: month, limit: 12)
+        }.value
+        mostPlayedThisMonth = monthRows.compactMap { row in
             guard let id = row.albumID else { return nil }
             var album = Album(id: id, name: row.title)
             album.artist = row.subtitle
@@ -443,10 +449,20 @@ final class HomeModel {
 
         let index = appState.libraryIndex
         await index.ensureLoaded(scope: scope)
-        onThisDay = LibraryFacets.onThisDay(index.albums, on: .now)
-        bestOfLastYear = LibraryFacets.bestOf(year: lastYear, in: index.albums)
+        // The same, for a few thousand albums run through the calendar.
+        let albums = index.albums
+        let year = lastYear
         let sixMonthsAgo = Calendar.current.date(byAdding: .month, value: -6, to: .now) ?? .now
-        notPlayedLately = LibraryFacets.notPlayedSince(sixMonthsAgo, in: index.albums)
+        let facets = await Task.detached(priority: .userInitiated) {
+            (
+                onThisDay: LibraryFacets.onThisDay(albums, on: .now),
+                bestOf: LibraryFacets.bestOf(year: year, in: albums),
+                notPlayed: LibraryFacets.notPlayedSince(sixMonthsAgo, in: albums)
+            )
+        }.value
+        onThisDay = facets.onThisDay
+        bestOfLastYear = facets.bestOf
+        notPlayedLately = facets.notPlayed
     }
 }
 

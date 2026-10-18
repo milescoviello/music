@@ -57,18 +57,19 @@ struct SongMenu: View {
 
         Divider()
 
-        switch downloads.status(for: song.id) {
-        case .none:
-            Button("Download", systemImage: "arrow.down.circle") {
-                downloads.download([song])
+        // Not `status(for:)`, which reads the download's fraction: this menu does not show
+        // it, and every row carries one of these.
+        if downloads.isDownloaded(song.id) {
+            Button("Remove Download", systemImage: "trash", role: .destructive) {
+                downloads.remove([song.id])
             }
-        case .waiting, .downloading:
+        } else if downloads.isArriving(song.id) {
             Button("Cancel Download", systemImage: "xmark.circle") {
                 downloads.remove([song.id])
             }
-        case .downloaded:
-            Button("Remove Download", systemImage: "trash", role: .destructive) {
-                downloads.remove([song.id])
+        } else {
+            Button("Download", systemImage: "arrow.down.circle") {
+                downloads.download([song])
             }
         }
 
@@ -121,6 +122,33 @@ struct SongMenu: View {
                 ) {
                     Label("Go to Artist", systemImage: "music.mic")
                 }
+            }
+        }
+    }
+}
+
+/// Go to Album and Go to Artist for menus inside the player, as jumps rather than
+/// pushes: `SongMenu`'s own are `NavigationLink`s, which would push inside the player —
+/// a screen with no tab bar and no way back but a swipe that loses it. These close the
+/// player and open the destination in the Library tab (`Navigator`).
+struct SongJumpItems: View {
+    @Environment(AppState.self) private var appState
+
+    let song: Song
+
+    var body: some View {
+        if let albumId = song.albumId, let album = song.album {
+            Button("Go to Album", systemImage: "square.stack") {
+                appState.navigator.open(.album(AlbumRef(
+                    id: albumId, name: album,
+                    artist: song.artist, coverArt: song.coverArt
+                )))
+            }
+        }
+
+        if let artistId = song.artistId, let artist = song.artist {
+            Button("Go to Artist", systemImage: "music.mic") {
+                appState.navigator.open(.artist(ArtistRef(id: artistId, name: artist)))
             }
         }
     }
@@ -256,8 +284,16 @@ private struct AlbumFavoriteModifier: ViewModifier {
                     withSongs { appState.player.append($0) }
                 }
                 Divider()
-                Button("Download", systemImage: "arrow.down.circle") {
-                    downloadAlbum()
+                // The album screen's button as a menu item: Download, or Remove Download
+                // once any of it is here or on its way.
+                if !downloads.hasDownload(group: album.id) {
+                    Button("Download", systemImage: "arrow.down.circle") {
+                        downloadAlbum()
+                    }
+                } else {
+                    Button("Remove Download", systemImage: "trash", role: .destructive) {
+                        downloads.removeGroup(album.id)
+                    }
                 }
                 Divider()
                 Button(

@@ -26,8 +26,15 @@ final class ArtworkStore {
 
     private let memory = NSCache<NSString, UIImage>()
     private let session: URLSession
-    private var inFlight: [String: Task<UIImage?, Never>] = [:]
-    private var signer: SubsonicSigner?
+    // None of this is anything a view should redraw for. Observed, every fetch starting
+    // and finishing, and every palette cached while the visualiser draws, was a change
+    // notification.
+    @ObservationIgnored private var inFlight: [String: Task<UIImage?, Never>] = [:]
+    @ObservationIgnored private var signer: SubsonicSigner?
+    /// Covers being written for offline use, so an album's tracks, which all ask for the
+    /// same cover at once, write it once.
+    @ObservationIgnored private var persisting: Set<URL> = []
+    @ObservationIgnored private var palettes: [String: Palette] = [:]
 
     init() {
         memory.countLimit = 300
@@ -66,13 +73,21 @@ final class ArtworkStore {
     func persist(id: String?, size: Size) async {
         guard let id else { return }
         let destination = fileURL(id, size)
-        guard !FileManager.default.fileExists(atPath: destination.path) else { return }
-
-        guard let image = await image(for: id, size: size),
-              let data = image.jpegData(compressionQuality: 0.85)
+        guard !persisting.contains(destination),
+              !FileManager.default.fileExists(atPath: destination.path)
         else { return }
+        persisting.insert(destination)
+        defer { persisting.remove(destination) }
 
-        try? data.write(to: destination, options: .atomic)
+        guard let image = await image(for: id, size: size) else { return }
+
+        // Encoded and written off the main actor. A JPEG encode of a 1,200-pixel cover is
+        // long enough to see, and on the main actor it ran three times per track of an
+        // album or playlist being downloaded, every one queued at the same moment.
+        await Task.detached(priority: .utility) {
+            guard let data = image.jpegData(compressionQuality: 0.85) else { return }
+            try? data.write(to: destination, options: .atomic)
+        }.value
     }
 
     /// Every size a downloaded track needs: rows, grids and the player.
@@ -104,8 +119,6 @@ final class ArtworkStore {
         var base: UIColor
         var highlight: UIColor
     }
-
-    private var palettes: [String: Palette] = [:]
 
     /// Synchronous, and nil until the artwork itself is in memory — the caller falls back
     /// to the app tint, then gets the real one on the next pass.
@@ -247,23 +260,22 @@ final class ArtworkStore {
 
         let task = Task<UIImage?, Never> { [session] in
             // Disk before network, so offline art appears and an online launch does not
-            // re-fetch what is already kept. Decoding is expensive either way, so both
-            // paths do it off the main actor.
-            if let data = try? Data(contentsOf: file) {
-                // Bound to a local first: a trailing closure inside an `if let`
-                // condition cannot be parsed -- it reads as the `if` body.
-                let decoded = await Task.detached(priority: .userInitiated) {
-                    UIImage(data: data)
-                }.value
-                if let decoded { return decoded }
-            }
+            // re-fetch what is already kept. Reading and decoding are expensive either
+            // way, so both paths do them off the main actor -- this task itself is on it.
+            //
+            // Bound to a local first: a trailing closure inside an `if let` condition
+            // cannot be parsed -- it reads as the `if` body.
+            let stored = await Task.detached(priority: .userInitiated) {
+                (try? Data(contentsOf: file)).flatMap(Self.decoded)
+            }.value
+            if let stored { return stored }
 
             guard let remote,
                   let (data, _) = try? await session.data(from: remote)
             else { return nil }
 
             return await Task.detached(priority: .userInitiated) {
-                UIImage(data: data)
+                Self.decoded(data)
             }.value
         }
         inFlight[cacheKey] = task
@@ -276,5 +288,17 @@ final class ArtworkStore {
             memory.setObject(image, forKey: key(id, size), cost: cost)
         }
         return image
+    }
+
+    /// An image that is decoded already, not merely parsed.
+    ///
+    /// `UIImage(data:)` reads the header and nothing more; the JPEG itself was being
+    /// decompressed on the main thread the first time the image was drawn, so every
+    /// cover arriving in a scrolling grid, and every new track's full-size art in the
+    /// player, cost the main thread its decode. Preparing it here does that work on the
+    /// thread that already has the bytes.
+    nonisolated private static func decoded(_ data: Data) -> UIImage? {
+        guard let image = UIImage(data: data) else { return nil }
+        return image.preparingForDisplay() ?? image
     }
 }

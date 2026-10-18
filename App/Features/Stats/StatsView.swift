@@ -19,9 +19,9 @@ import SwiftUI
 struct StatsView: View {
     @Environment(AppState.self) private var appState
     @Environment(ListeningHistory.self) private var history
-    @Environment(DownloadCenter.self) private var downloads
 
     @State private var window: ListeningHistory.Window = .month
+    @State private var figures = HistoryFigures()
     @State private var confirmsClearHistory = false
     @State private var scan: ScanStatus?
     @State private var starred: Starred2?
@@ -38,7 +38,7 @@ struct StatsView: View {
             allTimeSection
             nowPlayingSection
             librarySection
-            storageSection
+            StorageSection()
         }
         .navigationTitle("Stats")
         .playerClearance()
@@ -61,11 +61,11 @@ struct StatsView: View {
             .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
 
             HStack {
-                figure("\(history.plays(in: window).count)", "plays")
+                figure("\(current.count)", "plays")
                 Divider()
                 figure(hours, "listened")
                 Divider()
-                figure("\(history.streak)", history.streak == 1 ? "day streak" : "day streak")
+                figure("\(log.streak)", log.streak == 1 ? "day streak" : "day streak")
             }
             .frame(maxWidth: .infinity)
         } header: {
@@ -83,7 +83,7 @@ struct StatsView: View {
                 // Export sits beside Clear on purpose: the log lives in Application
                 // Support and is excluded from backups, so without a way out, clearing it
                 // is unrecoverable. Offering both makes the destructive one safe to offer.
-                ShareLink(item: historyCSV) {
+                ShareLink(item: log.csv) {
                     Label("Export History", systemImage: "square.and.arrow.up")
                 }
 
@@ -105,28 +105,12 @@ struct StatsView: View {
         }
     }
 
-    /// One row per play, so a spreadsheet can do whatever this screen does not.
-    private var historyCSV: String {
-        let formatter = ISO8601DateFormatter()
-        func escaped(_ field: String) -> String {
-            "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-        }
-        let header = "played_at,title,artist,album,genre,seconds"
-        let rows = history.plays.map { play in
-            [
-                formatter.string(from: play.at),
-                escaped(play.title),
-                escaped(play.artist),
-                escaped(play.album),
-                escaped(play.genre ?? ""),
-                String(play.duration),
-            ].joined(separator: ",")
-        }
-        return ([header] + rows).joined(separator: "\n")
-    }
+    /// The play log's figures for this redraw, worked out only when the log has changed.
+    private var log: HistoryFigures.Log { figures.log(of: history) }
+    private var current: HistoryFigures.Windowed { figures.windowed(window, of: history) }
 
     private var hours: String {
-        let seconds = history.totalSeconds(in: window)
+        let seconds = current.seconds
         if seconds < 3_600 { return "\(seconds / 60)m" }
         let hours = Double(seconds) / 3_600
         return hours < 10
@@ -150,11 +134,11 @@ struct StatsView: View {
 
     private var shapeSection: some View {
         Section("When You Listen") {
-            HourChart(values: history.playsByHour(in: window))
+            HourChart(values: current.byHour)
                 .frame(height: 90)
                 .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 4, trailing: 16))
 
-            DayChart(days: history.playsByDay(30))
+            DayChart(days: log.byDay)
                 .frame(height: 70)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 12, trailing: 16))
         }
@@ -164,10 +148,10 @@ struct StatsView: View {
 
     @ViewBuilder
     private var topSection: some View {
-        rankSection("Top Artists", history.topArtists(in: window))
-        rankSection("Top Albums", history.topAlbums(in: window))
-        rankSection("Top Songs", history.topSongs(in: window))
-        rankSection("Top Genres", history.topGenres(in: window))
+        rankSection("Top Artists", current.artists)
+        rankSection("Top Albums", current.albums)
+        rankSection("Top Songs", current.songs)
+        rankSection("Top Genres", current.genres)
     }
 
     @ViewBuilder
@@ -363,14 +347,6 @@ struct StatsView: View {
         }
     }
 
-    private var storageSection: some View {
-        Section("On This Phone") {
-            LabeledContent("Downloaded", value: "\(downloads.catalog.entries.count) tracks")
-            LabeledContent("Audio", value: downloads.catalog.totalBytes.asFileSize)
-            LabeledContent("Artwork", value: ArtworkStore.diskUsage().asFileSize)
-        }
-    }
-
     private func load() async {
         async let status = try? appState.client.scanStatus()
         async let stars = try? appState.client.starred()
@@ -385,6 +361,116 @@ struct StatsView: View {
         nowPlaying = await playing ?? []
         recentTracks = await recent ?? []
         topTracks = await top ?? []
+    }
+}
+
+/// What the screen works out from the play log, kept from one redraw to the next.
+///
+/// Every figure walks the whole log, up to 20,000 plays, several with calendar arithmetic,
+/// and the export formats a date for every play. All of it ran in the body: once for each
+/// server answer arriving as the screen opened, and again for every download that finished
+/// while it was open. None of it changes until the log does, or the day.
+@MainActor
+private final class HistoryFigures {
+    struct Log {
+        let streak: Int
+        let byDay: [(date: Date, count: Int)]
+        let csv: String
+    }
+
+    struct Windowed {
+        let count: Int
+        let seconds: Int
+        let byHour: [Int]
+        let artists: [ListeningHistory.Ranked]
+        let albums: [ListeningHistory.Ranked]
+        let songs: [ListeningHistory.Ranked]
+        let genres: [ListeningHistory.Ranked]
+    }
+
+    /// What the figures were worked out from: the log's length and its two ends, and the
+    /// day, which moves the windows and the streak.
+    private struct Key: Equatable {
+        let count: Int
+        let first: UUID?
+        let last: UUID?
+        let day: Date
+    }
+
+    private var key: Key?
+    private var madeLog: Log?
+    private var madeWindows: [ListeningHistory.Window: Windowed] = [:]
+
+    func log(of history: ListeningHistory) -> Log {
+        refresh(history)
+        if let madeLog { return madeLog }
+        let made = Log(streak: history.streak, byDay: history.playsByDay(30), csv: Self.csv(history.plays))
+        madeLog = made
+        return made
+    }
+
+    func windowed(_ window: ListeningHistory.Window, of history: ListeningHistory) -> Windowed {
+        refresh(history)
+        if let known = madeWindows[window] { return known }
+        let made = Windowed(
+            count: history.plays(in: window).count,
+            seconds: history.totalSeconds(in: window),
+            byHour: history.playsByHour(in: window),
+            artists: history.topArtists(in: window),
+            albums: history.topAlbums(in: window),
+            songs: history.topSongs(in: window),
+            genres: history.topGenres(in: window)
+        )
+        madeWindows[window] = made
+        return made
+    }
+
+    /// Reading the log here is also what has the screen redraw when it changes.
+    private func refresh(_ history: ListeningHistory) {
+        let plays = history.plays
+        let now = Key(
+            count: plays.count, first: plays.first?.id, last: plays.last?.id,
+            day: Calendar.current.startOfDay(for: .now)
+        )
+        guard now != key else { return }
+        key = now
+        madeLog = nil
+        madeWindows = [:]
+    }
+
+    /// One row per play, so a spreadsheet can do whatever this screen does not.
+    private static func csv(_ plays: [ListeningHistory.Play]) -> String {
+        let formatter = ISO8601DateFormatter()
+        func escaped(_ field: String) -> String {
+            "\"" + field.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        }
+        let header = "played_at,title,artist,album,genre,seconds"
+        let rows = plays.map { play in
+            [
+                formatter.string(from: play.at),
+                escaped(play.title),
+                escaped(play.artist),
+                escaped(play.album),
+                escaped(play.genre ?? ""),
+                String(play.duration),
+            ].joined(separator: ",")
+        }
+        return ([header] + rows).joined(separator: "\n")
+    }
+}
+
+/// Its own view, because it reads the downloads catalog: in the screen's body, every
+/// track a download finished redrew all of Stats, and the artwork figure is a listing of
+/// a directory.
+private struct StorageSection: View {
+    @Environment(DownloadCenter.self) private var downloads
+
+    var body: some View {
+        Section("On This Phone") {
+            LabeledContent("Downloaded", value: "\(downloads.catalog.entries.count) tracks")
+            LabeledContent("Audio", value: downloads.catalog.totalBytes.asFileSize)
+            LabeledContent("Artwork", value: ArtworkStore.diskUsage().asFileSize)
+        }
     }
 }
 

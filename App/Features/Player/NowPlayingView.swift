@@ -7,16 +7,13 @@ enum PlayerMode: String, CaseIterable {
 
 struct NowPlayingView: View {
     @Environment(AppState.self) private var appState
-    @Environment(SleepTimer.self) private var sleepTimer
-    @Environment(DownloadCenter.self) private var downloads
     @Environment(PlayerSettings.self) private var playerSettings
-    @Environment(GuestDJService.self) private var guestDJ
     /// Called instead of `dismiss()`: this is no longer a modal, it is a layer drawn
     /// above the library, so closing it is the presenter's business.
     var onDismiss: () -> Void = {}
 
     @State private var mode: PlayerMode = .artwork
-    @State private var dragOffset: CGFloat = 0
+    @State private var drag = DismissDrag()
     @State private var similarTo: Song?
     @State private var showsVisualizerPicker = false
     @Namespace private var modeNamespace
@@ -34,19 +31,20 @@ struct NowPlayingView: View {
         // Its own stack: without one, the artist name and the menu's "Go to Album" are
         // links with nowhere to push, which is to say dead. Browsing from inside the
         // player is also what Plexamp does.
-        NavigationStack {
-            playerBody
-                .toolbar(.hidden, for: .navigationBar)
-                .musicDestinations()
-        }
         // The offset belongs out here, on the outermost layer.
         //
         // Applied inside the stack it moved only the *content*: the navigation stack's
         // own surface stayed exactly where it was and went on painting an opaque
         // background, so pulling the player down revealed a black wall rather than the
         // library. Whatever layer is opaque has to be the layer that moves.
-        .offset(y: dragOffset)
-        .onAppear { dragOffset = 0 }
+        DismissOffset(drag: drag) {
+            NavigationStack {
+                playerBody
+                    .toolbar(.hidden, for: .navigationBar)
+                    .musicDestinations()
+            }
+        }
+        .onAppear { drag.offset = 0 }
         .sheet(item: $similarTo) { song in
             SimilarTracksView(song: song)
         }
@@ -69,7 +67,7 @@ struct NowPlayingView: View {
                 // scrolls, so nothing competes for the gesture here.
                 VStack(spacing: 0) {
                     metadata(song)
-                    detailLine(song)
+                    PlayerDetailLine(song: song)
                 }
                 .contentShape(Rectangle())
                 .gesture(dismissDrag)
@@ -114,7 +112,7 @@ struct NowPlayingView: View {
     private var dismissDrag: some Gesture {
         // `.global` is the whole fix, and the reason this kept feeling broken no matter
         // what else was tuned: the gesture is attached to the same view that
-        // `.offset(y: dragOffset)` moves, and a `DragGesture` measures translation in its
+        // `DismissOffset` moves, and a `DragGesture` measures translation in its
         // own **local** space. So the finger moved the view, the view moved the space the
         // finger was being measured in, and the next reading was taken against a moved
         // ruler -- a feedback loop that reads as jitter. A global space does not move with
@@ -127,7 +125,7 @@ struct NowPlayingView: View {
                     return
                 }
                 // Downward only: allowing up would let the screen be pulled off the top.
-                dragOffset = max(0, value.translation.height)
+                drag.offset = max(0, value.translation.height)
             }
             .onEnded { value in
                 // Distance *or* speed, so a quick flick works without travelling far.
@@ -138,7 +136,7 @@ struct NowPlayingView: View {
                     onDismiss()
                 } else {
                     withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
-                        dragOffset = 0
+                        drag.offset = 0
                     }
                 }
             }
@@ -306,7 +304,7 @@ struct NowPlayingView: View {
 
             case .visualizer:
                 VisualizerView(
-                    isPaused: dragOffset != 0,
+                    isPaused: drag.isMoved,
                     onTap: { mode = .artwork },
                     onLongPress: { showsVisualizerPicker = true }
                 )
@@ -395,108 +393,6 @@ struct NowPlayingView: View {
             }
         }
         .foregroundStyle(.white.opacity(0.5))
-    }
-
-    /// The quiet line Plexamp gets right: what you are actually hearing, and where you
-    /// are in the queue. Every part is omitted when unknown rather than shown as a
-    /// placeholder.
-    private func detailLine(_ song: Song) -> some View {
-        HStack(spacing: 6) {
-            if downloads.isDownloaded(song.id) {
-                Label("Downloaded", systemImage: "arrow.down.circle.fill")
-                    .labelStyle(.iconOnly)
-                    .foregroundStyle(Color.appTint)
-            }
-
-            Text(qualityText(song))
-
-            if let count = song.playCount, count > 0 {
-                Text("·")
-                Text("\(count) \(count == 1 ? "play" : "plays")")
-            }
-
-            if player.queue.order.count > 1 {
-                Text("·")
-                Text("\(player.queue.position + 1) of \(player.queue.order.count)")
-                    .monospacedDigit()
-            }
-
-            if let dj = guestDJ.dj {
-                Text("·")
-                Label(dj.name, systemImage: "sparkles")
-                    .foregroundStyle(Color.appTint)
-            }
-
-            if player.speed != 1 {
-                Text("·")
-                Text(String(format: "%.1f×", player.speed))
-                    .monospacedDigit()
-                    .foregroundStyle(Color.appTint)
-            }
-
-            if let label = sleepTimer.label {
-                Text("·")
-                Label(label, systemImage: "moon.fill")
-                    .foregroundStyle(Color.appTint)
-            }
-
-            if appState.screenAwake.isEnabled {
-                Text("·")
-                Label("Screen on", systemImage: "sun.max.fill")
-                    .foregroundStyle(Color.appTint)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .font(.caption2)
-        .foregroundStyle(.white.opacity(0.55))
-        .padding(.horizontal, 24)
-        .padding(.top, 5)
-    }
-
-    /// "FLAC 24/96", "MP3 320 kbps". For lossless the depth and rate are the useful
-    /// numbers; the bitrate is variable and the reported figure is only an average, so
-    /// quoting it would look precise while meaning little.
-    private func qualityText(_ song: Song) -> String {
-        // What is actually being heard: a stream converted to fit this network's quality
-        // setting says so, rather than quoting the file on the server.
-        if !downloads.isDownloaded(song.id) {
-            let variant = appState.streaming.policy.variant(for: song, on: appState.reachability.network)
-            if case let .mp3(kbps) = variant,
-               // The index, not `file(for:)`: that one marks the entry used, and a view
-               // body that writes what it reads redraws forever.
-               appState.streamCache.index.entry(for: song.id, satisfying: .original) == nil {
-                return "MP3 · \(kbps) kbps · converted"
-            }
-        }
-
-        var parts: [String] = []
-        if let suffix = song.suffix { parts.append(suffix.uppercased()) }
-
-        let isLossless = ["flac", "wav", "aiff", "aif", "alac"]
-            .contains(song.suffix?.lowercased() ?? "")
-
-        if isLossless {
-            if let depth = song.bitDepth, let rate = song.samplingRate, rate > 0 {
-                parts.append("\(depth)/\(kilohertz(rate))")
-            } else if let rate = song.samplingRate, rate > 0 {
-                parts.append("\(kilohertz(rate)) kHz")
-            }
-        } else if let rate = song.bitRate, rate > 0 {
-            parts.append("\(rate) kbps")
-        }
-
-        if song.channelCount == 1 { parts.append("mono") }
-
-        return parts.isEmpty ? "Streaming" : parts.joined(separator: " · ")
-    }
-
-    /// 44100 reads as 44.1, 48000 as 48 -- no trailing ".0".
-    private func kilohertz(_ hertz: Int) -> String {
-        let value = Double(hertz) / 1000
-        return value == value.rounded()
-            ? String(Int(value))
-            : String(format: "%.1f", value)
     }
 
     /// Shown for a few seconds when playback started part-way through a long track.
@@ -636,6 +532,153 @@ struct NowPlayingView: View {
         }
         .accessibilityLabel(String(describing: target).capitalized)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
+
+/// The quiet line Plexamp gets right: what you are actually hearing, and where you are
+/// in the queue. Every part is omitted when unknown rather than shown as a placeholder.
+///
+/// Its own view because of everything it reads: the downloads catalog, the stream cache,
+/// the network, the sleep timer, the Guest DJ. Inside the player's body, a download
+/// finishing anywhere in the library, or a file landing in the cache, re-ran the whole
+/// player; here it re-runs one line.
+private struct PlayerDetailLine: View {
+    @Environment(AppState.self) private var appState
+    @Environment(SleepTimer.self) private var sleepTimer
+    @Environment(DownloadCenter.self) private var downloads
+    @Environment(GuestDJService.self) private var guestDJ
+
+    let song: Song
+
+    private var player: PlaybackController { appState.player }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if downloads.isDownloaded(song.id) {
+                Label("Downloaded", systemImage: "arrow.down.circle.fill")
+                    .labelStyle(.iconOnly)
+                    .foregroundStyle(Color.appTint)
+            }
+
+            Text(qualityText(song))
+
+            if let count = song.playCount, count > 0 {
+                Text("·")
+                Text("\(count) \(count == 1 ? "play" : "plays")")
+            }
+
+            if player.queue.order.count > 1 {
+                Text("·")
+                Text("\(player.queue.position + 1) of \(player.queue.order.count)")
+                    .monospacedDigit()
+            }
+
+            if let dj = guestDJ.dj {
+                Text("·")
+                Label(dj.name, systemImage: "sparkles")
+                    .foregroundStyle(Color.appTint)
+            }
+
+            if player.speed != 1 {
+                Text("·")
+                Text(String(format: "%.1f×", player.speed))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.appTint)
+            }
+
+            if let label = sleepTimer.label {
+                Text("·")
+                Label(label, systemImage: "moon.fill")
+                    .foregroundStyle(Color.appTint)
+            }
+
+            if appState.screenAwake.isEnabled {
+                Text("·")
+                Label("Screen on", systemImage: "sun.max.fill")
+                    .foregroundStyle(Color.appTint)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .font(.caption2)
+        .foregroundStyle(.white.opacity(0.55))
+        .padding(.horizontal, 24)
+        .padding(.top, 5)
+    }
+
+    /// "FLAC 24/96", "MP3 320 kbps". For lossless the depth and rate are the useful
+    /// numbers; the bitrate is variable and the reported figure is only an average, so
+    /// quoting it would look precise while meaning little.
+    private func qualityText(_ song: Song) -> String {
+        // What is actually being heard: a stream converted to fit this network's quality
+        // setting says so, rather than quoting the file on the server.
+        if !downloads.isDownloaded(song.id) {
+            let variant = appState.streaming.policy.variant(for: song, on: appState.reachability.network)
+            if case let .mp3(kbps) = variant,
+               // The index, not `file(for:)`: that one marks the entry used, and a view
+               // body that writes what it reads redraws forever.
+               appState.streamCache.index.entry(for: song.id, satisfying: .original) == nil {
+                return "MP3 · \(kbps) kbps · converted"
+            }
+        }
+
+        var parts: [String] = []
+        if let suffix = song.suffix { parts.append(suffix.uppercased()) }
+
+        let isLossless = ["flac", "wav", "aiff", "aif", "alac"]
+            .contains(song.suffix?.lowercased() ?? "")
+
+        if isLossless {
+            if let depth = song.bitDepth, let rate = song.samplingRate, rate > 0 {
+                parts.append("\(depth)/\(kilohertz(rate))")
+            } else if let rate = song.samplingRate, rate > 0 {
+                parts.append("\(kilohertz(rate)) kHz")
+            }
+        } else if let rate = song.bitRate, rate > 0 {
+            parts.append("\(rate) kbps")
+        }
+
+        if song.channelCount == 1 { parts.append("mono") }
+
+        return parts.isEmpty ? "Streaming" : parts.joined(separator: " · ")
+    }
+
+    /// 44100 reads as 44.1, 48000 as 48 -- no trailing ".0".
+    private func kilohertz(_ hertz: Int) -> String {
+        let value = Double(hertz) / 1000
+        return value == value.rounded()
+            ? String(Int(value))
+            : String(format: "%.1f", value)
+    }
+}
+
+/// How far the player has been pulled down. An object rather than `@State` on the player,
+/// so that only `DismissOffset` reads `offset`: as state on the player it was read by the
+/// player's body, which then ran on every frame of the drag — the whole screen rebuilt
+/// sixty or a hundred and twenty times a second to move it.
+@MainActor
+@Observable
+private final class DismissDrag {
+    var offset: CGFloat = 0 {
+        didSet {
+            // Written only when it flips, so the player's body, which reads this, runs at
+            // the start and end of a drag and not in between.
+            if (offset != 0) != isMoved { isMoved = offset != 0 }
+        }
+    }
+
+    /// Whether the player is off its resting place at all.
+    private(set) var isMoved = false
+}
+
+/// Moves the player with the drag. The content is built by the player and only offset
+/// here, so a change of offset re-runs this body and nothing inside it.
+private struct DismissOffset<Content: View>: View {
+    let drag: DismissDrag
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        content.offset(y: drag.offset)
     }
 }
 
@@ -900,9 +943,12 @@ private struct ArtworkColorBackdrop: View {
         }
         .animation(.easeInOut(duration: 0.6), value: color)
         .task(id: coverArt) {
-            guard let image = await artwork.image(for: coverArt, size: .thumb),
-                  let average = image.averageColor
-            else { return }
+            guard let image = await artwork.image(for: coverArt, size: .thumb) else { return }
+            // Off the main thread: it makes a Core Image context and renders with it, once
+            // per track, and on the main thread that landed just as the new track's screen
+            // was being drawn.
+            let average = await Task.detached(priority: .userInitiated) { image.averageColor }.value
+            guard let average, !Task.isCancelled else { return }
             color = average
         }
     }
