@@ -914,9 +914,12 @@ private struct ArtworkColorBackdrop: View {
         }
         .animation(.easeInOut(duration: 0.6), value: color)
         .task(id: coverArt) {
-            guard let image = await artwork.image(for: coverArt, size: .thumb),
-                  let average = image.averageColor
-            else { return }
+            guard let image = await artwork.image(for: coverArt, size: .thumb) else { return }
+            // Off the main thread: it makes a Core Image context and renders with it, once
+            // per track, and on the main thread that landed just as the new track's screen
+            // was being drawn.
+            let average = await Task.detached(priority: .userInitiated) { image.averageColor }.value
+            guard let average, !Task.isCancelled else { return }
             color = average
         }
     }
