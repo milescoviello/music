@@ -49,10 +49,46 @@ final class ListeningHistory {
     /// Counts saves, so the writer can tell an older one that arrives late from the newest.
     @ObservationIgnored private var generation = 0
 
+    /// The log on disk being read. Until it finishes, `plays` holds only what has been
+    /// recorded since launch, and nothing is saved, because saving then would write a
+    /// log with the history missing.
+    @ObservationIgnored private var loading: Task<Void, Never>?
+    @ObservationIgnored private var isLoaded = false
+    @ObservationIgnored private var savesWhenLoaded = false
+    /// Cleared before the log on disk had been read, so what is read is not kept.
+    @ObservationIgnored private var discardsStored = false
+
+    /// Read off the main actor. At the cap it is a multi-megabyte decode, and in here it
+    /// ran on the main thread while the app was being built at launch, before anything
+    /// was on screen.
     init() {
-        if let data = try? Data(contentsOf: url),
-           let decoded = try? JSONDecoder().decode([Play].self, from: data) {
-            plays = decoded
+        loading = Task { [weak self] in await self?.load() }
+    }
+
+    /// Waits until the log on disk has been read, for anything that needs the whole of it
+    /// at once. Views need not: `plays` is observed, and they redraw when it arrives.
+    func loaded() async {
+        await loading?.value
+    }
+
+    private func load() async {
+        let url = url
+        let stored = await Task.detached(priority: .userInitiated) { () -> [Play] in
+            guard let data = try? Data(contentsOf: url) else { return [] }
+            return (try? JSONDecoder().decode([Play].self, from: data)) ?? []
+        }.value
+
+        if !discardsStored {
+            // Anything recorded while it was being read came after everything in it.
+            plays = stored + plays
+            if plays.count > limit {
+                plays.removeFirst(plays.count - limit)
+            }
+        }
+        isLoaded = true
+        if savesWhenLoaded {
+            savesWhenLoaded = false
+            save()
         }
     }
 
@@ -77,6 +113,7 @@ final class ListeningHistory {
 
     func clear() {
         plays = []
+        if !isLoaded { discardsStored = true }
         saveTask?.cancel()
         saveTask = nil
         // Through the writer, so a save already on its way cannot put the file back.
@@ -111,6 +148,10 @@ final class ListeningHistory {
     /// at the cap it still froze the screen for a noticeable moment once a track, five
     /// seconds after each boundary.
     private func save() {
+        guard isLoaded else {
+            savesWhenLoaded = true
+            return
+        }
         generation += 1
         let snapshot = plays
         let saved = generation

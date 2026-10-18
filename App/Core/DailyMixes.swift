@@ -689,6 +689,9 @@ final class DailyMixes {
     /// play count, so day one is personal instead of random. Server rows have no genre —
     /// only the app's own log does — which is why the genre mix has its own fallback.
     private func samples(appState: AppState) async -> [MixEngine.Sample] {
+        // The mixes are built once a day and kept, so they must not be built from a log
+        // that, just after launch, has not been read yet.
+        await appState.history.loaded()
         var samples = appState.history.plays.map {
             MixEngine.Sample(songID: $0.songID, artist: $0.artist, genre: $0.genre, at: $0.at)
         }
