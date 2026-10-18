@@ -471,6 +471,7 @@ final class PlaybackController {
         let stepped = (min(max(value, Self.speedRange.lowerBound), Self.speedRange.upperBound) * 10).rounded() / 10
         speed = stepped
         output.rate = stepped
+        publishNowPlaying(force: true)
     }
 
     /// Plexamp's quick skip: a relative seek within the track, clamped to it.
@@ -801,6 +802,7 @@ final class PlaybackController {
             elapsed: elapsed,
             duration: duration > 0 ? duration : Double(song.duration ?? 0),
             isPlaying: isPlaying,
+            speed: speed,
             queueIndex: queue.position,
             queueCount: queue.order.count
         )

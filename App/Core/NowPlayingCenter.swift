@@ -80,6 +80,7 @@ final class NowPlayingCenter {
         elapsed: Double,
         duration: Double,
         isPlaying: Bool,
+        speed: Float = 1,
         queueIndex: Int,
         queueCount: Int
     ) {
@@ -92,7 +93,9 @@ final class NowPlayingCenter {
         next[MPMediaItemPropertyAlbumTitle] = song.album ?? ""
         next[MPMediaItemPropertyPlaybackDuration] = duration
         next[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
-        next[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+        // The lock screen extrapolates the position from this, so a sped-up track has
+        // to say so or its scrubber falls behind.
+        next[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? Double(speed) : 0.0
         next[MPNowPlayingInfoPropertyDefaultPlaybackRate] = 1.0
         next[MPNowPlayingInfoPropertyIsLiveStream] = false
         next[MPNowPlayingInfoPropertyPlaybackQueueIndex] = queueIndex
