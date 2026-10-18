@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+"""Keep the Music app on the iPhone current and signed, whenever the phone is plugged in.
+
+A free Apple developer certificate signs an app for seven days, and every push to `main`
+publishes a new build to the repo's rolling `latest` release. This watches for the phone
+on USB and, every time it is plugged in, installs `latest` — whatever the phone already
+has, so plugging in is always a fresh signature and the newest build. While the phone
+stays plugged in it also installs any build published since, and retries a failed
+install every ten minutes.
+
+Runs in the desktop session (KDE autostart), so it can notify and use the logged-in
+`gh` and `xtool`. State is in ~/.local/state/music-phone-refresh/state.json, the log
+beside it.
+
+Two things learned the hard way, from the app's own notes:
+- Never time out `xtool install`. A killed install leaves a session that collides with
+  the next one ("Coordinator superseded"). It is run to completion here, however long.
+- If it stalls at [Verifying], the app is playing music: iOS will not replace an app
+  holding an active audio session. The notification says so.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+REPO = "milescoviello/music"
+STATE_DIR = Path.home() / ".local" / "state" / "music-phone-refresh"
+CACHE = Path.home() / ".cache" / "music-phone"
+STATE = STATE_DIR / "state.json"
+LOG = STATE_DIR / "log.txt"
+
+POLL_SECONDS = 15
+# While plugged in, how often to look for a newer build.
+RELEASE_CHECK_SECONDS = 15 * 60
+# After a failed install, before trying again while still plugged in.
+RETRY_SECONDS = 10 * 60
+
+
+def log(message: str) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    line = f"{datetime.now().isoformat(timespec='seconds')} {message}"
+    print(line, flush=True)
+    with LOG.open("a") as handle:
+        handle.write(line + "\n")
+    # Keep the log to the last few hundred lines.
+    lines = LOG.read_text().splitlines()
+    if len(lines) > 500:
+        LOG.write_text("\n".join(lines[-400:]) + "\n")
+
+
+# Started from KDE autostart this is set; started from anywhere else it may not be, and
+# notifications would vanish. The session bus is at a fixed place for a logged-in user.
+if "DBUS_SESSION_BUS_ADDRESS" not in os.environ and Path(f"/run/user/{os.getuid()}/bus").exists():
+    os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path=/run/user/{os.getuid()}/bus"
+
+
+def notify(title: str, body: str, urgent: bool = False) -> None:
+    command = ["notify-send", "--app-name=Music", "--icon=multimedia-player", title, body]
+    if urgent:
+        command.insert(1, "--urgency=critical")
+    subprocess.run(command, check=False, capture_output=True)
+
+
+def load_state() -> dict:
+    try:
+        return json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def save_state(state: dict) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(state, indent=2))
+
+
+def attached_phone() -> str | None:
+    """The UDID of a phone on USB, or None. A wedged usbmuxd answers with an error even
+    with the phone attached; that is reported separately by `usb_sees_iphone`."""
+    try:
+        result = subprocess.run(["idevice_id", "-l"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    ids = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return ids[0] if result.returncode == 0 and ids else None
+
+
+def usb_sees_iphone() -> bool:
+    try:
+        result = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return "05ac:12" in result.stdout
+
+
+def latest_release() -> dict | None:
+    """{'build': '105', 'commit': '194ed8a', 'published': '...'} for the `latest` release."""
+    try:
+        result = subprocess.run(
+            ["gh", "release", "view", "latest", "--repo", REPO, "--json", "body,publishedAt"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    data = json.loads(result.stdout)
+    match = re.search(r"Build (\d+) · commit (\w+)", data.get("body", ""))
+    return {
+        "build": match.group(1) if match else None,
+        "commit": match.group(2) if match else None,
+        "published": data.get("publishedAt"),
+    }
+
+
+def due(state: dict, udid: str, release: dict | None, just_plugged: bool, failed: bool) -> str | None:
+    """Why an install is due now, or None. Plugging in always is."""
+    if just_plugged:
+        return "phone plugged in"
+    if failed:
+        return "retrying the last failed install"
+    installed = state.get("installed", {}).get(udid)
+    if release and release.get("published") and release["published"] != (installed or {}).get("published"):
+        return f"build {release.get('build')} is out (phone has {(installed or {}).get('build')})"
+    return None
+
+
+def install(udid: str, release: dict | None) -> bool:
+    CACHE.mkdir(parents=True, exist_ok=True)
+    download = subprocess.run(
+        ["gh", "release", "download", "latest", "--repo", REPO, "-p", "Music.ipa", "-D", str(CACHE), "--clobber"],
+        capture_output=True, text=True,
+    )
+    if download.returncode != 0:
+        log(f"download failed: {download.stderr.strip()[-300:]}")
+        notify("Music: couldn't download the build", download.stderr.strip()[-200:] or "gh release download failed")
+        return False
+
+    build = release.get("build") if release else "?"
+    notify("Music: installing build " + str(build), "Keep the phone plugged in. If it sits at Verifying, stop playback in Music.")
+    log(f"installing build {build} on {udid}")
+
+    # No timeout, deliberately — see the module docstring.
+    process = subprocess.run(
+        ["xtool", "install", "--usb", "--udid", udid, str(CACHE / "Music.ipa")],
+        capture_output=True, text=True,
+    )
+    output = (process.stdout + process.stderr).strip()
+    if process.returncode == 0:
+        log(f"installed build {build}")
+        notify("Music: build " + str(build) + " installed", "Signed for the next seven days.")
+        return True
+
+    last = output.splitlines()[-1] if output else "xtool install failed"
+    log(f"install failed: {last[-500:]}")
+    hint = ""
+    if "no current IOS devices" in output:
+        hint = " Apple hasn't registered the phone on the team yet — it usually works on the next try."
+    notify("Music: install failed", last[-200:] + hint, urgent=True)
+    return False
+
+
+def main() -> None:
+    log("watching for the iPhone")
+    present_since: float | None = None
+    last_attempt = 0.0
+    last_release_check = 0.0
+    release: dict | None = None
+    warned_usbmuxd = False
+    # Whether the last attempt during this plug failed, so it is retried.
+    failed = False
+
+    while True:
+        udid = attached_phone()
+        now = time.time()
+
+        if udid is None:
+            if present_since is not None:
+                log("phone unplugged")
+            present_since = None
+            # The phone is on USB but nothing above usbmuxd can see it: usbmuxd is wedged,
+            # which only root can fix. Say so once per plug.
+            if usb_sees_iphone() and not warned_usbmuxd:
+                warned_usbmuxd = True
+                log("iPhone on USB but usbmuxd does not list it")
+                notify(
+                    "Music: phone connected but not visible",
+                    "usbmuxd is stuck. Run: sudo /usr/sbin/usbmuxd -X; sudo kill $(pgrep -x usbmuxd); "
+                    "sudo udevadm trigger --action=add --subsystem-match=usb --attr-match=idVendor=05ac",
+                    urgent=True,
+                )
+            elif not usb_sees_iphone():
+                warned_usbmuxd = False
+            time.sleep(POLL_SECONDS)
+            continue
+
+        warned_usbmuxd = False
+        just_plugged = present_since is None
+        if just_plugged:
+            present_since = now
+            failed = False
+            log(f"phone plugged in: {udid}")
+
+        if just_plugged or now - last_release_check > RELEASE_CHECK_SECONDS:
+            release = latest_release() or release
+            last_release_check = now
+
+        state = load_state()
+        reason = due(state, udid, release, just_plugged, failed)
+        if reason and (just_plugged or now - last_attempt > RETRY_SECONDS):
+            last_attempt = now
+            log(f"install due: {reason}")
+            failed = not install(udid, release)
+            if not failed:
+                state.setdefault("installed", {})[udid] = {
+                    "build": release.get("build") if release else None,
+                    "commit": release.get("commit") if release else None,
+                    "published": release.get("published") if release else None,
+                    "at": time.time(),
+                }
+                save_state(state)
+
+        time.sleep(POLL_SECONDS)
+
+
+if __name__ == "__main__":
+    # One instance only: a second, from a re-login or a manual start, would race the first
+    # for the same install.
+    import fcntl
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    lock = open(STATE_DIR / "lock", "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        sys.exit(0)
+    while True:
+        try:
+            main()
+        except KeyboardInterrupt:
+            sys.exit(0)
+        except Exception as error:  # noqa: BLE001 — a watcher that dies is no watcher
+            log(f"watcher error, restarting in a minute: {error!r}")
+            time.sleep(60)
