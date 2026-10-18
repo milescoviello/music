@@ -89,9 +89,9 @@ final class PulseOutput: @unchecked Sendable {
         guard let context else { return nil }
         final class Result { var rate: UInt32 = 0; var done = false }
         let result = Result()
-        let box = Unmanaged.passRetained(Box((self, result)))
+        let box = Unmanaged.passRetained(ClosureBox((self, result)))
         let operation = pa_context_get_server_info(context, { _, info, data in
-            let (output, result) = Unmanaged<Box<(PulseOutput, Result)>>.fromOpaque(data!).takeUnretainedValue().value
+            let (output, result) = Unmanaged<ClosureBox<(PulseOutput, Result)>>.fromOpaque(data!).takeUnretainedValue().value
             result.rate = info?.pointee.sample_spec.rate ?? 0
             result.done = true
             pa_threaded_mainloop_signal(output.mainloop, 0)

@@ -31,6 +31,12 @@ extension GPointer {
         rawPointer.assumingMemoryBound(to: T.self)
     }
 
+    /// The same, for the C functions that take a final type, which Swift sees as opaque.
+    @inline(__always)
+    func cast() -> OpaquePointer {
+        OpaquePointer(rawPointer)
+    }
+
     @inline(__always)
     var opaque: OpaquePointer { OpaquePointer(rawPointer) }
 
@@ -39,7 +45,7 @@ extension GPointer {
 
 /// Holds a Swift value for C. Released by `releaseBox`, which every connect passes as the
 /// handler's destroy-notify, so a handler's closure lives exactly as long as the handler.
-final class Box<Value> {
+final class ClosureBox<Value> {
     let value: Value
 
     init(_ value: Value) {
@@ -54,7 +60,7 @@ private let releaseBox: GClosureNotify = { data, _ in
 
 @inline(__always)
 private func unbox<Value>(_ data: UnsafeMutableRawPointer?, as _: Value.Type) -> Value {
-    Unmanaged<Box<Value>>.fromOpaque(data!).takeUnretainedValue().value
+    Unmanaged<ClosureBox<Value>>.fromOpaque(data!).takeUnretainedValue().value
 }
 
 /// Connecting Swift closures to GObject signals.
@@ -72,7 +78,7 @@ enum Signal {
             let handler = unbox(data, as: Handler.self)
             MainActor.assumeIsolated { handler() }
         }
-        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), Box(handler))
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
     /// For signals whose first argument is a pointer: `row-activated`, a factory's
@@ -89,7 +95,7 @@ enum Signal {
             nonisolated(unsafe) let argument = argument
             MainActor.assumeIsolated { handler(argument) }
         }
-        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), Box(handler))
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
     /// For signals with one unsigned argument: a list view's `activate(position)`.
@@ -100,7 +106,7 @@ enum Signal {
             let handler = unbox(data, as: H.self)
             MainActor.assumeIsolated { handler(value) }
         }
-        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), Box(handler))
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
     /// For signals with one boolean argument: GNetworkMonitor's `network-changed`.
@@ -111,18 +117,19 @@ enum Signal {
             let handler = unbox(data, as: H.self)
             MainActor.assumeIsolated { handler(value != 0) }
         }
-        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), Box(handler))
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
-    /// For signals that return whether they were handled: `close-request`.
+    /// For signals that return whether they were handled: `close-request`. Its own name,
+    /// so a trailing closure is never ambiguous with the plain `connect`.
     @discardableResult
-    static func connect(_ instance: GPointer, _ name: String, returning handler: @escaping @MainActor () -> Bool) -> gulong {
+    static func connectHandled(_ instance: GPointer, _ name: String, _ handler: @escaping @MainActor () -> Bool) -> gulong {
         typealias H = @MainActor () -> Bool
         let trampoline: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> gboolean = { _, data in
             let handler = unbox(data, as: H.self)
             return MainActor.assumeIsolated { handler() } ? 1 : 0
         }
-        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), Box(handler))
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
     /// A click gesture's `pressed` and `released`: presses, x, y.
@@ -137,7 +144,7 @@ enum Signal {
             let handler = unbox(data, as: H.self)
             MainActor.assumeIsolated { handler(count, x, y) }
         }
-        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), Box(handler))
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
     /// Two doubles: a long press's `pressed`, a drag's `drag-begin`, `drag-update` and
@@ -153,7 +160,7 @@ enum Signal {
             let handler = unbox(data, as: H.self)
             MainActor.assumeIsolated { handler(x, y) }
         }
-        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), Box(handler))
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
     /// Two doubles, returning whether handled: a scroll controller's `scroll`.
@@ -168,7 +175,7 @@ enum Signal {
             let handler = unbox(data, as: H.self)
             return MainActor.assumeIsolated { handler(x, y) } ? 1 : 0
         }
-        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), Box(handler))
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
     /// A key controller's `key-pressed`: keyval, keycode, modifiers; true if handled.
@@ -183,7 +190,7 @@ enum Signal {
             let handler = unbox(data, as: H.self)
             return MainActor.assumeIsolated { handler(keyval, keycode, state) } ? 1 : 0
         }
-        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), Box(handler))
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
     /// GtkRange's `change-value`: scroll type, new value; true if handled.
@@ -198,7 +205,7 @@ enum Signal {
             let handler = unbox(data, as: H.self)
             return MainActor.assumeIsolated { handler(value) } ? 1 : 0
         }
-        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), Box(handler))
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
     static func disconnect(_ instance: GPointer, _ id: gulong) {
