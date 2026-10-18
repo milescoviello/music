@@ -625,7 +625,7 @@ struct NowPlayingView: View {
 /// Its own view on purpose. It reads `elapsed`, which ticks four times a second, and
 /// under `@Observable` that invalidates whatever view read it -- so inside the player's
 /// body it was re-rendering the entire screen, blurred backdrop included, 4x/second.
-/// Scoped here, the tick repaints a slider and two labels.
+/// Scoped here, the tick repaints a seekbar and two labels.
 private struct PlayerSeekBar: View {
     @Environment(AppState.self) private var appState
     @Environment(PlayerSettings.self) private var playerSettings
@@ -634,44 +634,26 @@ private struct PlayerSeekBar: View {
 
     private var player: PlaybackController { appState.player }
 
-    private var keepAwake: Binding<Bool> {
-        Binding(
-            get: { appState.screenAwake.isEnabled },
-            set: { appState.screenAwake.isEnabled = $0 }
-        )
-    }
-
     /// A stream with no determinable length -- a server-side transcode is chunked, so
     /// there is no duration and no seeking either.
     private var hasKnownDuration: Bool { player.duration > 0 }
 
-    /// The outline of the track playing, from the sonic service or measured here, as
-    /// Plexamp's seekbar heights on a 0…1 scale. Read without touching the disk or the
-    /// network: the `.task` below loads it.
-    private var envelope: [Float]? {
-        guard playerSettings.seekbarStyle != .line, let id = player.currentSong?.id,
-              let levels = appState.seekbarLevels.levels(for: id)
-        else { return nil }
-        return SeekbarShape.heights(fromLevels: levels).map { $0 / SeekbarShape.maximumHeight }
+    private var position: Double { scrubValue ?? player.elapsed }
+
+    /// The track's loudness as Plexamp's bar heights, in points: from the sonic service,
+    /// or measured here when the service has not analysed it. Empty until one of them has
+    /// it. Read without touching the disk or the network: the `.task` below loads it.
+    private var heights: [Float] {
+        guard let id = player.currentSong?.id, let levels = appState.seekbarLevels.levels(for: id) else { return [] }
+        return SeekbarShape.interpolate(SeekbarShape.heights(fromLevels: levels), to: LoudnessSeekBar.points)
     }
 
     var body: some View {
         VStack(spacing: 2) {
-            if let envelope, hasKnownDuration {
-                EnvelopeSeekBar(
-                    envelope: envelope,
-                    progress: min(1, max(0, (scrubValue ?? player.elapsed) / max(player.duration, 1))),
-                    isBars: playerSettings.seekbarStyle == .bars,
-                    onScrub: { scrubValue = $0 * player.duration },
-                    onCommit: {
-                        player.seek(to: $0 * player.duration)
-                        scrubValue = nil
-                    }
-                )
-            } else {
+            if playerSettings.seekbarStyle == .line {
                 Slider(
                     value: Binding(
-                        get: { scrubValue ?? player.elapsed },
+                        get: { position },
                         set: { scrubValue = $0 }
                     ),
                     in: 0...max(player.duration, 1),
@@ -690,17 +672,28 @@ private struct PlayerSeekBar: View {
                 // below do not jump when a duration arrives a moment after playback starts.
                 .disabled(!hasKnownDuration)
                 .opacity(hasKnownDuration ? 1 : 0.35)
+            } else {
+                LoudnessSeekBar(
+                    heights: heights,
+                    trackID: player.currentSong?.id,
+                    progress: hasKnownDuration ? min(1, max(0, position / player.duration)) : 0,
+                    isBars: playerSettings.seekbarStyle == .bars,
+                    onScrub: { scrubValue = $0 * player.duration },
+                    onCommit: {
+                        player.seek(to: $0 * player.duration)
+                        scrubValue = nil
+                    },
+                    onCancel: { scrubValue = nil }
+                )
+                .allowsHitTesting(hasKnownDuration)
+                .opacity(hasKnownDuration ? 1 : 0.35)
             }
 
             HStack {
-                Text(Int(scrubValue ?? player.elapsed).asDuration)
+                Text(Int(position).asDuration)
                 Spacer()
                 // Rather than "0:00", which reads as a bug -- and was one.
-                Text(
-                    hasKnownDuration
-                        ? Int(max(player.duration - (scrubValue ?? player.elapsed), 0)).asDuration
-                        : "--:--"
-                )
+                Text(hasKnownDuration ? Int(max(player.duration - position, 0)).asDuration : "--:--")
             }
             .font(.caption.monospacedDigit())
             .foregroundStyle(.white.opacity(0.6))
@@ -710,7 +703,8 @@ private struct PlayerSeekBar: View {
         // A track change during a scrub would otherwise leave the thumb pinned at a
         // position in the *previous* song.
         .onChange(of: player.currentSong?.id) { scrubValue = nil }
-        .task(id: player.currentSong?.id) {
+        // The style too, so switching from Line to a shape fetches the shape at once.
+        .task(id: [player.currentSong?.id, playerSettings.seekbarStyle.rawValue]) {
             guard let id = player.currentSong?.id else { return }
             _ = appState.shapes.shape(for: id)
             if playerSettings.seekbarStyle != .line { appState.seekbarLevels.request([id]) }
@@ -718,36 +712,53 @@ private struct PlayerSeekBar: View {
     }
 }
 
-/// Plexamp's Smooth and Bars seekbars: the track's loudness, start to end, filled with the
-/// tint up to where it has played. Drag anywhere along it to scrub; the seek happens on
+/// Plexamp's Smooth and Bars seekbars: the track's loudness, start to end, so you can see
+/// the part you are about to skip to. Tinted up to where it has played, with a thin
+/// playhead there. Tap anywhere to go there, or drag to scrub; the seek happens on
 /// release, as with the slider.
-private struct EnvelopeSeekBar: View {
-    let envelope: [Float]
+///
+/// Until the track's shape is known it is a flat line that works the same, and when the
+/// shape arrives, or the track changes, it grows up out of the line.
+private struct LoudnessSeekBar: View {
+    /// Plexamp's heights, in points, `SeekbarShape.maximumHeight` at the loudest. Empty
+    /// while the shape is not known.
+    let heights: [Float]
+    let trackID: String?
     let progress: Double
     let isBars: Bool
     let onScrub: (Double) -> Void
     let onCommit: (Double) -> Void
+    let onCancel: () -> Void
 
-    private let height: CGFloat = 34
+    @GestureState private var isDragging = false
+
+    /// Plexamp draws its seekbar from 128 points, whatever the levels came as.
+    static let points = 128
+    private static let height = CGFloat(SeekbarShape.maximumHeight)
+    /// So silence and a shape not known yet still show where the bar runs.
+    private static let minimumHeight: CGFloat = 2
+    /// The bar is shorter than a finger; this much above and below it still catches one.
+    private static let touchSlop: CGFloat = 6
+
+    /// Changes when there is a new shape to grow: another track, or the first for this one.
+    private var revealKey: String? { heights.isEmpty ? nil : trackID }
 
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
-            Canvas { context, size in
-                let shape = isBars ? bars(in: size) : curve(in: size)
-                context.fill(shape, with: .color(.white.opacity(0.25)))
-                var played = context
-                played.clip(to: Path(CGRect(x: 0, y: 0, width: size.width * progress, height: size.height)))
-                played.fill(shape, with: .color(Color.appTint))
-            }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { onScrub(fraction($0.location.x, width)) }
-                    .onEnded { onCommit(fraction($0.location.x, width)) }
-            )
+            outline
+                .frame(height: Self.height)
+                .overlay(alignment: .leading) { playhead(in: width) }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(scrub(in: width))
         }
-        .frame(height: height)
+        .frame(height: Self.height + 2 * Self.touchSlop)
+        // A drag the system cancels never reaches `onEnded`; without this the bar would
+        // stay at the scrubbed position and stop following the music.
+        .onChange(of: isDragging) { _, dragging in
+            if !dragging { onCancel() }
+        }
         .accessibilityElement()
         .accessibilityLabel("Position")
         .accessibilityValue("\(Int(progress * 100)) percent")
@@ -757,41 +768,85 @@ private struct EnvelopeSeekBar: View {
         }
     }
 
+    private var outline: some View {
+        Canvas { context, size in
+            let shape = isBars ? bars(in: size) : curve(in: size)
+            context.fill(shape, with: .color(.white.opacity(0.25)))
+            var played = context
+            played.clip(to: Path(CGRect(x: 0, y: 0, width: size.width * progress, height: size.height)))
+            played.fill(shape, with: .color(Color.appTint))
+        }
+        .keyframeAnimator(initialValue: CGFloat(1), trigger: revealKey) { content, scale in
+            content.scaleEffect(x: 1, y: scale, anchor: .bottom)
+        } keyframes: { _ in
+            MoveKeyframe(0)
+            SpringKeyframe(1, duration: 0.6, spring: .smooth)
+        }
+    }
+
+    private func playhead(in width: CGFloat) -> some View {
+        let thickness: CGFloat = isDragging ? 3 : 2
+        return Capsule()
+            .fill(.white)
+            .frame(width: thickness, height: Self.height + 4)
+            .offset(x: min(max(width * progress - thickness / 2, 0), max(width - thickness, 0)))
+            .animation(.easeOut(duration: 0.15), value: isDragging)
+    }
+
+    private func scrub(in width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .updating($isDragging) { _, dragging, _ in dragging = true }
+            .onChanged { onScrub(fraction($0.location.x, width)) }
+            .onEnded { value in
+                // A swipe down that happened to start on the bar was meant to close the
+                // player, not to seek to wherever the finger left it.
+                let down = value.translation.height
+                if down > 60, down > 2 * abs(value.translation.width) {
+                    onCancel()
+                } else {
+                    onCommit(fraction(value.location.x, width))
+                }
+            }
+    }
+
     private func fraction(_ x: CGFloat, _ width: CGFloat) -> Double {
         guard width > 0 else { return 0 }
         return Double(min(max(x / width, 0), 1))
     }
 
-    /// A value per point across the width, so a quiet passage still shows a sliver.
-    private func level(at position: Double) -> CGFloat {
-        guard !envelope.isEmpty else { return 0 }
-        let index = min(envelope.count - 1, max(0, Int(position * Double(envelope.count))))
-        return CGFloat(max(0.08, envelope[index]))
+    /// The heights to draw across `count` points; flat while the shape is not known.
+    private func values(_ count: Int) -> [CGFloat] {
+        let source = heights.isEmpty ? [0] : heights
+        let resampled = source.count == count ? source : SeekbarShape.interpolate(source, to: count)
+        return resampled.map { max(Self.minimumHeight, CGFloat($0)) }
     }
 
+    /// A bar per point, standing on the bottom edge; fewer only if the bar is too narrow
+    /// for a bar every two and a half points.
     private func bars(in size: CGSize) -> Path {
-        let count = max(1, Int(size.width / 4))
-        let barWidth = size.width / CGFloat(count)
+        let count = max(1, min(heights.isEmpty ? Self.points : heights.count, Int(size.width / 2.5)))
+        let slot = size.width / CGFloat(count)
+        let barWidth = max(1, slot * 0.65)
         var path = Path()
-        for bar in 0..<count {
-            let value = level(at: (Double(bar) + 0.5) / Double(count))
-            let barHeight = value * size.height
+        for (index, value) in values(count).enumerated() {
+            let barHeight = min(value, size.height)
             path.addRoundedRect(
-                in: CGRect(x: CGFloat(bar) * barWidth + 0.75, y: (size.height - barHeight) / 2,
-                           width: max(1, barWidth - 1.5), height: barHeight),
-                cornerSize: CGSize(width: 1, height: 1)
+                in: CGRect(x: CGFloat(index) * slot + (slot - barWidth) / 2, y: size.height - barHeight,
+                           width: barWidth, height: barHeight),
+                cornerSize: CGSize(width: barWidth / 2, height: barWidth / 2),
+                style: .continuous
             )
         }
         return path
     }
 
-    /// A filled curve rising from the baseline, through the midpoints between samples so
-    /// it stays smooth however few there are.
+    /// A filled curve rising from the bottom edge through every point, smoothed through
+    /// the midpoints between them.
     private func curve(in size: CGSize) -> Path {
-        let steps = max(2, Int(size.width / 3))
-        let points = (0...steps).map { step -> CGPoint in
-            let position = Double(step) / Double(steps)
-            return CGPoint(x: CGFloat(position) * size.width, y: size.height * (1 - level(at: position)))
+        let heights = values(max(2, self.heights.count))
+        let step = size.width / CGFloat(heights.count - 1)
+        let points = heights.enumerated().map { index, value in
+            CGPoint(x: CGFloat(index) * step, y: size.height - min(value, size.height))
         }
         var path = Path()
         path.move(to: CGPoint(x: 0, y: size.height))
