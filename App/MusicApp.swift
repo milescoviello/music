@@ -62,6 +62,7 @@ struct MusicApp: App {
                         // termination while paused is common and silent.
                         appState.player.persistNow()
                         appState.history.saveNow()
+                        appState.downloads.flushCatalog()
                         appState.screenAwake.release()
                     default:
                         break

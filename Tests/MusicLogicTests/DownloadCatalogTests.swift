@@ -115,6 +115,62 @@ struct DownloadCatalogTests {
         #expect(after.entries.isEmpty)
     }
 
+    /// What `reconcile()` relies on: a song is on disk as pending before its transfer
+    /// starts, so it is safe for its completion to be written a moment later.
+    @Test func pendingIsWrittenAtOnceAndFinishedSongsTogetherLater() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("c.json")
+
+        let store = DownloadCatalogStore(url: file, completionDelay: .seconds(60))
+        _ = await store.markPending(["a", "b"].map { entry($0, in: directory) })
+        #expect(Set(await DownloadCatalogStore(url: file).load().pending.keys) == ["a", "b"])
+
+        _ = await store.complete(songID: "a", byteCount: 4_096)
+        _ = await store.complete(songID: "b", byteCount: 8_192)
+        let beforeFlush = await DownloadCatalogStore(url: file).load()
+        #expect(beforeFlush.entries.isEmpty)
+        #expect(Set(beforeFlush.pending.keys) == ["a", "b"])
+
+        await store.flush()
+        let afterFlush = await DownloadCatalogStore(url: file).load()
+        #expect(afterFlush.pending.isEmpty)
+        #expect(afterFlush.entries["b"]?.byteCount == 8_192)
+    }
+
+    @Test func finishedSongsAreWrittenWithoutBeingAsked() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("c.json")
+
+        let store = DownloadCatalogStore(url: file, completionDelay: .milliseconds(50))
+        _ = await store.markPending(entry("a", in: directory))
+        _ = await store.complete(songID: "a", byteCount: 4_096)
+
+        var written = false
+        for _ in 0..<100 where !written {
+            try await Task.sleep(for: .milliseconds(50))
+            written = await DownloadCatalogStore(url: file).load().entries["a"] != nil
+        }
+        #expect(written)
+    }
+
+    /// Any other change writes the whole catalog, finished songs included.
+    @Test func anImmediateWriteCarriesTheFinishedSongsWithIt() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("c.json")
+
+        let store = DownloadCatalogStore(url: file, completionDelay: .seconds(60))
+        _ = await store.markPending(["a", "b"].map { entry($0, in: directory) })
+        _ = await store.complete(songID: "a", byteCount: 4_096)
+        _ = await store.cancelPending(songID: "b")
+
+        let written = await DownloadCatalogStore(url: file).load()
+        #expect(written.entries["a"] != nil)
+        #expect(written.pending.isEmpty)
+    }
+
     /// A whole playlist is one write, so every song of it is pending the moment it lands.
     @Test func aBatchIsPendingAllAtOnce() async throws {
         let directory = try makeTemporaryDirectory()

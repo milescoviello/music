@@ -186,13 +186,31 @@ struct DownloadCatalog: Codable, Sendable {
 
 /// Owns the catalog file. An actor because the download delegate, the UI and the
 /// launch-time reconcile all touch it.
+///
+/// Every change is written at once except one: a finished song. The file is the whole
+/// catalog — every downloaded song with all its metadata — so writing it per finished
+/// song made an album download a long run of full-catalog encodes. Those are gathered and
+/// written a second after the first of them, and at once when the app goes to the
+/// background (`flush()`) or anything else changes the catalog.
+///
+/// Holding a finished song back is safe because of what is written at once: the song is
+/// recorded as pending before its transfer starts (`markPending`), and the delegate moves
+/// its file into place before `complete` is called. So a kill before the write leaves a
+/// pending entry whose file is on disk, which is exactly what `reconcile()` promotes at the
+/// next launch, with the file's real size. Nothing is lost in that window, as nothing was
+/// before; the song is promoted at launch rather than having been promoted already.
 actor DownloadCatalogStore {
     private let url: URL
     private var catalog = DownloadCatalog()
     private var isLoaded = false
+    /// The write gathering finished songs, while one is due.
+    private var pendingSave: Task<Void, Never>?
+    /// How long finished songs are gathered for.
+    private let completionDelay: Duration
 
-    init(url: URL = Paths.catalog) {
+    init(url: URL = Paths.catalog, completionDelay: Duration = .seconds(1)) {
         self.url = url
+        self.completionDelay = completionDelay
     }
 
     func load() -> DownloadCatalog {
@@ -236,7 +254,7 @@ actor DownloadCatalogStore {
         entry.byteCount = byteCount
         entry.addedAt = .now
         catalog.entries[songID] = entry
-        save()
+        saveSoon()
         return catalog
     }
 
@@ -339,9 +357,30 @@ actor DownloadCatalogStore {
         return catalog
     }
 
+    /// Writes whatever finished songs are waiting to be written. For going to the
+    /// background, where the process may not come back.
+    func flush() {
+        guard pendingSave != nil else { return }
+        save()
+    }
+
+    /// Finished songs, written together: see the type's comment for why that is safe.
+    private func saveSoon() {
+        guard pendingSave == nil else { return }
+        let delay = completionDelay
+        pendingSave = Task {
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            self.save()
+        }
+    }
+
     /// Atomic, so a kill mid-write cannot leave a half-written catalog that fails to
-    /// decode and takes the whole library's index with it.
+    /// decode and takes the whole library's index with it. Writes the whole catalog, so
+    /// it also writes any finished songs that were waiting.
     private func save() {
+        pendingSave?.cancel()
+        pendingSave = nil
         guard let data = try? JSONEncoder().encode(catalog) else { return }
         try? data.write(to: url, options: .atomic)
     }
