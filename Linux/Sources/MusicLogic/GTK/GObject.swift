@@ -259,6 +259,13 @@ final class WeakObject: @unchecked Sendable {
         defer { g_object_unref(object) }
         return body(object)
     }
+
+    /// Whether the object still exists. Async work asks before touching a widget again:
+    /// a page popped while its load was in flight has been finalized, and its handles
+    /// point at freed memory.
+    var isAlive: Bool {
+        withObject { _ in true } ?? false
+    }
 }
 
 /// Carries a value the compiler cannot prove is `Sendable` across a boundary it is in fact

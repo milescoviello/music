@@ -38,7 +38,7 @@ final class Observer {
 final class WeakReference<Object: AnyObject>: @unchecked Sendable {
     weak var value: Object?
 
-    init(_ value: Object) {
+    init(_ value: Object?) {
         self.value = value
     }
 }

@@ -161,6 +161,11 @@ class Widget {
 
     // MARK: Lifetime and state
 
+    /// Asked by async work before it touches this widget again; see `WeakObject.isAlive`.
+    var liveness: WeakObject {
+        WeakObject(widget)
+    }
+
     /// Keeps `object` alive for as long as this widget exists.
     @discardableResult
     func keep(_ object: AnyObject) -> Self {

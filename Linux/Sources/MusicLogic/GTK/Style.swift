@@ -37,6 +37,7 @@ enum Style {
     .artwork.thumb { border-radius: 6px; }
     .artwork.player { border-radius: 12px; box-shadow: 0 12px 32px alpha(black, 0.5); }
     .artwork.round { border-radius: 9999px; }
+    .backdrop-blur { filter: blur(60px); }
     .artwork-placeholder { background-color: alpha(currentColor, 0.08); }
     .monogram { font-weight: 600; opacity: 0.45; }
 
@@ -80,6 +81,9 @@ enum Style {
     .transport .active { color: var(--accent-color); }
     .mode-button { color: alpha(#ffffff, 0.6); }
     .mode-button.selected { color: var(--accent-color); }
+    .link-button { padding: 0 2px; min-height: 0; }
+    .now-playing list, .now-playing list > row { background: none; }
+    .now-playing list > row:hover { background-color: alpha(#ffffff, 0.06); }
     .resume-strip { background-color: alpha(#ffffff, 0.12); border-radius: 9999px; padding: 4px 12px; }
 
     /* Lyrics. */
