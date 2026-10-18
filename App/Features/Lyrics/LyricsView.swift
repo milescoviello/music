@@ -48,8 +48,8 @@ struct LyricsView: View {
             await readAlong.update(romanize: settings.romanizesLyrics)
             await translation.setWanted(settings.translatesLyrics)
         }
-        // On the outer view rather than the scroller, so a song change does not tear it
-        // down mid-translation; the language-download prompt is presented from here too.
+        // On the outer view rather than the scroller, which is rebuilt whenever lyrics
+        // load; the language-download prompt is presented from here too.
         // `@Sendable` keeps the closure off the main actor, which is where the session
         // has to stay -- see `LyricTranslation.run`.
         .translationTask(translation.configuration) { @Sendable [translation] session in
