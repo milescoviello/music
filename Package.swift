@@ -44,6 +44,7 @@ let package = Package(
                 "Romanizer.swift",
                 "LyricsLanguage.swift",
                 "Romanization.swift",
+                "LyricTranslationStore.swift",
             ]
         ),
         .testTarget(
