@@ -8,9 +8,11 @@ import SwiftUI
 /// Every control takes effect on the track already playing, within a fraction of a second.
 struct AudioSettingsView: View {
     @Environment(AudioSettings.self) private var audio
+    @Environment(PlayerSettings.self) private var playerSettings
 
     var body: some View {
         @Bindable var audio = audio
+        @Bindable var playerSettings = playerSettings
 
         Form {
             Section {
@@ -52,6 +54,22 @@ struct AudioSettingsView: View {
                 }
             } footer: {
                 Text("Ten bands, with presets and your own saved curves.")
+            }
+
+            Section {
+                Toggle("Show Skip Buttons", isOn: $playerSettings.showsSkipButtons)
+                Picker("Skip Back", selection: $playerSettings.skipBackSeconds) {
+                    ForEach(PlayerSettings.skipOptions, id: \.self) { Text("\($0) sec").tag($0) }
+                }
+                .disabled(!playerSettings.showsSkipButtons)
+                Picker("Skip Forward", selection: $playerSettings.skipForwardSeconds) {
+                    ForEach(PlayerSettings.skipOptions, id: \.self) { Text("\($0) sec").tag($0) }
+                }
+                .disabled(!playerSettings.showsSkipButtons)
+            } header: {
+                Text("Quick Skip")
+            } footer: {
+                Text("Buttons either side of the transport that jump within the track — for mixes, live sets and anything long.")
             }
         }
         .navigationTitle("Playback")

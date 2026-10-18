@@ -18,7 +18,13 @@ final class SleepTimer {
         case at(Date)
         /// Stop when the track that is playing now finishes.
         case endOfTrack
+        /// Stop when the album playing runs out — the next track is from another album,
+        /// or there is no next track.
+        case endOfAlbum(albumID: String)
     }
+
+    /// Plexamp's list.
+    static let minuteOptions = [5, 10, 15, 30, 60]
 
     private(set) var mode: Mode = .off
 
@@ -42,6 +48,8 @@ final class SleepTimer {
             return nil
         case .endOfTrack:
             return "End of track"
+        case .endOfAlbum:
+            return "End of album"
         case .at:
             guard let remaining else { return nil }
             let minutes = Int(remaining / 60) + (remaining.truncatingRemainder(dividingBy: 60) > 0 ? 1 : 0)
@@ -68,17 +76,29 @@ final class SleepTimer {
         mode = .endOfTrack
     }
 
+    func armEndOfAlbum(albumID: String) {
+        cancel()
+        mode = .endOfAlbum(albumID: albumID)
+    }
+
     func cancel() {
         task?.cancel()
         task = nil
         mode = .off
     }
 
-    /// Called by the player when a track finishes, so `.endOfTrack` can act on the
-    /// only event that defines it.
-    func trackDidFinish() {
-        guard mode == .endOfTrack else { return }
-        fire()
+    /// Called by the player when a track finishes, with the one it is moving on to (nil
+    /// at the end of the queue), so the two track-bound modes can act on the only event
+    /// that defines them.
+    func trackDidFinish(next: Song?) {
+        switch mode {
+        case .endOfTrack:
+            fire()
+        case let .endOfAlbum(albumID):
+            if next?.albumId != albumID { fire() }
+        case .off, .at:
+            break
+        }
     }
 
     private func fire() {

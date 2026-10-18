@@ -449,6 +449,28 @@ final class PlaybackController {
         rebuildOutput(startPlaying: isPlaying, seekTo: 0)
     }
 
+    /// Playback speed, pitch preserved. Plexamp's 0.5–2× in tenths; not remembered
+    /// across launches, so a sped-up podcast never surprises the next album.
+    private(set) var speed: Float = 1
+
+    static let speedRange: ClosedRange<Float> = 0.5...2
+
+    func setSpeed(_ value: Float) {
+        let stepped = (min(max(value, Self.speedRange.lowerBound), Self.speedRange.upperBound) * 10).rounded() / 10
+        speed = stepped
+        output.rate = stepped
+    }
+
+    /// Plexamp's quick skip: a relative seek within the track, clamped to it.
+    func skip(by seconds: Double) {
+        let target = elapsed + seconds
+        if duration > 0, target >= duration - 1 {
+            next()
+            return
+        }
+        seek(to: max(0, target))
+    }
+
     func seek(to seconds: Double) {
         output.seek(to: seconds)
         elapsed = seconds
@@ -675,17 +697,18 @@ final class PlaybackController {
             // not be loaded, or repeat-one reaching the end of its only track. The queue
             // decides, and the output is rebuilt from it.
             if queue.repeatMode == .one {
-                appState?.sleepTimer.trackDidFinish()
+                appState?.sleepTimer.trackDidFinish(next: queue.current)
             }
             if queue.advance() {
                 rebuildOutput(startPlaying: true, seekTo: 0)
             } else {
+                appState?.sleepTimer.trackDidFinish(next: nil)
                 pause()
             }
             return
         }
 
-        appState?.sleepTimer.trackDidFinish()
+        appState?.sleepTimer.trackDidFinish(next: queue.tracks[queue.order[orderIndex]])
         topUpMixQueue()
         // Played to the end: there is nothing to come back to.
         if let finished = queue.current { appState?.resume.clear(songID: finished.id) }

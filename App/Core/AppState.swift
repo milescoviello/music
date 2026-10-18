@@ -45,6 +45,7 @@ final class AppState {
     let sleepTimer = SleepTimer()
     let audio = AudioSettings()
     let streaming = StreamingSettings()
+    let playerSettings = PlayerSettings()
     let streamCache = StreamCache()
     let shapes = TrackShapeStore()
     /// Shared PCM ring. One buffer for the whole app, because only one thing can be

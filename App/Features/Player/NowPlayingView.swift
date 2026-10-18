@@ -8,12 +8,14 @@ struct NowPlayingView: View {
     @Environment(AppState.self) private var appState
     @Environment(SleepTimer.self) private var sleepTimer
     @Environment(DownloadCenter.self) private var downloads
+    @Environment(PlayerSettings.self) private var playerSettings
     /// Called instead of `dismiss()`: this is no longer a modal, it is a layer drawn
     /// above the library, so closing it is the presenter's business.
     var onDismiss: () -> Void = {}
 
     @State private var mode: PlayerMode = .artwork
     @State private var dragOffset: CGFloat = 0
+    @State private var similarTo: Song?
     @Namespace private var modeNamespace
 
     private var player: PlaybackController { appState.player }
@@ -42,6 +44,9 @@ struct NowPlayingView: View {
         // library. Whatever layer is opaque has to be the layer that moves.
         .offset(y: dragOffset)
         .onAppear { dragOffset = 0 }
+        .sheet(item: $similarTo) { song in
+            SimilarTracksView(song: song)
+        }
     }
 
     private var playerBody: some View {
@@ -190,7 +195,13 @@ struct NowPlayingView: View {
                             )
                         }
                     }
+
+                    Button("Show Similar Tracks", systemImage: "wand.and.stars") {
+                        similarTo = song
+                    }
                     Divider()
+
+                    PlaybackSpeedMenu()
                     // Next to the sleep timer deliberately: one puts the music to sleep,
                     // the other stops the screen doing it, and they get reached for in the
                     // same moments — lyrics propped up on a desk, or a long mix.
@@ -379,6 +390,13 @@ struct NowPlayingView: View {
                     .monospacedDigit()
             }
 
+            if player.speed != 1 {
+                Text("·")
+                Text(String(format: "%.1f×", player.speed))
+                    .monospacedDigit()
+                    .foregroundStyle(Color.appTint)
+            }
+
             if let label = sleepTimer.label {
                 Text("·")
                 Label(label, systemImage: "moon.fill")
@@ -467,12 +485,21 @@ struct NowPlayingView: View {
     }
 
     private var transport: some View {
-        HStack(spacing: 28) {
+        let showsSkip = playerSettings.showsSkipButtons
+
+        return HStack(spacing: showsSkip ? 16 : 28) {
             Button { player.toggleShuffle() } label: {
                 Image(systemName: "shuffle")
                     .foregroundStyle(player.queue.isShuffled ? Color.appTint : .white.opacity(0.7))
             }
             .accessibilityLabel(player.queue.isShuffled ? "Shuffle on" : "Shuffle off")
+
+            if showsSkip {
+                Button { player.skip(by: -Double(playerSettings.skipBackSeconds)) } label: {
+                    Image(systemName: "gobackward.\(playerSettings.skipBackSeconds)").font(.title3)
+                }
+                .accessibilityLabel("Back \(playerSettings.skipBackSeconds) seconds")
+            }
 
             Button { player.previous() } label: {
                 Image(systemName: "backward.fill").font(.title2)
@@ -489,6 +516,13 @@ struct NowPlayingView: View {
                 Image(systemName: "forward.fill").font(.title2)
             }
             .accessibilityLabel("Next track")
+
+            if showsSkip {
+                Button { player.skip(by: Double(playerSettings.skipForwardSeconds)) } label: {
+                    Image(systemName: "goforward.\(playerSettings.skipForwardSeconds)").font(.title3)
+                }
+                .accessibilityLabel("Forward \(playerSettings.skipForwardSeconds) seconds")
+            }
 
             Button { player.cycleRepeat() } label: {
                 Image(systemName: player.queue.repeatMode.symbol)
@@ -625,8 +659,22 @@ private struct PlayerSeekBar: View {
 
 /// Lives in the player's overflow menu rather than in Settings: it is a thing you
 /// reach for while already listening in bed, not something you configure.
+///
+/// Plexamp's choices, including End of Album — offered, as Plexamp offers it, only when
+/// everything up next is from one album, which is when "the end of the album" means
+/// something.
 struct SleepTimerMenu: View {
     @Environment(SleepTimer.self) private var timer
+    @Environment(AppState.self) private var appState
+
+    private var albumPlaying: String? {
+        let queue = appState.player.queue
+        guard let album = queue.current?.albumId,
+              !queue.upNext.isEmpty,
+              queue.upNext.allSatisfy({ $0.albumId == album })
+        else { return nil }
+        return album
+    }
 
     var body: some View {
         Menu {
@@ -637,19 +685,53 @@ struct SleepTimerMenu: View {
                 Divider()
             }
 
+            ForEach(SleepTimer.minuteOptions, id: \.self) { minutes in
+                Button(minutes == 60 ? "1 Hour" : "\(minutes) Minutes") {
+                    timer.arm(minutes: minutes)
+                }
+            }
+
             Button("End of Track", systemImage: "music.note") {
                 timer.armEndOfTrack()
             }
 
-            ForEach([15, 30, 45, 60, 90], id: \.self) { minutes in
-                Button("\(minutes) Minutes") {
-                    timer.arm(minutes: minutes)
+            if let album = albumPlaying {
+                Button("End of Album", systemImage: "square.stack") {
+                    timer.armEndOfAlbum(albumID: album)
                 }
             }
         } label: {
             Label(
                 timer.label.map { "Sleep Timer — \($0)" } ?? "Sleep Timer",
                 systemImage: timer.isArmed ? "moon.fill" : "moon"
+            )
+        }
+    }
+}
+
+/// Plexamp's speed control: half to double speed in tenths, pitch kept. A submenu rather
+/// than Plexamp's slider, because a menu cannot hold one.
+struct PlaybackSpeedMenu: View {
+    @Environment(AppState.self) private var appState
+
+    private static let options: [Float] = stride(from: 5, through: 20, by: 1).map { Float($0) / 10 }
+
+    var body: some View {
+        let player = appState.player
+
+        Menu {
+            Picker("Playback Speed", selection: Binding(
+                get: { player.speed },
+                set: { player.setSpeed($0) }
+            )) {
+                ForEach(Self.options, id: \.self) { value in
+                    Text(String(format: "%.1f×", value)).tag(value)
+                }
+            }
+        } label: {
+            Label(
+                player.speed == 1 ? "Playback Speed" : String(format: "Playback Speed — %.1f×", player.speed),
+                systemImage: "gauge.with.dots.needle.67percent"
             )
         }
     }

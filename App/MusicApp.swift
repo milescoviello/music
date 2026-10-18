@@ -25,6 +25,7 @@ struct MusicApp: App {
                 .environment(appState.sleepTimer)
                 .environment(appState.audio)
                 .environment(appState.streaming)
+                .environment(appState.playerSettings)
                 .environment(appState.streamCache)
                 .environment(appState.spectrum)
                 .preferredColorScheme(.dark)
