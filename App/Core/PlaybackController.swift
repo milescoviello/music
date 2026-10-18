@@ -779,7 +779,9 @@ final class PlaybackController {
 
     private func tick(elapsed newElapsed: Double, isMoving: Bool) {
         elapsed = newElapsed
-        isBuffering = output.isBuffering
+        // Only when it changes: this runs four times a second, and an observed property
+        // assigned its own value can still count as a change to whatever reads it.
+        if isBuffering != output.isBuffering { isBuffering = output.isBuffering }
 
         // The queue's duration comes from the server and can be absent or wrong; the
         // output knows the real one once the file or stream is open.
