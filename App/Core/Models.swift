@@ -356,6 +356,44 @@ struct ArtistIndex: Codable, Hashable, Sendable, Identifiable {
     var artists: [Artist] { artist ?? [] }
 }
 
+/// `getIndexes`: the library's top-level folders, by letter. The same shape as the
+/// artist index, which is what a top-level folder was in the original Subsonic.
+struct FolderIndexes: Decodable, PayloadKeyed, Sendable {
+    let index: [ArtistIndex]?
+    static var payloadKey: String { "indexes" }
+}
+
+/// `getMusicDirectory`: one folder, its subfolders and its files.
+struct MusicDirectory: Decodable, PayloadKeyed, Sendable {
+    let id: String
+    let name: String
+    var parent: String?
+    var child: [DirectoryChild]?
+
+    static var payloadKey: String { "directory" }
+
+    var folders: [DirectoryChild] { (child ?? []).filter(\.isDir) }
+    var songs: [Song] { (child ?? []).filter { !$0.isDir }.map(\.song).sorted { $0.albumOrder < $1.albumOrder } }
+}
+
+/// A folder entry: a subfolder or a file. Both carry a song's fields — a subfolder its
+/// title and cover — so the entry is decoded as a song plus the one flag that tells them
+/// apart.
+struct DirectoryChild: Decodable, Identifiable, Sendable {
+    let isDir: Bool
+    let song: Song
+
+    var id: String { song.id }
+
+    private enum CodingKeys: String, CodingKey { case isDir }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        isDir = try container.decodeIfPresent(Bool.self, forKey: .isDir) ?? false
+        song = try Song(from: decoder)
+    }
+}
+
 struct ArtistsRoot: Decodable, PayloadKeyed, Sendable {
     let index: [ArtistIndex]?
     static var payloadKey: String { "artists" }

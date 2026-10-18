@@ -29,6 +29,7 @@ struct LibraryHubView: View {
                     row("Playlists", "music.note.list", .playlists)
                     row("Artists", "music.microphone", .artists)
                     row("Albums", "square.stack", .albums(.alphabeticalByName))
+                    row("Tracks", "music.note", .tracks)
                     row("Recently Played", "clock.arrow.circlepath", .albums(.recent))
                     row("Most Played", "chart.bar", .albums(.frequent))
                     row("Genres", "guitars", .genres)
@@ -41,6 +42,7 @@ struct LibraryHubView: View {
                     ForEach(LibraryFacet.allCases, id: \.self) { facet in
                         row(facet.title, facet.symbol, .libraryFacet(facet))
                     }
+                    row("Folders", "folder", .folder(nil))
                 }
 
                 Section {

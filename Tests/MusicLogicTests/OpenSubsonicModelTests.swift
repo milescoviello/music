@@ -66,3 +66,19 @@ struct OpenSubsonicModelTests {
         #expect(info.similarArtists.isEmpty)
     }
 }
+
+struct FolderModelTests {
+    @Test func aDirectorySplitsIntoFoldersAndSongsInPlayingOrder() throws {
+        let json = #"""
+        {"id":"d","name":"Kid A","child":[
+            {"id":"s2","title":"Kid A","isDir":false,"track":2,"suffix":"flac"},
+            {"id":"sub","title":"Bonus","isDir":true,"coverArt":"c"},
+            {"id":"s1","title":"Everything In Its Right Place","isDir":false,"track":1}
+        ]}
+        """#
+        let directory = try JSONDecoder().decode(MusicDirectory.self, from: Data(json.utf8))
+        #expect(directory.folders.map(\.id) == ["sub"])
+        #expect(directory.songs.map(\.id) == ["s1", "s2"])
+        #expect(directory.folders.first?.song.coverArt == "c")
+    }
+}

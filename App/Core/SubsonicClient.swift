@@ -384,6 +384,19 @@ actor SubsonicClient {
         ).index ?? []
     }
 
+    /// The top-level folders, for browsing by folder the way Plexamp's Folders does.
+    func folderIndexes(scope: LibraryScope = .all) async throws -> [ArtistIndex] {
+        try await get(
+            "getIndexes.view",
+            query: ["musicFolderId": scope.queryValue],
+            as: FolderIndexes.self
+        ).index ?? []
+    }
+
+    func musicDirectory(id: String) async throws -> MusicDirectory {
+        try await get("getMusicDirectory.view", query: ["id": id], as: MusicDirectory.self)
+    }
+
     func artistDetail(id: String) async throws -> ArtistDetail {
         try await get("getArtist.view", query: ["id": id], as: ArtistDetail.self)
     }

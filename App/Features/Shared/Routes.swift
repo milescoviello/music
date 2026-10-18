@@ -40,6 +40,9 @@ enum Destination: Hashable {
     case libraryFacet(LibraryFacet)
     case albumCollection(title: String, albums: [Album])
     case charts
+    case tracks
+    /// Nil for the top level.
+    case folder(FolderRef?)
 }
 
 extension View {
@@ -119,6 +122,10 @@ extension View {
                 AlbumCollectionView(title: title, albums: albums)
             case .charts:
                 ChartsView()
+            case .tracks:
+                TracksView()
+            case let .folder(ref):
+                FolderView(folder: ref)
             }
         }
     }
