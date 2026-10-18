@@ -33,7 +33,6 @@ struct MusicApp: App {
                 .environment(appState.recentPlays)
                 .environment(appState.sonic)
                 .environment(appState.streamCache)
-                .environment(appState.spectrum)
                 .preferredColorScheme(.dark)
                 .tint(.appTint)
                 .onChange(of: scenePhase) { _, phase in

@@ -60,12 +60,9 @@ final class AppState {
     /// Shared PCM ring. One buffer for the whole app, because only one thing can be
     /// visualised at a time and it must survive an output switch.
     let spectrumBuffer = AudioSampleBuffer()
-    let spectrum: SpectrumAnalyser
     let player = PlaybackController()
 
     init() {
-        spectrum = SpectrumAnalyser(buffer: spectrumBuffer)
-
         // Directories must exist before anything touches disk, and before a
         // background download session can be relaunched into.
         Paths.bootstrap()

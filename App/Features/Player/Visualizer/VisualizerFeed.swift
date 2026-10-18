@@ -5,8 +5,8 @@ import Foundation
 /// engine: the newest 512 samples, the mean taken out, a Hann window, and 256 magnitudes
 /// scaled so that a full-scale sine reads about 0.5 (1.0 before the window halves it).
 ///
-/// Its own type for the same reason as the analyser's FFT: a `@MainActor` class cannot
-/// free non-`Sendable` storage in `deinit` under strict concurrency.
+/// Its own type rather than part of the feed because a `@MainActor` class cannot free
+/// non-`Sendable` storage in `deinit` under strict concurrency.
 private final class VisualizerFFT: @unchecked Sendable {
     static let size = VisualizerSpectrum.fftSize
     private static let half = size / 2
