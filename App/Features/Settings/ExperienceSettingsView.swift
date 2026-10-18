@@ -6,6 +6,7 @@ struct ExperienceSettingsView: View {
     @Environment(PlayerSettings.self) private var playerSettings
 
     @AppStorage("home.layout") private var layoutData: Data?
+    @AppStorage(VisualizerProgram.highQualityKey) private var highQualityVisualizers = false
     @State private var isEditingHome = false
 
     var body: some View {
@@ -24,13 +25,16 @@ struct ExperienceSettingsView: View {
                     get: { appState.screenAwake.isEnabled },
                     set: { appState.screenAwake.isEnabled = $0 }
                 ))
+                Toggle("Higher Quality Visualizers", isOn: $highQualityVisualizers)
             } header: {
                 Text("Player")
             } footer: {
                 Text("""
                 Show Full Player opens the player whenever something starts playing. The \
                 Smooth and Bars seekbars draw the track's loudness once it is on the phone. \
-                Keep Screen On stops the phone sleeping while the app is open.
+                Keep Screen On stops the phone sleeping while the app is open. Higher \
+                Quality Visualizers draws them at the screen's full resolution: higher \
+                quality, but more expensive.
                 """)
             }
 
