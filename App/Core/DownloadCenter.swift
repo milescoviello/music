@@ -21,7 +21,15 @@ final class DownloadCenter {
     /// A download check that has to `await` would mean every row and every track
     /// transition hops actors.
     private(set) var catalog = DownloadCatalog()
-    private(set) var progress: [String: Double] = [:]
+    private(set) var progress: [String: Double] = [:] {
+        didSet {
+            // Its own property, changed only when the number does: the tab badge reads
+            // this, and reading `progress` itself redrew the whole tab bar — the whole
+            // app — on every chunk of every download.
+            if progress.count != activeCount { activeCount = progress.count }
+        }
+    }
+    private(set) var activeCount = 0
     private(set) var isDownloading = false
 
     private let store = DownloadCatalogStore()
@@ -196,7 +204,11 @@ final class DownloadCenter {
     // MARK: - Delegate callbacks (already on the main actor)
 
     func taskProgressed(songID: String, fraction: Double) {
-        progress[songID] = fraction
+        // Whole percents only: the delegate reports every few kilobytes, and each report
+        // redraws whatever is watching.
+        let stepped = (fraction * 100).rounded(.down) / 100
+        guard progress[songID] != stepped else { return }
+        progress[songID] = stepped
     }
 
     /// Called from `didFinishDownloadingTo` **after** the file has been moved

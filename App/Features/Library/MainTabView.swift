@@ -147,7 +147,7 @@ struct MainTabView: View {
                     }
                 }
             }
-            .badge(appState.downloads.progress.count)
+            .badge(appState.downloads.activeCount)
 
             Tab(value: Tabs.search, role: .search) {
                 hosted { SearchView() }
