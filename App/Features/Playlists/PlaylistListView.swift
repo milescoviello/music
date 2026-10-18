@@ -226,7 +226,11 @@ struct PlaylistDetailView: View {
             }
 
             // Playlist order is the server's order; never re-sorted.
-            ForEach(Array(songs.enumerated()), id: \.offset) { index, _ in
+            //
+            // The indices, not `Array(songs.enumerated())`: the same identities, without
+            // copying every song into a new array on each redraw, which for a smart
+            // playlist of the whole library is 28,000 of them.
+            ForEach(songs.indices, id: \.self) { index in
                 PlayableSongRow(
                     songs: songs, index: index, source: playlist.name, selection: selection
                 )
