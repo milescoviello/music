@@ -2,94 +2,43 @@ import AVFoundation
 import Foundation
 import Observation
 
-/// Reads a local file's first and last seconds for Sweet Fades.
+/// Reads a local file's loudness, start to end, for Sweet Fades and the seekbar.
 enum TrackAnalyzer {
-    /// Nil for anything AVFoundation cannot open as audio. Synchronous and CPU-bound —
-    /// decoding thirty seconds — so it is only ever called off the main actor.
+    /// Nil for anything AVFoundation cannot open as audio, or that fails part way: a
+    /// partial outline would draw a lie. Synchronous and CPU-bound — decoding the whole
+    /// track — so it is only ever called off the main actor.
+    ///
+    /// One pass, in one-second blocks, so a long track costs time but never memory. At
+    /// most two channels: BS.1770 weights front left and right equally, and anything past
+    /// them is not what a fade or a seekbar is judged by.
     static func shape(of url: URL) -> TrackShape? {
         guard let file = try? AVAudioFile(forReading: url) else { return nil }
-        let sampleRate = file.processingFormat.sampleRate
+        let format = file.processingFormat
         let length = file.length
-        guard length > 0, sampleRate > 0 else { return nil }
-
-        let span = AVAudioFramePosition(SweetFades.analysedSeconds * sampleRate)
-        let outroStart = max(0, length - span)
-        guard let intro = read(file, from: 0, count: min(span, length)),
-              let outro = read(file, from: outroStart, count: length - outroStart)
+        let channels = min(Int(format.channelCount), 2)
+        let block = AVAudioFrameCount(max(4_096, Int(format.sampleRate)))
+        guard length > 0,
+              var meter = MomentaryLoudness(sampleRate: format.sampleRate, channels: channels),
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: block)
         else { return nil }
 
-        return TrackShape.measure(intro: intro, outro: outro, sampleRate: sampleRate, power: power(of: file))
-    }
-
-    /// Mean-square power of each of `TrackShape.envelopePoints` equal slices of the whole
-    /// track, for the seekbar. Read in one-second blocks, so a long track costs time but
-    /// never memory. Nil if any block fails: a partial outline would draw a lie.
-    private static func power(of file: AVAudioFile) -> [Double]? {
-        let length = file.length
-        let slices = TrackShape.envelopePoints
-        guard length >= AVAudioFramePosition(slices) else { return nil }
-
-        let block = AVAudioFrameCount(max(4_096, Int(file.processingFormat.sampleRate)))
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: block) else { return nil }
-
-        var sums = [Double](repeating: 0, count: slices)
-        var counts = [Int](repeating: 0, count: slices)
         file.framePosition = 0
         var position: AVAudioFramePosition = 0
-
         while position < length {
             do {
                 try file.read(into: buffer, frameCount: min(block, AVAudioFrameCount(length - position)))
             } catch {
                 return nil
             }
+            // The processing format is always deinterleaved Float32, so this is never nil
+            // for a buffer that read successfully.
             let frames = Int(buffer.frameLength)
             guard frames > 0, let data = buffer.floatChannelData else { break }
-            let channels = min(Int(buffer.format.channelCount), 2)
-
-            for frame in 0..<frames {
-                var square: Double = 0
-                for channel in 0..<channels {
-                    let sample = Double(data[channel][frame])
-                    square += sample * sample
-                }
-                let slice = min(slices - 1, Int((position + AVAudioFramePosition(frame)) * AVAudioFramePosition(slices) / length))
-                sums[slice] += square
-                counts[slice] += 1
-            }
+            meter.add((0..<channels).map { Array(UnsafeBufferPointer(start: data[$0], count: frames)) })
             position += AVAudioFramePosition(frames)
         }
 
-        return zip(sums, counts).map { $1 > 0 ? $0 / Double($1) : 0 }
-    }
-
-    /// Non-interleaved channels, at most two: BS.1770 weights front left and right
-    /// equally, and anything past them is not what a fade is judged by.
-    private static func read(
-        _ file: AVAudioFile,
-        from start: AVAudioFramePosition,
-        count: AVAudioFramePosition
-    ) -> [[Float]]? {
-        guard count > 0,
-              let buffer = AVAudioPCMBuffer(
-                  pcmFormat: file.processingFormat,
-                  frameCapacity: AVAudioFrameCount(count)
-              )
-        else { return nil }
-
-        file.framePosition = start
-        do {
-            try file.read(into: buffer, frameCount: AVAudioFrameCount(count))
-        } catch {
-            return nil
-        }
-
-        // The processing format is always deinterleaved Float32, so this is never nil
-        // for a buffer that read successfully.
-        guard let data = buffer.floatChannelData else { return nil }
-        let frames = Int(buffer.frameLength)
-        let channels = min(Int(buffer.format.channelCount), 2)
-        return (0..<channels).map { Array(UnsafeBufferPointer(start: data[$0], count: frames)) }
+        return TrackShape.measure(momentary: meter.finish())
     }
 }
 
@@ -138,8 +87,8 @@ final class TrackShapeStore {
     /// Measures a local file, once. Cheap to call repeatedly: a known or in-progress
     /// track returns at once.
     func measure(songID: String, at url: URL) {
-        // Shapes measured before the seekbar outline existed are measured again, once.
-        guard !attempted.contains(songID), shape(for: songID)?.envelope == nil else { return }
+        // Shapes measured before the seekbar's levels existed are measured again, once.
+        guard !attempted.contains(songID), shape(for: songID)?.levels == nil else { return }
         attempted.insert(songID)
         measuring.insert(songID)
 

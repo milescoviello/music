@@ -100,11 +100,11 @@ struct TrackShapeTests {
         return song
     }
 
-    @Test func aLongFadeOutMeasuresAsALongOutro() {
+    @Test func aLongFadeOutMeasuresAsALongOutro() throws {
         // Fifteen seconds that fade linearly to silence, after a steady intro.
         let steady = tone(seconds: 15)
         let fading = tone(seconds: 15) { 1 - $0 }
-        let shape = TrackShape.measure(intro: [steady], outro: [fading], sampleRate: sampleRate)
+        let shape = try #require(TrackShape.measure(channels: [steady + fading], sampleRate: sampleRate))
         let threshold = SweetFades.threshold(loudness: -12)
 
         let outro = shape.outro.time(toReach: threshold)
@@ -113,22 +113,21 @@ struct TrackShapeTests {
         #expect(intro < 0.5)
     }
 
-    @Test func twoAbruptTracksMeetGapless() {
-        let steady = tone(seconds: 15)
-        let shape = TrackShape.measure(intro: [steady], outro: [steady], sampleRate: sampleRate)
+    @Test func twoAbruptTracksMeetGapless() throws {
+        let shape = try #require(TrackShape.measure(channels: [tone(seconds: 30)], sampleRate: sampleRate))
         let overlap = TransitionPlanner.overlap(
             from: song("a"), to: song("b"), sweetFades: true, outgoing: shape, incoming: shape
         )
         #expect(overlap == nil)
     }
 
-    @Test func aFadeIntoAFadeOverlaps() {
-        let fadeOut = TrackShape.measure(
-            intro: [tone(seconds: 15)], outro: [tone(seconds: 15) { 1 - $0 }], sampleRate: sampleRate
-        )
-        let fadeIn = TrackShape.measure(
-            intro: [tone(seconds: 15) { $0 }], outro: [tone(seconds: 15)], sampleRate: sampleRate
-        )
+    @Test func aFadeIntoAFadeOverlaps() throws {
+        let fadeOut = try #require(TrackShape.measure(
+            channels: [tone(seconds: 15) + tone(seconds: 15) { 1 - $0 }], sampleRate: sampleRate
+        ))
+        let fadeIn = try #require(TrackShape.measure(
+            channels: [tone(seconds: 15) { $0 } + tone(seconds: 15)], sampleRate: sampleRate
+        ))
         let overlap = TransitionPlanner.overlap(
             from: song("a"), to: song("b"), sweetFades: true, outgoing: fadeOut, incoming: fadeIn
         )
@@ -150,26 +149,60 @@ struct TrackShapeTests {
     }
 
     @Test func aStoredShapeRoundTrips() throws {
-        let shape = TrackShape.measure(intro: [tone(seconds: 2)], outro: [tone(seconds: 2)], sampleRate: sampleRate)
+        let shape = try #require(TrackShape.measure(channels: [tone(seconds: 4)], sampleRate: sampleRate))
         let decoded = try JSONDecoder().decode(TrackShape.self, from: JSONEncoder().encode(shape))
         #expect(decoded == shape)
     }
 
-    @Test func theEnvelopeIsRelativeToTheLoudestSliceAndFloored() throws {
-        let envelope = try #require(TrackShape.envelope(fromPower: [1, 0.1, 0, 1e-9]))
-        #expect(envelope[0] == 1)
-        // 10 dB down on a 36 dB scale.
-        #expect(abs(envelope[1] - 26.0 / 36.0) < 0.001)
-        #expect(envelope[2] == 0)
-        // 90 dB down is below the floor.
-        #expect(envelope[3] == 0)
-        #expect(TrackShape.envelope(fromPower: []) == nil)
-        #expect(TrackShape.envelope(fromPower: [0, 0]) == nil)
+    @Test func theRampsAreTheFirstAndLastFifteenSeconds() throws {
+        // A minute: quiet, loud through the middle, quiet again. Each ramp sees only its
+        // own end, and the loudness is the whole track's, so it is the loud middle's.
+        let track = tone(seconds: 15, amplitude: 0.05) + tone(seconds: 30) + tone(seconds: 15, amplitude: 0.05)
+        let shape = try #require(TrackShape.measure(channels: [track], sampleRate: sampleRate))
+        #expect(shape.intro.levels.count == 150)
+        #expect(shape.outro.levels.count == 150)
+        // The intro's last few windows reach into the loud part; the outro's all start
+        // inside the quiet end.
+        #expect(shape.intro.levels.prefix(140).allSatisfy { $0 < -25 })
+        #expect(shape.outro.levels.allSatisfy { $0 < -25 })
+        #expect(abs((shape.measuredLoudness ?? 0) - -9) < 1)
+        #expect(TrackShape.measure(momentary: []) == nil)
     }
 
-    @Test func aShapeWithoutAnEnvelopeStillDecodes() throws {
-        let old = #"{"intro":{"levels":[-20],"hop":0.1},"outro":{"levels":[-20],"hop":0.1}}"#
-        let shape = try JSONDecoder().decode(TrackShape.self, from: Data(old.utf8))
-        #expect(shape.envelope == nil)
+    @Test func theSeekbarLevelsAreFlooredThenAveragedInDecibels() throws {
+        // 256 readings into 128: each level is the mean of a pair, after the floor, so a
+        // −80 beside a −20 averages to −30 rather than to −50 or to the louder one.
+        let readings = (0..<256).map { Float($0.isMultiple(of: 2) ? -80 : -20) }
+        let levels = TrackShape.levels(fromMomentary: readings)
+        #expect(levels.count == TrackShape.levelPoints)
+        #expect(levels.allSatisfy { $0 == -30 })
+
+        // Unequal spans split at i * n / points, as the service does: 5 into 2 is 2 and 3.
+        #expect(TrackShape.levels(fromMomentary: [-10, -20, -30, -40, -50], points: 2) == [-15, -36.7])
+        // No more readings than points: kept, floored and rounded.
+        #expect(TrackShape.levels(fromMomentary: [-12.34, -99]) == [-12.3, -40])
+        #expect(TrackShape.levels(fromMomentary: []).isEmpty)
+    }
+
+    @Test func aWholeTrackMeasuresToTheSeekbarsLevels() throws {
+        // Twenty seconds, louder in the second half: 200 readings into 128 levels.
+        let track = tone(seconds: 10, amplitude: 0.05) + tone(seconds: 10)
+        let shape = try #require(TrackShape.measure(channels: [track], sampleRate: sampleRate))
+        let levels = try #require(shape.levels)
+        #expect(levels.count == 128)
+        #expect(levels.first! < levels.last! - 15)
+        #expect(levels.allSatisfy { $0 >= TrackShape.levelFloor })
+    }
+
+    @Test func olderStoredShapesStillDecode() throws {
+        // Before the seekbar: ramps only. Then a 0…1 power envelope, now ignored.
+        for old in [
+            #"{"intro":{"levels":[-20],"hop":0.1},"outro":{"levels":[-20],"hop":0.1}}"#,
+            #"{"intro":{"levels":[-20],"hop":0.1},"outro":{"levels":[-20],"hop":0.1},"measuredLoudness":-14,"envelope":[0.5,1]}"#,
+        ] {
+            let shape = try JSONDecoder().decode(TrackShape.self, from: Data(old.utf8))
+            #expect(shape.levels == nil)
+            #expect(shape.intro.levels == [-20])
+        }
     }
 }

@@ -645,11 +645,13 @@ private struct PlayerSeekBar: View {
     /// there is no duration and no seeking either.
     private var hasKnownDuration: Bool { player.duration > 0 }
 
-    /// The outline of the track playing, once it has been measured. Read without touching
-    /// the disk: the `.task` below loads it.
+    /// The outline of the track playing, once it has been measured, as Plexamp's seekbar
+    /// heights on a 0…1 scale. Read without touching the disk: the `.task` below loads it.
     private var envelope: [Float]? {
-        guard playerSettings.seekbarStyle != .line, let id = player.currentSong?.id else { return nil }
-        return appState.shapes.loadedShape(for: id)?.envelope
+        guard playerSettings.seekbarStyle != .line, let id = player.currentSong?.id,
+              let levels = appState.shapes.loadedShape(for: id)?.levels
+        else { return nil }
+        return SeekbarShape.heights(fromLevels: levels).map { $0 / SeekbarShape.maximumHeight }
     }
 
     var body: some View {
