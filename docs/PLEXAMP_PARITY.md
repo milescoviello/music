@@ -37,13 +37,16 @@ ahead is already half that).
 |---|---|
 | Play Next / Add to Up Next / Add to Queue | Same three insert points, in every song, album, playlist and selection menu; Up Next only once something was added (`PlaybackQueue.swift`) |
 | Earlier tab, Clear Play Queue, Save as Playlist | Queue screen tabs and menu; Clear keeps the current track |
-| Autoplay carousel | Plexamp's choices per context, defaults, 30/20 track sizes, remembered per context, added 30 s before the end (`Autoplay.swift`, `QueueExtenders.swift`) |
+| Autoplay carousel | Plexamp's choices per context, defaults, 30/20 track sizes, remembered per context, added 30 s before the end, Album Direction setting (`Autoplay.swift`, `QueueExtenders.swift`) |
 | Guest DJs | Stretch, Gemini, Twofer, Freeze, Contempo, Groupie with Plexamp's filters and insertion rules (`GuestDJ.swift`, `QueueExtenders.swift`). Friendgänger needs shared servers — not applicable |
 | Quick skip | 10/15/30/45 s, default 10 back / 30 forward, off by default |
 | Playback speed | 0.5–2× in tenths, from the player menu |
 | Sleep timer | 5/10/15/30 min, 1 hour, end of track, end of album (only when Up Next is one album) |
 | Show Similar Tracks | Navidrome's similar songs, titled Related Tracks |
 | Show Full Player, Keep Screen On | Experience settings |
+| Seekbar style (Smooth / Bars / Line) | Smooth and Bars draw the track's loudness outline, measured from the file once it is local (`TrackShape.envelope`) |
+| Player background (Flat / Smooth / Ultrablur) | Artwork average colour flat or as a gradient, or the blurred artwork |
+| Playback speed on the lock screen | Rate reported, so the lock-screen scrubber keeps up |
 
 ### Radio (C)
 
@@ -59,8 +62,8 @@ ahead is already half that).
 | Plexamp | Here |
 |---|---|
 | Customisable home | Show/hide/reorder shelves, reset (`HomeLayout.swift`, `HomeEditorView`) |
-| Hubs | Made for You, Stations, Recently Played, On This Day, Recently Added, Favourites, Most Played, More in a Genre, Best of Last Year, Haven't Played Lately, Forgotten Favourites |
-| Library categories | Compilations, Soundtracks, Live, Singles & EPs, Record Labels, Moods, from the whole album list (`LibraryIndex.swift`, `LibraryFacets.swift`) |
+| Hubs | Made for You, Recent Plays (things started — albums, playlists, artists, stations; `RecentPlays.swift`), Stations, Recently Played, On This Day, Recently Added, Favourites, Most Played, Most Played in (month), More in a Genre, Best of Last Year, Haven't Played Lately, Forgotten Favourites |
+| Library categories | Tracks (empty `search3`, paged), Compilations, Soundtracks, Live, Singles & EPs, Record Labels, Moods (from the whole album list: `LibraryIndex.swift`, `LibraryFacets.swift`), Folders (`getIndexes` / `getMusicDirectory`) |
 | Artist page | Popular, releases by type, Appears On, Similar Artists, biography when present |
 | Album page | Codec badge, label, release date, genres, review when present, More by artist |
 | Charts (Aural Fixations) | Week/month/season/year/decade/all time, Plexamp's young-period rule, hemisphere seasons, top 10/25/50/100, from local play history (`Charts.swift`, `ChartsView`) |
@@ -80,8 +83,11 @@ caching, prefer downloads), then Downloads, Offline & Library, Requests, Diagnos
 - **Degrees of Separation, Include External Media** — need Plex's artist graph and
   TIDAL/shared servers.
 - **Half-star ratings** — Navidrome stores whole stars.
-- **Folders, Styles, Tracks (all songs) in Library** — not attempted yet.
-- **Seekbar styles, background styles, visualizer picker** — cosmetic; not attempted yet.
+- **Styles** — Navidrome has genres and moods but no separate styles.
+- **CarPlay** — needs Apple's CarPlay audio entitlement, which a free developer
+  certificate cannot carry.
+- **Font size, grid size, side-by-side layout** — Dynamic Type covers the first; the app is
+  portrait-only with a fixed two-column grid.
 - **Remote control / casting, Sonic Sage (AI), lyrics editing** — out of scope.
 
 ## Plexamp facts (verified, for reference)
@@ -127,3 +133,7 @@ caching, prefer downloads), then Downloads, Offline & Library, Requests, Diagnos
 5. **Guest DJ** — pick DJ Gemini from the player menu, watch picks (✦) appear after tracks.
 6. **Stations** — Home → Stations, play Time Travel; it should top itself up forever.
 7. **AirPlay** — the processing tap and two players with AirPlay 2.
+8. **Seekbar** — once a track is cached (Wi-Fi), the Smooth seekbar should show its
+   loudness outline within a second or two; scrubbing along it should seek on release.
+9. **Tracks and Folders** — both depend on how this Navidrome version answers an empty
+   `search3` and `getIndexes`; each screen says so if it gets nothing.
