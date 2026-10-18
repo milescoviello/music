@@ -63,6 +63,12 @@ final class TrackShapeStore {
     /// A track was measured. The transitions either side of it can now be planned
     /// properly instead of guessed.
     @ObservationIgnored var onMeasured: ((String) -> Void)?
+    /// Asked as each decode is about to start, so a track that stopped mattering while it
+    /// waited — skipped past, the queue replaced — is not decoded after all.
+    @ObservationIgnored var isWanted: (String) -> Bool = { _ in true }
+    /// Files waiting to be decoded, oldest first, and the one task that decodes them.
+    @ObservationIgnored private var pending: [(songID: String, url: URL)] = []
+    @ObservationIgnored private var decoder: Task<Void, Never>?
 
     /// For a view body: what is already in memory, without touching the disk — reading
     /// from disk here would write `known` while the view is being drawn. Call
@@ -86,27 +92,47 @@ final class TrackShapeStore {
 
     /// Measures a local file, once. Cheap to call repeatedly: a known or in-progress
     /// track returns at once.
+    ///
+    /// One decode at a time, at background priority. Each is a whole track decoded, and
+    /// running several side by side, as this used to, competed with everything on screen
+    /// for the CPU for as long as they took.
     func measure(songID: String, at url: URL) {
         // Shapes measured before the seekbar's levels existed are measured again, once.
         guard !attempted.contains(songID), shape(for: songID)?.levels == nil else { return }
         attempted.insert(songID)
         measuring.insert(songID)
+        pending.append((songID, url))
+        decodeNext()
+    }
 
-        let destination = file(for: songID)
-        Task {
-            let shape = await Task.detached(priority: .utility) { () -> TrackShape? in
-                guard let shape = TrackAnalyzer.shape(of: url) else { return nil }
-                if let data = try? JSONEncoder().encode(shape) {
-                    try? data.write(to: destination, options: .atomic)
+    private func decodeNext() {
+        guard decoder == nil else { return }
+        decoder = Task {
+            while !pending.isEmpty {
+                let (songID, url) = pending.removeFirst()
+                guard isWanted(songID) else {
+                    // Not measured, so it can be if it comes back.
+                    attempted.remove(songID)
+                    measuring.remove(songID)
+                    continue
                 }
-                return shape
-            }.value
 
-            measuring.remove(songID)
-            guard let shape else { return }
-            known[songID] = shape
-            absent.remove(songID)
-            onMeasured?(songID)
+                let destination = file(for: songID)
+                let shape = await Task.detached(priority: .background) { () -> TrackShape? in
+                    guard let shape = TrackAnalyzer.shape(of: url) else { return nil }
+                    if let data = try? JSONEncoder().encode(shape) {
+                        try? data.write(to: destination, options: .atomic)
+                    }
+                    return shape
+                }.value
+
+                measuring.remove(songID)
+                guard let shape else { continue }
+                known[songID] = shape
+                absent.remove(songID)
+                onMeasured?(songID)
+            }
+            decoder = nil
         }
     }
 
