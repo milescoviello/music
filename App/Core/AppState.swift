@@ -40,6 +40,7 @@ final class AppState {
     let resume = ResumeStore()
     let native = NavidromeClient()
     let downloads = DownloadCenter()
+    let downloadFolders = DownloadFolderStore()
     let reachability = Reachability()
     let outbox = ServerOutbox()
     let sleepTimer = SleepTimer()
@@ -77,6 +78,7 @@ final class AppState {
             client: client, downloads: downloads, reachability: reachability
         )
         downloads.attach(appState: self)
+        downloadFolders.configure(downloads: downloads, cache: cache)
         autoplay.configure(appState: self)
         guestDJ.configure(appState: self)
         stations.configure(appState: self)

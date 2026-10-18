@@ -13,6 +13,9 @@ enum Destination: Hashable {
     case genres
     case favorites
     case downloads
+    /// A downloaded album or playlist, by `DownloadFolders.Folder.id`: the folder itself is
+    /// rebuilt as tracks land, and a route carrying a copy would freeze it.
+    case downloadFolder(String)
     case settings
     case audioSettings
     case equalizer
@@ -75,6 +78,8 @@ extension View {
                 FavoritesView()
             case .downloads:
                 DownloadsView()
+            case let .downloadFolder(id):
+                DownloadFolderView(folderID: id)
             case .settings:
                 SettingsView()
             case .audioSettings:
