@@ -125,8 +125,21 @@ final class PlaylistSync {
             includedIDs.insert(playlist.id)
         } else {
             includedIDs.remove(playlist.id)
-            stopUnchosen()
+            // This playlist's waiting downloads only. `stopUnchosen` would also cancel
+            // every playlist downloaded with its own button, which was never synced.
+            guard let downloads else { return }
+            let waiting = downloads.catalog.pending.values
+                .filter { $0.groupID == playlist.id }
+                .map(\.song.id)
+            if !waiting.isEmpty { downloads.remove(waiting) }
         }
+    }
+
+    /// A playlist's download removed with its button: stop syncing it too, or the next
+    /// sync would put it all back.
+    func stopSyncing(groupID: String) {
+        guard includedIDs.contains(groupID) else { return }
+        includedIDs.remove(groupID)
     }
 
     /// Fetches every included playlist and queues anything not already on the phone.

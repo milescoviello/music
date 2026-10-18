@@ -109,6 +109,19 @@ struct DownloadCatalog: Codable, Sendable {
         entries.values.reduce(0) { $0 + $1.byteCount }
     }
 
+    /// What one album's or playlist's download is: the songs here or on their way under
+    /// `groupID`, and — for an album, whose group id is its album id — the songs of it
+    /// downloaded one at a time, which the Downloads screen files in the album's folder
+    /// too. Songs that came with some other album or playlist are not in it: removing
+    /// this download must not take tracks another one still shows.
+    func songIDs(downloadedAs groupID: String) -> [String] {
+        [entries, pending].flatMap { table in
+            table.values.lazy
+                .filter { $0.groupID == groupID || ($0.groupID == nil && $0.song.albumId == groupID) }
+                .map(\.song.id)
+        }
+    }
+
     /// The albums represented by what is downloaded, newest addition first.
     ///
     /// Reconstructed from the catalog rather than filtered out of a server page. Filtering
@@ -201,8 +214,17 @@ actor DownloadCatalogStore {
     }
 
     func markPending(_ entry: DownloadCatalog.Entry) -> DownloadCatalog {
+        markPending([entry])
+    }
+
+    /// A whole album or playlist in one write. One call per song re-encoded the whole
+    /// catalog per song — a long playlist was minutes of it — and the button read
+    /// "not downloading" for every song still waiting its turn.
+    func markPending(_ entries: [DownloadCatalog.Entry]) -> DownloadCatalog {
         _ = load()
-        catalog.pending[entry.song.id] = entry
+        for entry in entries {
+            catalog.pending[entry.song.id] = entry
+        }
         save()
         return catalog
     }

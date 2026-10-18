@@ -115,6 +115,42 @@ struct DownloadCatalogTests {
         #expect(after.entries.isEmpty)
     }
 
+    /// A whole playlist is one write, so every song of it is pending the moment it lands.
+    @Test func aBatchIsPendingAllAtOnce() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let store = DownloadCatalogStore(url: directory.appendingPathComponent("c.json"))
+        let after = await store.markPending(["a", "b", "c"].map { entry($0, in: directory) })
+        #expect(Set(after.pending.keys) == ["a", "b", "c"])
+    }
+
+    /// Removing one album's or playlist's download takes its own songs, here or on their
+    /// way, and an album's single-song downloads — never a song another download brought.
+    @Test func aGroupsDownloadIsItsOwnSongsOnly() {
+        func entry(_ id: String, group: String?, album: String) -> DownloadCatalog.Entry {
+            var song = song(id)
+            song.albumId = album
+            return DownloadCatalog.Entry(
+                song: song, filename: "\(id).flac", byteCount: 1, addedAt: .now,
+                groupID: group, groupName: nil
+            )
+        }
+
+        var catalog = DownloadCatalog()
+        catalog.entries["a"] = entry("a", group: "album1", album: "album1")
+        catalog.pending["b"] = entry("b", group: "album1", album: "album1")
+        // Downloaded on its own: filed in its album's folder, so part of the album.
+        catalog.entries["c"] = entry("c", group: nil, album: "album1")
+        // The same album's song, but it came with a playlist.
+        catalog.entries["d"] = entry("d", group: "playlist1", album: "album1")
+        catalog.entries["e"] = entry("e", group: "playlist1", album: "album2")
+
+        #expect(Set(catalog.songIDs(downloadedAs: "album1")) == ["a", "b", "c"])
+        #expect(Set(catalog.songIDs(downloadedAs: "playlist1")) == ["d", "e"])
+        #expect(catalog.songIDs(downloadedAs: "nothing").isEmpty)
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("music-tests-\(UUID().uuidString)", isDirectory: true)
