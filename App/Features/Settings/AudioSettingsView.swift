@@ -40,11 +40,19 @@ struct AudioSettingsView: View {
 
             Section {
                 Toggle("Sweet Fades", isOn: $audio.sweetFades)
+                Toggle("Beat-Matched Fades", isOn: $audio.beatMatchedFades)
+                    .disabled(!audio.sweetFades)
             } footer: {
                 Text("""
                 Crossfades between tracks, for as long as each pair's intro and outro \
                 allow — a long fade-out gets a long overlap, an abrupt ending almost none. \
                 An album played in order is always gapless.
+
+                Beat-Matched Fades lines up the beats of two tracks with close tempos, the \
+                way a DJ mixes, playing the incoming track at the outgoing one's tempo \
+                through the fade. It needs the sonic service's analysis of both tracks and \
+                a steady beat at the end of one and the start of the other; every other \
+                fade is a Sweet Fade as before.
                 """)
             }
 
