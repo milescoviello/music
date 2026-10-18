@@ -34,6 +34,10 @@ protocol AudioOutput: AnyObject {
     func load(window: [Song], startAt: Double)
     /// Replaces the upcoming part of the window without disturbing what is playing.
     func updateUpcoming(_ songs: [Song])
+    /// Re-asks every transition: the tracks either side of one were just measured.
+    func refreshTransitions()
+    /// Rebuilds any not-yet-playing item for a song whose bytes are now elsewhere.
+    func sourceChanged(for songID: String)
 
     func play()
     func pause()

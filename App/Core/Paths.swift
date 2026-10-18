@@ -24,6 +24,16 @@ enum Paths {
     /// Last-known library metadata, so the normal screens work offline.
     static let metadata = root.appendingPathComponent("Metadata", isDirectory: true)
 
+    /// Things that can be fetched or measured again: the stream cache and the measured
+    /// shapes of tracks. Caches, deliberately — iOS may purge it while the app is not
+    /// running, and both stores check for their files rather than trusting an index.
+    static let caches: URL = {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("Music", isDirectory: true)
+    }()
+    static let streamCache = caches.appendingPathComponent("Streams", isDirectory: true)
+    static let trackShapes = caches.appendingPathComponent("Shapes", isDirectory: true)
+
     static let catalog = root.appendingPathComponent("catalog.json")
     static let queue = root.appendingPathComponent("queue.json")
 
@@ -33,7 +43,7 @@ enum Paths {
     /// download session's delegate can fire before any UI exists. The exclusion flag
     /// is re-applied every launch: it is lost whenever a directory is recreated.
     static func bootstrap() {
-        for directory in [root, media, incoming, artwork, outbox, lyrics, metadata] {
+        for directory in [root, media, incoming, artwork, outbox, lyrics, metadata, streamCache, trackShapes] {
             try? FileManager.default.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true

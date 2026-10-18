@@ -114,52 +114,143 @@ final class PlaybackController {
         // a visualiser is on screen.
         spectrumSink = appState.spectrumBuffer
         output.setSpectrumSink(spectrumSink)
+
+        // A cached file replaces the stream for any item that has not started, and is
+        // measured so the fades either side of it stop being guesses.
+        appState.streamCache.onCached = { [weak self] songID, file in
+            guard let self, let appState = self.appState else { return }
+            appState.shapes.measure(songID: songID, at: file)
+            output.sourceChanged(for: songID)
+        }
+        appState.shapes.onMeasured = { [weak self] songID in
+            guard let self, currentWindow.contains(where: { $0.id == songID }) else { return }
+            output.refreshTransitions()
+        }
     }
 
     /// Sweet Fades' rule for one transition: seconds of crossfade, or nil for gapless.
     ///
     /// Never within an album played in order — the gap between two album tracks is the
     /// artist's — and never with the setting off. Everything else fades.
+    ///
+    /// Measured when both tracks are on the phone, which with cache-ahead is nearly
+    /// always; the fallback overlap only for a pair where one is still streaming.
     private func transitionOverlap(from current: Song, to next: Song) -> Double? {
-        guard let appState, appState.audio.sweetFades else { return nil }
-        guard !SweetFades.isAlbumContinuation(from: current, to: next) else { return nil }
-        return SweetFades.fallbackOverlap
+        guard let appState else { return nil }
+        return TransitionPlanner.overlap(
+            from: current,
+            to: next,
+            sweetFades: appState.audio.sweetFades,
+            outgoing: appState.shapes.shape(for: current.id),
+            incoming: appState.shapes.shape(for: next.id)
+        )
     }
 
-    /// Where a song's bytes are. A completed download wins over the network
-    /// unconditionally: original bytes, instant, and works with the server off.
+    /// Where a song's bytes are, in Plexamp's order: a download (if the setting prefers
+    /// it on this network), then a cached copy at least as good as what this network
+    /// asks for, then the stream itself.
     private func locate(_ song: Song) -> MediaLocation? {
         guard let appState else { return nil }
+        let network = appState.reachability.network
+        let policy = appState.streaming.policy
+        let download = appState.downloads.localURL(for: song.id)
 
-        if let local = appState.downloads.localURL(for: song.id) {
+        if let download, policy.usesDownload(on: network) {
+            return MediaLocation(url: download, mimeType: nil, isLocal: true)
+        }
+
+        let variant = policy.variant(for: song, on: network)
+        if let cached = appState.streamCache.file(for: song.id, satisfying: variant) {
+            return MediaLocation(url: cached, mimeType: nil, isLocal: true)
+        }
+
+        // No network: whatever copy is here, at whatever quality, beats silence.
+        if network == .offline,
+           let local = download ?? appState.streamCache.anyFile(for: song.id) {
             return MediaLocation(url: local, mimeType: nil, isLocal: true)
         }
 
-        guard let signer = appState.signer else { return nil }
-
-        // AVFoundation has no Vorbis or Opus decoder, so those containers must be
-        // transcoded by the server or they simply fail with no explanation. Verified:
-        // `format=mp3` returns `audio/mpeg`, but **chunked with no Content-Length**, so
-        // seeking within those tracks is unreliable. Playing without reliable scrubbing
-        // beats not playing, and it affects 11 files out of 25,784.
-        if Self.needsTranscode(song.suffix) {
-            guard let url = signer.url(
-                "stream.view",
-                ["format": "mp3", "id": song.id, "maxBitRate": "320"]
-            ) else { return nil }
-            return MediaLocation(url: url, mimeType: "audio/mpeg", isLocal: false)
-        }
-
-        // Otherwise always `raw`: a transcoded response is chunked with no
-        // Content-Length and no byte ranges, which breaks seeking.
-        guard let url = signer.url("stream.view", ["format": "raw", "id": song.id])
+        // AVFoundation has no Vorbis or Opus decoder, so those are always converted —
+        // `variant` sees to it. Verified: `format=mp3` returns `audio/mpeg`, but
+        // **chunked with no Content-Length**, so seeking a converted stream is unreliable
+        // until the cache has the whole file.
+        guard let signer = appState.signer,
+              let url = signer.url("stream.view", StreamingPolicy.streamQuery(for: song, variant: variant))
         else { return nil }
 
-        return MediaLocation(
-            url: url,
-            mimeType: song.contentType ?? Self.mimeType(for: song.suffix),
-            isLocal: false
-        )
+        let mimeType = variant == .original
+            ? song.contentType ?? Self.mimeType(for: song.suffix)
+            : "audio/mpeg"
+        return MediaLocation(url: url, mimeType: mimeType, isLocal: false)
+    }
+
+    /// Where the cache fetches a variant from. The original comes from `download.view`
+    /// — the stored file, with a length — like a download does.
+    private static func cacheURL(for song: Song, variant: StreamVariant, signer: SubsonicSigner) -> URL? {
+        switch variant {
+        case .original:
+            return signer.url("download.view", ["id": song.id])
+        case .mp3:
+            return signer.url("stream.view", StreamingPolicy.streamQuery(for: song, variant: variant))
+        }
+    }
+
+    // MARK: - Cache ahead
+
+    /// Tells the stream cache what will be needed: the next tracks, as far ahead as this
+    /// network's setting allows, at this network's quality.
+    ///
+    /// The current track is included on Wi-Fi only. It is already streaming, so caching
+    /// it costs its bytes twice — nothing at home, real money on cellular — and buys a
+    /// measured fade out of it and a copy for next time.
+    private func planCache() {
+        guard let appState else { return }
+        let network = appState.reachability.network
+        let policy = appState.streaming.policy
+        let cache = appState.streamCache
+        cache.maxBytes = policy.cacheBytes
+
+        let window = currentWindow
+        guard network != .offline, let signer = appState.signer, let current = window.first else {
+            cache.pause()
+            measureLocal(window)
+            return
+        }
+
+        let ahead = queue.repeatMode == .one ? [] : queue.upcoming(policy.tracksAhead(on: network))
+        let wanted = (network == .wifi ? [current] : []) + ahead
+
+        var requests: [StreamCache.Request] = []
+        for song in wanted {
+            if appState.downloads.localURL(for: song.id) != nil, policy.usesDownload(on: network) { continue }
+            let variant = policy.variant(for: song, on: network)
+            guard let url = Self.cacheURL(for: song, variant: variant, signer: signer) else { continue }
+            requests.append(StreamCache.Request(song: song, variant: variant, url: url))
+        }
+        cache.prefetch(requests)
+        measureLocal(window)
+    }
+
+    /// Measures whatever in the window is already on the phone, so its transitions can
+    /// be planned. Cached arrivals are measured as they land.
+    private func measureLocal(_ songs: [Song]) {
+        guard let appState else { return }
+        for song in songs {
+            guard let file = appState.downloads.localURL(for: song.id)
+                ?? appState.streamCache.anyFile(for: song.id)
+            else { continue }
+            appState.shapes.measure(songID: song.id, at: file)
+        }
+    }
+
+    /// The network changed, so does what to cache and at what quality. Items already
+    /// built play on as they are.
+    func networkChanged() {
+        planCache()
+    }
+
+    func streamingSettingsChanged() {
+        planCache()
     }
 
     /// Replaces the queue with one from another device, paused at its position.
@@ -444,10 +535,12 @@ final class PlaybackController {
         guard let current = window.first else {
             output.stop()
             isPlaying = false
+            appState?.streamCache.pause()
             return
         }
 
         output.load(window: window, startAt: seconds)
+        planCache()
 
         duration = Double(current.duration ?? 0)
         elapsed = seconds
@@ -483,13 +576,14 @@ final class PlaybackController {
     /// Keeps the preload window topped up without disturbing what is playing.
     private func refillWindow() {
         output.updateUpcoming(Array(currentWindow.dropFirst()))
+        planCache()
     }
 
     /// Containers iOS cannot decode natively. Kept explicit rather than inverted from
     /// a supported list, so a container that merely lacks a MIME mapping is not
     /// needlessly transcoded.
     static func needsTranscode(_ suffix: String?) -> Bool {
-        ["ogg", "oga", "opus", "wma", "ape", "wv"].contains(suffix?.lowercased() ?? "")
+        StreamingPolicy.needsTranscode(suffix)
     }
 
     private static func mimeType(for suffix: String?) -> String? {

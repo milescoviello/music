@@ -119,6 +119,27 @@ final class QueuePlayerOutput: AudioOutput {
         rebuildTail(includingCurrent: false)
     }
 
+    /// A song's bytes moved — a stream finished caching, say — so any item for it that
+    /// has not started is rebuilt from wherever `locate` now says. The track playing is
+    /// left alone: swapping it would be a seek, and an audible one.
+    func sourceChanged(for songID: String) {
+        let activePlayer = players[active]
+        let idlePlayer = players[idle]
+        let waiting = Array(activePlayer.items().dropFirst()) + (isFading ? [] : idlePlayer.items())
+        guard waiting.contains(where: { itemToSongID[ObjectIdentifier($0)] == songID }) else { return }
+
+        for item in activePlayer.items().dropFirst() {
+            discard(item, from: activePlayer)
+        }
+        if !isFading {
+            idlePlayer.pause()
+            for item in idlePlayer.items() {
+                discard(item, from: idlePlayer)
+            }
+        }
+        rebuildTail(includingCurrent: false)
+    }
+
     /// Makes the players match the window.
     ///
     /// The active player gets the current track and its gapless continuation; if the

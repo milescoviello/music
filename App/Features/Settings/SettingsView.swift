@@ -4,6 +4,7 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @Environment(LibraryScopeStore.self) private var scope
     @Environment(AudioSettings.self) private var audio
+    @Environment(StreamingSettings.self) private var streaming
     @Environment(DownloadCenter.self) private var downloads
     @Environment(MusicRequestService.self) private var requests
     @Environment(PlaylistSync.self) private var playlistSync
@@ -59,6 +60,9 @@ struct SettingsView: View {
                 NavigationLink(value: Destination.audioSettings) {
                     LabeledContent("Playback", value: audioSummary)
                 }
+                NavigationLink(value: Destination.streamingSettings) {
+                    LabeledContent("Streaming & Caching", value: streamingSummary)
+                }
                 NavigationLink(value: Destination.downloads) {
                     LabeledContent("Downloads", value: downloadSummary)
                 }
@@ -98,6 +102,14 @@ struct SettingsView: View {
         if audio.sweetFades { parts.append("Sweet Fades") }
         if audio.equalizer { parts.append(audio.presetName) }
         return parts.isEmpty ? "Off" : parts.joined(separator: " · ")
+    }
+
+    private var streamingSummary: String {
+        let policy = streaming.policy
+        if policy.wifiQuality == policy.cellularQuality {
+            return policy.wifiQuality.label
+        }
+        return "\(policy.wifiQuality.label) · \(policy.cellularQuality.label)"
     }
 
     private var offlineSummary: String {

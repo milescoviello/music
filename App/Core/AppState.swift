@@ -44,6 +44,9 @@ final class AppState {
     let outbox = ServerOutbox()
     let sleepTimer = SleepTimer()
     let audio = AudioSettings()
+    let streaming = StreamingSettings()
+    let streamCache = StreamCache()
+    let shapes = TrackShapeStore()
     /// Shared PCM ring. One buffer for the whole app, because only one thing can be
     /// visualised at a time and it must survive an output switch.
     let spectrumBuffer = AudioSampleBuffer()
@@ -74,6 +77,13 @@ final class AppState {
 
         audio.onTransitionsChange = { [weak self] in
             self?.player.transitionSettingsChanged()
+        }
+
+        streaming.onChange = { [weak self] in
+            self?.player.streamingSettingsChanged()
+        }
+        reachability.onNetworkChange = { [weak self] in
+            self?.player.networkChanged()
         }
 
         // Plays recorded while offline reach the server the moment there is one.
