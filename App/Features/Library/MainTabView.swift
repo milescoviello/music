@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Three tabs, because each is a different *way of finding* music: recommended,
-/// owned, named. A fourth tab would be a destination rather than a mode, which is
-/// why Downloads and Settings live inside Library and Home instead.
+/// Home, Library, Downloads and Search. Downloads has its own tab — what is on this
+/// phone is the one view that matters most when the server is out of reach, and it
+/// should be a tap away rather than inside Library.
 struct MainTabView: View {
     @Environment(AppState.self) private var appState
     @Environment(PlaylistStore.self) private var playlistStore
@@ -20,7 +20,7 @@ struct MainTabView: View {
     /// Which tab is showing. Needed so a jump out of the player can select Library.
     @State private var selection = Tabs.home
 
-    private enum Tabs: Hashable { case home, library, search }
+    private enum Tabs: Hashable { case home, library, downloads, search }
 
     var body: some View {
         Group {
@@ -138,6 +138,16 @@ struct MainTabView: View {
             Tab("Library", systemImage: "square.stack", value: Tabs.library) {
                 hosted { LibraryHubView() }
             }
+
+            Tab("Downloads", systemImage: "arrow.down.circle", value: Tabs.downloads) {
+                hosted {
+                    NavigationStack {
+                        DownloadsView()
+                            .musicDestinations()
+                    }
+                }
+            }
+            .badge(appState.downloads.progress.count)
 
             Tab(value: Tabs.search, role: .search) {
                 hosted { SearchView() }

@@ -4,6 +4,7 @@ import SwiftUI
 struct PlaylistListView: View {
     @Environment(AppState.self) private var appState
     @Environment(PlaylistStore.self) private var store
+    @Environment(DownloadCenter.self) private var downloads
 
     @State private var isCreating = false
     @State private var editing: Playlist?
@@ -41,6 +42,20 @@ struct PlaylistListView: View {
                         Button("Shuffle", systemImage: "shuffle") {
                             play(playlist, shuffled: true)
                         }
+                        Divider()
+                        Button("Play Next", systemImage: "text.insert") {
+                            withSongs(playlist) { appState.player.playNext($0) }
+                        }
+                        if appState.player.canAddToUpNext {
+                            Button("Add to Up Next", systemImage: "list.bullet.indent") {
+                                withSongs(playlist) { appState.player.addToUpNext($0) }
+                            }
+                        }
+                        Button("Add to Queue", systemImage: "text.append") {
+                            withSongs(playlist) { appState.player.append($0) }
+                        }
+                        Divider()
+                        downloadItems(for: playlist)
                         Divider()
                         Button("Rename…", systemImage: "pencil") { editing = playlist }
                         Button("Delete", systemImage: "trash", role: .destructive) {
@@ -106,6 +121,36 @@ struct PlaylistListView: View {
         }
         .refreshable { await store.load() }
         .task { await store.loadIfNeeded() }
+    }
+
+    /// Download, or — once every track is on the phone — remove it, the way an album's
+    /// download button works. A partial download offers to finish.
+    @ViewBuilder
+    private func downloadItems(for playlist: Playlist) -> some View {
+        let onPhone = downloads.catalog.entries.values.filter { $0.groupID == playlist.id }.count
+        let total = playlist.songCount ?? 0
+        if total > 0, onPhone >= total {
+            Button("Remove Download", systemImage: "trash", role: .destructive) {
+                let ids = downloads.catalog.entries.values.filter { $0.groupID == playlist.id }.map(\.song.id)
+                downloads.remove(ids)
+            }
+        } else {
+            Button(onPhone > 0 ? "Finish Download" : "Download", systemImage: "arrow.down.circle") {
+                withSongs(playlist) { songs in
+                    downloads.download(songs, groupID: playlist.id, groupName: playlist.name)
+                }
+            }
+        }
+    }
+
+    /// A row only has the playlist, not its tracks, so they are fetched first.
+    private func withSongs(_ playlist: Playlist, _ action: @escaping @MainActor ([Song]) -> Void) {
+        Task {
+            guard let detail = try? await appState.client.playlistDetail(id: playlist.id),
+                  !detail.songs.isEmpty
+            else { return }
+            action(detail.songs)
+        }
     }
 
     private func play(_ playlist: Playlist, shuffled: Bool = false) {
