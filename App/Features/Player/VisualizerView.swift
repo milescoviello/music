@@ -67,20 +67,14 @@ struct VisualizerView: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
         .onLongPressGesture(perform: onLongPress)
-        // Alongside the player's own drag rather than instead of it, so a downward pull
-        // still puts the player away; only a mostly sideways swipe changes visualiser.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 12).onEnded { value in
-                let dx = value.translation.width
-                guard abs(dx) > abs(value.translation.height) else { return }
-                if dx <= -50 {
-                    show(program.next)
-                } else if dx >= 50 {
-                    show(program.previous)
-                }
-            }
-        )
+        // No drag gesture of its own. The sideways swipe is the player's dismiss drag,
+        // read sideways (`NowPlayingView.dismissDrag`): a drag here recognised every pull,
+        // downward ones too, and a child's gesture beats its parent's, so the player
+        // could not be pulled down from the visualiser at all.
         .overlay(alignment: .top) { nameLabel }
+        // The name, briefly, whenever the visualiser changes: by swipe or by Select
+        // Visualizer.
+        .onChange(of: programName) { labelShownAt = .now }
         .onAppear {
             player.startSpectrum()
             _ = activeRenderer()
@@ -110,12 +104,6 @@ struct VisualizerView: View {
         let made = VisualizerRenderer.shared(feed: feed, program: program)
         renderer = made
         return made
-    }
-
-    private func show(_ next: VisualizerProgram) {
-        guard next != program else { return }
-        programName = next.name
-        labelShownAt = .now
     }
 
     @ViewBuilder

@@ -13,6 +13,8 @@ struct NowPlayingView: View {
     var onDismiss: () -> Void = {}
 
     @State private var mode: PlayerMode = .artwork
+    /// Written by a sideways swipe over the visualiser; `VisualizerView` reads the same key.
+    @AppStorage(VisualizerProgram.storageKey) private var visualizerName = VisualizerProgram.defaultName
     @State private var drag = DismissDrag()
     @State private var similarTo: Song?
     @State private var showsVisualizerPicker = false
@@ -128,6 +130,20 @@ struct NowPlayingView: View {
                 drag.offset = max(0, value.translation.height)
             }
             .onEnded { value in
+                // Over the visualiser, a mostly sideways swipe is Plexamp's next or
+                // previous visualiser. Read here rather than by a drag of the visualiser's
+                // own, which would take the downward pull from this one.
+                let dx = value.translation.width
+                if mode == .visualizer, abs(dx) > abs(value.translation.height), abs(dx) >= 50 {
+                    let program = VisualizerProgram.named(visualizerName)
+                    visualizerName = (dx < 0 ? program.next : program.previous).name
+                    // A swipe can start downward enough to have moved the player.
+                    withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                        drag.offset = 0
+                    }
+                    return
+                }
+
                 // Distance *or* speed, so a quick flick works without travelling far.
                 let isFarEnough = value.translation.height > 130
                 let isFastEnough = value.predictedEndTranslation.height > 320
