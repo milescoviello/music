@@ -1,0 +1,126 @@
+// What every visualiser shader shares: Plexamp's GLSL preamble, in Metal.
+//
+// Plexamp's programs are WebGL fragment shaders drawn over one full-screen quad, all
+// reading the same uniforms and four small textures. The helpers here are those
+// shaders' own helpers, kept to the same names and maths so each program reads as a
+// line-for-line port. Two things differ by necessity, and both are handled here rather
+// than in every program:
+//
+// - GL's `gl_FragCoord` has its origin at the bottom left, Metal's at the top left.
+//   `vizFragCoord` gives programs the GL one.
+// - Plexamp packs each float into the four bytes of an RGBA8 texel and decodes it with
+//   a dot product. The textures here are half floats, so a plain `.r` read is that
+//   decode. Linear filtering gives the same answer either way: decoding is linear, so
+//   interpolating the bytes and then decoding is interpolating the values.
+
+#ifndef VisualizerShaders_h
+#define VisualizerShaders_h
+
+#include <metal_stdlib>
+using namespace metal;
+
+// Field for field with `VisualizerUniforms` in VisualizerRenderer.swift.
+struct VisualizerUniforms {
+    float2 resolution;
+    float time;
+    float progress;
+    float crossfade;
+    float pixelRatio;
+    float frequencyHistoryIndex;
+    float unused;
+};
+
+struct VisualizerVertexOut {
+    float4 position [[position]];
+};
+
+#define HALF_PI 1.5707963267948966
+#define PI 3.14159265358
+#define TWO_PI (2. * 3.141592653589793)
+
+#define FREQ_AMPLITUDE 0
+#define FREQ_PEAKS 1
+
+// Every program's entry point has this signature; the renderer binds to these slots.
+#define VIZ_FRAGMENT(name) \
+    fragment float4 name(VisualizerVertexOut in [[stage_in]], \
+                         constant VisualizerUniforms &u [[buffer(0)]], \
+                         texture2d<float> palette [[texture(0)]], \
+                         texture2d<float> frequencies [[texture(1)]], \
+                         texture2d<float> loudness [[texture(2)]], \
+                         texture2d<float> history [[texture(3)]])
+
+// The samplers Plexamp's DataTextures were made with: clamped, linear for all but the
+// loudness, which is nearest.
+constexpr sampler vizLinear(coord::normalized, address::clamp_to_edge, filter::linear);
+constexpr sampler vizNearest(coord::normalized, address::clamp_to_edge, filter::nearest);
+
+inline float2 vizFragCoord(VisualizerVertexOut in, constant VisualizerUniforms &u) {
+    return float2(in.position.x, u.resolution.y - in.position.y);
+}
+
+// What reaches the screen in Plexamp, and it is not plain "over". The canvas is cleared
+// to transparent and the quad drawn with blending left on at SRC_ALPHA,
+// ONE_MINUS_SRC_ALPHA for colour and alpha alike, so the buffer ends up holding
+// (rgb·a, a·a). The page then composites that as premultiplied: rgb·a + behind·(1 − a²).
+// Returned here as that premultiplied pair, for a non-opaque layer to composite the
+// same way.
+inline float4 vizOutput(float4 colour) {
+    float4 c = saturate(colour);
+    return float4(c.rgb * c.a, c.a * c.a);
+}
+
+// GLSL's mod: floored, where Metal's fmod truncates. They differ for negatives, which
+// the angle maths in several programs produces.
+inline float vizMod(float x, float y) {
+    return x - y * floor(x / y);
+}
+
+inline float3 vizMod(float3 x, float3 y) {
+    return x - y * floor(x / y);
+}
+
+inline float cubicOut(float t) {
+    float f = t - 1.0;
+    return f * f * f + 1.0;
+}
+
+inline float getFrequencyValue(texture2d<float> frequencies, float val, int index) {
+    return frequencies.sample(vizLinear, float2(val, float(index))).r;
+}
+
+// Rows 0 and 1 are this track and the last; `crossfade` runs 0 to 1 over a second
+// after a track change and sits at 1 otherwise.
+inline float getTweenedLoudness(texture2d<float> loudness, float value, float crossfade) {
+    float current = loudness.sample(vizNearest, float2(value, 0)).r;
+    if (crossfade == 1.0) {
+        return current;
+    }
+    float previous = loudness.sample(vizNearest, float2(value, 1)).r;
+    return mix(previous, current, cubicOut(crossfade));
+}
+
+inline float4 getTweenedTexture(texture2d<float> palette, float value, float crossfade) {
+    float4 current = palette.sample(vizLinear, float2(value, 0));
+    if (crossfade == 1.0) {
+        return current;
+    }
+    float4 previous = palette.sample(vizLinear, float2(value, 1));
+    return mix(previous, current, float4(cubicOut(crossfade)));
+}
+
+// Plexamp's "improved bilinear" fetch: two explicit taps either side, mixed.
+inline float getFrequencyValueBilinear(texture2d<float> frequencies, float val, int index) {
+    float2 res = float2(64., 2.);
+    float2 st = float2(val, float(index)) * res - 0.5;
+
+    float2 iuv = floor(st);
+    float2 fuv = fract(st);
+
+    float a = getFrequencyValue(frequencies, ((iuv + float2(0.5, 0.5)) / res).x, index);
+    float b = getFrequencyValue(frequencies, ((iuv + float2(1.5, 0.5)) / res).x, index);
+
+    return mix(a, b, fuv.x);
+}
+
+#endif
