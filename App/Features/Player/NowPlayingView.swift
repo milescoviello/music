@@ -1,3 +1,4 @@
+import CoreImage
 import SwiftUI
 
 enum PlayerMode: String, CaseIterable {
@@ -244,16 +245,24 @@ struct NowPlayingView: View {
     /// `drawingGroup()` is not decoration. A 60pt blur over a full-screen image was
     /// being recomputed on every frame of the dismiss drag, which is what made the
     /// gesture stutter. Flattened into one texture, moving it is nearly free.
+    @ViewBuilder
     private var backdrop: some View {
-        ArtworkImage(id: player.currentSong?.coverArt, size: .full, cornerRadius: 0)
-            // Fills whatever it is given and crops the rest, which is all a backdrop has
-            // to do. No `aspectRatio`: that asks the art how big it wants to be, and the
-            // answer for a non-square cover is "bigger than this".
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .blur(radius: 60, opaque: true)
-            .overlay(.black.opacity(0.45))
-            .drawingGroup()
-            .ignoresSafeArea()
+        switch playerSettings.background {
+        case .ultrablur:
+            ArtworkImage(id: player.currentSong?.coverArt, size: .full, cornerRadius: 0)
+                // Fills whatever it is given and crops the rest, which is all a backdrop has
+                // to do. No `aspectRatio`: that asks the art how big it wants to be, and the
+                // answer for a non-square cover is "bigger than this".
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .blur(radius: 60, opaque: true)
+                .overlay(.black.opacity(0.45))
+                .drawingGroup()
+                .ignoresSafeArea()
+        case .smooth, .flat:
+            // Plexamp's other two: the artwork's own colour, as a gradient or flat.
+            ArtworkColorBackdrop(coverArt: player.currentSong?.coverArt, isGradient: playerSettings.background == .smooth)
+                .ignoresSafeArea()
+        }
     }
 
     @ViewBuilder
@@ -619,6 +628,7 @@ struct NowPlayingView: View {
 /// Scoped here, the tick repaints a slider and two labels.
 private struct PlayerSeekBar: View {
     @Environment(AppState.self) private var appState
+    @Environment(PlayerSettings.self) private var playerSettings
 
     @State private var scrubValue: Double?
 
@@ -635,29 +645,49 @@ private struct PlayerSeekBar: View {
     /// there is no duration and no seeking either.
     private var hasKnownDuration: Bool { player.duration > 0 }
 
+    /// The outline of the track playing, once it has been measured. Read without touching
+    /// the disk: the `.task` below loads it.
+    private var envelope: [Float]? {
+        guard playerSettings.seekbarStyle != .line, let id = player.currentSong?.id else { return nil }
+        return appState.shapes.loadedShape(for: id)?.envelope
+    }
+
     var body: some View {
         VStack(spacing: 2) {
-            Slider(
-                value: Binding(
-                    get: { scrubValue ?? player.elapsed },
-                    set: { scrubValue = $0 }
-                ),
-                in: 0...max(player.duration, 1),
-                onEditingChanged: { editing in
-                    // Commit on release rather than seeking continuously.
-                    guard !editing else { return }
-                    if let value = scrubValue { player.seek(to: value) }
-                    // Cleared unconditionally. While it was only cleared alongside a
-                    // committed seek, a drag that ended without one left the slider
-                    // showing a held value and it stopped following the music entirely
-                    // until the next successful scrub.
-                    scrubValue = nil
-                }
-            )
-            // Disabled rather than hidden: the row keeps its height, so the controls
-            // below do not jump when a duration arrives a moment after playback starts.
-            .disabled(!hasKnownDuration)
-            .opacity(hasKnownDuration ? 1 : 0.35)
+            if let envelope, hasKnownDuration {
+                EnvelopeSeekBar(
+                    envelope: envelope,
+                    progress: min(1, max(0, (scrubValue ?? player.elapsed) / max(player.duration, 1))),
+                    isBars: playerSettings.seekbarStyle == .bars,
+                    onScrub: { scrubValue = $0 * player.duration },
+                    onCommit: {
+                        player.seek(to: $0 * player.duration)
+                        scrubValue = nil
+                    }
+                )
+            } else {
+                Slider(
+                    value: Binding(
+                        get: { scrubValue ?? player.elapsed },
+                        set: { scrubValue = $0 }
+                    ),
+                    in: 0...max(player.duration, 1),
+                    onEditingChanged: { editing in
+                        // Commit on release rather than seeking continuously.
+                        guard !editing else { return }
+                        if let value = scrubValue { player.seek(to: value) }
+                        // Cleared unconditionally. While it was only cleared alongside a
+                        // committed seek, a drag that ended without one left the slider
+                        // showing a held value and it stopped following the music entirely
+                        // until the next successful scrub.
+                        scrubValue = nil
+                    }
+                )
+                // Disabled rather than hidden: the row keeps its height, so the controls
+                // below do not jump when a duration arrives a moment after playback starts.
+                .disabled(!hasKnownDuration)
+                .opacity(hasKnownDuration ? 1 : 0.35)
+            }
 
             HStack {
                 Text(Int(scrubValue ?? player.elapsed).asDuration)
@@ -677,6 +707,149 @@ private struct PlayerSeekBar: View {
         // A track change during a scrub would otherwise leave the thumb pinned at a
         // position in the *previous* song.
         .onChange(of: player.currentSong?.id) { scrubValue = nil }
+        .task(id: player.currentSong?.id) {
+            if let id = player.currentSong?.id { _ = appState.shapes.shape(for: id) }
+        }
+    }
+}
+
+/// Plexamp's Smooth and Bars seekbars: the track's loudness, start to end, filled with the
+/// tint up to where it has played. Drag anywhere along it to scrub; the seek happens on
+/// release, as with the slider.
+private struct EnvelopeSeekBar: View {
+    let envelope: [Float]
+    let progress: Double
+    let isBars: Bool
+    let onScrub: (Double) -> Void
+    let onCommit: (Double) -> Void
+
+    private let height: CGFloat = 34
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            Canvas { context, size in
+                let shape = isBars ? bars(in: size) : curve(in: size)
+                context.fill(shape, with: .color(.white.opacity(0.25)))
+                var played = context
+                played.clip(to: Path(CGRect(x: 0, y: 0, width: size.width * progress, height: size.height)))
+                played.fill(shape, with: .color(Color.appTint))
+            }
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { onScrub(fraction($0.location.x, width)) }
+                    .onEnded { onCommit(fraction($0.location.x, width)) }
+            )
+        }
+        .frame(height: height)
+        .accessibilityElement()
+        .accessibilityLabel("Position")
+        .accessibilityValue("\(Int(progress * 100)) percent")
+        .accessibilityAdjustableAction { direction in
+            let step = direction == .increment ? 0.05 : -0.05
+            onCommit(min(1, max(0, progress + step)))
+        }
+    }
+
+    private func fraction(_ x: CGFloat, _ width: CGFloat) -> Double {
+        guard width > 0 else { return 0 }
+        return Double(min(max(x / width, 0), 1))
+    }
+
+    /// A value per point across the width, so a quiet passage still shows a sliver.
+    private func level(at position: Double) -> CGFloat {
+        guard !envelope.isEmpty else { return 0 }
+        let index = min(envelope.count - 1, max(0, Int(position * Double(envelope.count))))
+        return CGFloat(max(0.08, envelope[index]))
+    }
+
+    private func bars(in size: CGSize) -> Path {
+        let count = max(1, Int(size.width / 4))
+        let barWidth = size.width / CGFloat(count)
+        var path = Path()
+        for bar in 0..<count {
+            let value = level(at: (Double(bar) + 0.5) / Double(count))
+            let barHeight = value * size.height
+            path.addRoundedRect(
+                in: CGRect(x: CGFloat(bar) * barWidth + 0.75, y: (size.height - barHeight) / 2,
+                           width: max(1, barWidth - 1.5), height: barHeight),
+                cornerSize: CGSize(width: 1, height: 1)
+            )
+        }
+        return path
+    }
+
+    /// A filled curve rising from the baseline, through the midpoints between samples so
+    /// it stays smooth however few there are.
+    private func curve(in size: CGSize) -> Path {
+        let steps = max(2, Int(size.width / 3))
+        let points = (0...steps).map { step -> CGPoint in
+            let position = Double(step) / Double(steps)
+            return CGPoint(x: CGFloat(position) * size.width, y: size.height * (1 - level(at: position)))
+        }
+        var path = Path()
+        path.move(to: CGPoint(x: 0, y: size.height))
+        path.addLine(to: points[0])
+        for index in 1..<points.count {
+            let previous = points[index - 1], current = points[index]
+            let middle = CGPoint(x: (previous.x + current.x) / 2, y: (previous.y + current.y) / 2)
+            path.addQuadCurve(to: middle, control: previous)
+        }
+        path.addLine(to: points[points.count - 1])
+        path.addLine(to: CGPoint(x: size.width, y: size.height))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// The Flat and Smooth player backgrounds: the artwork's average colour, darkened enough
+/// for white text, either as it is or as a gradient into black.
+private struct ArtworkColorBackdrop: View {
+    @Environment(ArtworkStore.self) private var artwork
+
+    let coverArt: String?
+    let isGradient: Bool
+
+    @State private var color: Color = Color(white: 0.12)
+
+    var body: some View {
+        Group {
+            if isGradient {
+                LinearGradient(colors: [color, color.opacity(0.55), .black], startPoint: .top, endPoint: .bottom)
+            } else {
+                color
+            }
+        }
+        .animation(.easeInOut(duration: 0.6), value: color)
+        .task(id: coverArt) {
+            guard let image = await artwork.image(for: coverArt, size: .thumb),
+                  let average = image.averageColor
+            else { return }
+            color = average
+        }
+    }
+}
+
+private extension UIImage {
+    /// The mean colour, darkened to at most 45 % brightness so white text always reads.
+    var averageColor: Color? {
+        guard let input = CIImage(image: self) else { return nil }
+        let extent = CIVector(x: input.extent.origin.x, y: input.extent.origin.y,
+                              z: input.extent.size.width, w: input.extent.size.height)
+        guard let filter = CIFilter(name: "CIAreaAverage", parameters: [kCIInputImageKey: input, kCIInputExtentKey: extent]),
+              let output = filter.outputImage
+        else { return nil }
+
+        var pixel = [UInt8](repeating: 0, count: 4)
+        CIContext(options: [.workingColorSpace: NSNull()]).render(
+            output, toBitmap: &pixel, rowBytes: 4,
+            bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBA8, colorSpace: nil
+        )
+        var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+        UIColor(red: CGFloat(pixel[0]) / 255, green: CGFloat(pixel[1]) / 255, blue: CGFloat(pixel[2]) / 255, alpha: 1)
+            .getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+        return Color(hue: Double(hue), saturation: Double(saturation), brightness: Double(min(brightness, 0.45)))
     }
 }
 

@@ -14,6 +14,12 @@ struct ExperienceSettingsView: View {
         Form {
             Section {
                 Toggle("Show Full Player", isOn: $playerSettings.opensPlayerOnPlay)
+                Picker("Seekbar Style", selection: $playerSettings.seekbarStyle) {
+                    ForEach(PlayerSettings.SeekbarStyle.allCases) { Text($0.title).tag($0) }
+                }
+                Picker("Background", selection: $playerSettings.background) {
+                    ForEach(PlayerSettings.Background.allCases) { Text($0.title).tag($0) }
+                }
                 Toggle("Keep Screen On", isOn: Binding(
                     get: { appState.screenAwake.isEnabled },
                     set: { appState.screenAwake.isEnabled = $0 }
@@ -22,9 +28,9 @@ struct ExperienceSettingsView: View {
                 Text("Player")
             } footer: {
                 Text("""
-                Show Full Player opens the player whenever something starts playing. Keep \
-                Screen On stops the phone sleeping while the app is open — for lyrics on a \
-                desk, or a long mix.
+                Show Full Player opens the player whenever something starts playing. The \
+                Smooth and Bars seekbars draw the track's loudness once it is on the phone. \
+                Keep Screen On stops the phone sleeping while the app is open.
                 """)
             }
 
