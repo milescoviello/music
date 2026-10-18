@@ -43,6 +43,9 @@ let package = Package(
                 "RhythmStore.swift",
                 "VisualizerHost.swift",
                 "VisualizerPalette.swift",
+                "Romanizer.swift",
+                "LyricsLanguage.swift",
+                "LyricTranslationStore.swift",
             ]
         ),
         .testTarget(

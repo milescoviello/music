@@ -1,8 +1,8 @@
 import Foundation
 import Observation
 
-/// Plexamp's player preferences: the quick-skip buttons and how far they jump, and
-/// whether starting something opens the full player.
+/// Plexamp's player preferences: the quick-skip buttons and how far they jump, whether
+/// starting something opens the full player, and how lyrics are read along to.
 ///
 /// Plexamp's defaults: skip buttons hidden for music, back 10 s, forward 30 s; the full
 /// player stays closed.
@@ -16,6 +16,8 @@ final class PlayerSettings {
         static let opensPlayer = "player.opensOnPlay"
         static let seekbar = "player.seekbar"
         static let background = "player.background"
+        static let romanizesLyrics = "lyrics.romanize"
+        static let translatesLyrics = "lyrics.translate"
     }
 
     static let skipOptions = [10, 15, 30, 45]
@@ -72,6 +74,18 @@ final class PlayerSettings {
         didSet { UserDefaults.standard.set(opensPlayerOnPlay, forKey: Key.opensPlayer) }
     }
 
+    /// Lyrics in another script spelled out in Latin letters beneath each line. Set from
+    /// the lyrics screen's own menu, where it is wanted, rather than in Settings.
+    var romanizesLyrics: Bool {
+        didSet { UserDefaults.standard.set(romanizesLyrics, forKey: Key.romanizesLyrics) }
+    }
+
+    /// Lyrics not in English with each line's English translation beneath it, made on the
+    /// phone. Set from the lyrics screen's menu too.
+    var translatesLyrics: Bool {
+        didSet { UserDefaults.standard.set(translatesLyrics, forKey: Key.translatesLyrics) }
+    }
+
     init() {
         let defaults = UserDefaults.standard
         opensPlayerOnPlay = defaults.bool(forKey: Key.opensPlayer)
@@ -81,5 +95,7 @@ final class PlayerSettings {
         showsSkipButtons = defaults.object(forKey: Key.showSkip) as? Bool ?? false
         skipBackSeconds = defaults.object(forKey: Key.skipBack) as? Int ?? 10
         skipForwardSeconds = defaults.object(forKey: Key.skipForward) as? Int ?? 30
+        romanizesLyrics = defaults.bool(forKey: Key.romanizesLyrics)
+        translatesLyrics = defaults.bool(forKey: Key.translatesLyrics)
     }
 }

@@ -1,7 +1,9 @@
 import SwiftUI
+import Translation
 
 struct LyricsView: View {
     @Environment(AppState.self) private var appState
+    @Environment(PlayerSettings.self) private var settings
 
     let song: Song
 
@@ -10,6 +12,12 @@ struct LyricsView: View {
     @State private var scrollPosition = ScrollPosition(idType: Int.self)
     @State private var resumeAutoScrollAt: Date?
     @State private var activeIndex: Int?
+    /// The song whose lyrics are in `lyrics`. Not `song.id`: that changes a moment before
+    /// `load()` replaces the lyrics, and the read-along must not be asked about the old
+    /// lyrics under the new song's name.
+    @State private var loadedSongID: String?
+    @State private var readAlong = LyricsReadAlong()
+    @State private var translation = LyricTranslation()
 
     private enum LoadState { case loading, loaded, missing }
 
@@ -29,6 +37,24 @@ struct LyricsView: View {
             }
         }
         .task(id: song.id) { await load() }
+        .task(id: ReadAlongRequest(
+            songID: loadedSongID,
+            romanizes: settings.romanizesLyrics,
+            translates: settings.translatesLyrics
+        )) {
+            // Nothing while a new song's lyrics load: what the read-along holds is still the
+            // last song's, and `load()` brings it up to date before they show.
+            guard loadedSongID != nil else { return }
+            await readAlong.update(romanize: settings.romanizesLyrics)
+            await translation.setWanted(settings.translatesLyrics)
+        }
+        // On the outer view rather than the scroller, which is rebuilt whenever lyrics
+        // load; the language-download prompt is presented from here too.
+        // `@Sendable` keeps the closure off the main actor, which is where the session
+        // has to stay -- see `LyricTranslation.run`.
+        .translationTask(translation.configuration) { @Sendable [translation] session in
+            await LyricTranslation.run(session, for: translation)
+        }
         // The clock is a view of its own, because it reads `elapsed`, which ticks four
         // times a second: read here, it re-ran this body, every line of the lyrics
         // included, on every tick. Out there it re-runs an empty view, and this one runs
@@ -61,27 +87,51 @@ struct LyricsView: View {
                 // Identity must be the index -- lyrics repeat, so `id: \.self` on the
                 // string would break both scrolling and highlighting.
                 ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                    Text(line.value)
-                        .font(index == activeIndex
-                            ? .title2.weight(.bold)
-                            : .title3.weight(.semibold))
-                        .foregroundStyle(lineColor(for: index))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .multilineTextAlignment(.leading)
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 20)
-                        .id(index)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            guard isSynced, let start = line.start else { return }
-                            player.seek(to: Double(start + (lyrics?.offset ?? 0)) / 1000)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(line.value)
+                            .font(index == activeIndex
+                                ? .title2.weight(.bold)
+                                : .title3.weight(.semibold))
+                        // Beneath the line rather than in its place: the original is
+                        // what is being sung, and the highlight stays on it.
+                        if settings.romanizesLyrics, let romanized = readAlong.romanized[index] {
+                            Text(romanized)
+                                .font(index == activeIndex
+                                    ? .body.weight(.semibold)
+                                    : .callout.weight(.medium))
+                                .opacity(0.75)
                         }
+                        // Last, and lighter than the romanization: with both on, the
+                        // line reads original, then how it sounds, then what it means.
+                        if settings.translatesLyrics, let translated = translatedLine(index) {
+                            Text(translated)
+                                .font(index == activeIndex ? .body : .callout)
+                                .opacity(0.6)
+                        }
+                    }
+                    .foregroundStyle(lineColor(for: index))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 20)
+                    .id(index)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        guard isSynced, let start = line.start else { return }
+                        player.seek(to: Double(start + (lyrics?.offset ?? 0)) / 1000)
+                    }
                 }
 
                 Spacer().frame(height: 200)
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: activeIndex)
         }
+        // Lines gaining or losing what is beneath them move the line being sung; put it
+        // back where the eye expects it.
+        .onChange(of: settings.romanizesLyrics) { recentre() }
+        .onChange(of: settings.translatesLyrics) { recentre() }
+        .onChange(of: readAlong.romanized) { recentre() }
+        .onChange(of: translation.lines) { recentre() }
         .scrollPosition($scrollPosition, anchor: UnitPoint(x: 0.5, y: 0.32))
         // Touch it and auto-scroll stops dead; it resumes 4s after the scroll settles
         // so the view never fights the user's finger.
@@ -93,13 +143,51 @@ struct LyricsView: View {
             }
         }
         .overlay(alignment: .top) {
-            if !isSynced {
-                Text("Lyrics not timed")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.6))
-                    .padding(.top, 8)
+            VStack(spacing: 4) {
+                if !isSynced {
+                    Text("Lyrics not timed")
+                }
+                if settings.translatesLyrics, let note = translation.note {
+                    Text(note)
+                }
             }
+            .font(.footnote)
+            .foregroundStyle(.white.opacity(0.6))
+            .padding(.top, 8)
+            // Clear of the menu button in the corner.
+            .padding(.horizontal, 60)
         }
+        .overlay(alignment: .topTrailing) { readAlongMenu }
+    }
+
+    /// Here rather than in Settings: it is wanted song by song, while reading along.
+    private var readAlongMenu: some View {
+        @Bindable var settings = settings
+
+        return Menu {
+            Section {
+                Toggle(isOn: $settings.translatesLyrics) {
+                    Label("Translate to English", systemImage: "globe")
+                }
+                Toggle(isOn: $settings.romanizesLyrics) {
+                    Label("Romanize", systemImage: "textformat.abc")
+                }
+            } header: {
+                if let language = readAlong.language,
+                   let name = Locale.current.localizedString(forLanguageCode: language) {
+                    Text("\(name) Lyrics")
+                }
+            }
+        } label: {
+            Image(systemName: "translate")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.8))
+                .frame(width: 36, height: 36)
+                .background(.white.opacity(0.12), in: Circle())
+        }
+        .accessibilityLabel("Lyrics Options")
+        .padding(.top, 4)
+        .padding(.trailing, 16)
     }
 
     private var missingState: some View {
@@ -110,6 +198,17 @@ struct LyricsView: View {
             Text("No lyrics for this track")
                 .font(.callout)
                 .foregroundStyle(.white.opacity(0.7))
+        }
+    }
+
+    private func translatedLine(_ index: Int) -> String? {
+        translation.lines.indices.contains(index) ? translation.lines[index] : nil
+    }
+
+    private func recentre() {
+        guard shouldAutoScroll, let activeIndex else { return }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            scrollPosition.scrollTo(id: activeIndex, anchor: UnitPoint(x: 0.5, y: 0.32))
         }
     }
 
@@ -128,6 +227,7 @@ struct LyricsView: View {
 
     private func load() async {
         state = .loading
+        loadedSongID = nil
         activeIndex = nil
         resumeAutoScrollAt = nil
 
@@ -147,8 +247,35 @@ struct LyricsView: View {
             ?? synced.first
             ?? sets.first
 
-        state = (lyrics?.lines.isEmpty ?? true) ? .missing : .loaded
+        guard let lyrics, !lyrics.lines.isEmpty else {
+            state = .missing
+            return
+        }
+
+        // Worked out before the lyrics appear, so a romanization, or a translation made
+        // on an earlier visit, does not arrive a moment later and push every line down.
+        // Only what is quick: a translation still to be made starts once they show.
+        readAlong.show(lyrics, songID: song.id)
+        await readAlong.update(romanize: settings.romanizesLyrics)
+        await translation.prepare(
+            songID: song.id,
+            lines: lyrics.lines.map(\.value),
+            language: readAlong.language,
+            wanted: false
+        )
+        guard !Task.isCancelled else { return }
+
+        state = .loaded
+        loadedSongID = song.id
     }
+}
+
+/// What the read-along is asked to bring up to date: the lyrics on screen, and the
+/// reader's choices for them.
+private struct ReadAlongRequest: Equatable {
+    var songID: String?
+    var romanizes: Bool
+    var translates: Bool
 }
 
 /// Which line is being sung, told to the lyrics whenever it changes.
