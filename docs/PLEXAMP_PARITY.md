@@ -75,11 +75,23 @@ Plexamp's groups: **Playback** (Loudness Leveling, Sweet Fades, EQ, Autoplay),
 **Experience** (player, quick skip, home screen), **Streaming & Caching** (quality,
 caching, prefer downloads), then Downloads, Offline & Library, Requests, Diagnostics.
 
+### Sonic (F) — our own analysis
+
+Plex's sonic analysis was taken apart and rebuilt (`docs/SONIC.md`): the same open model,
+the same audio preparation, vectors matching Plex's at cosine 0.999–0.9999, computed for
+every Navidrome track by `server/sonic` on the 148 host. On it stand Plexamp's Sonically
+Similar tracks, albums and artists, Outside Your Comfort Zone, Sonic Adventure, DJ
+Gemini, DJ Stretch and DJ Freeze, sonic track radio, and — beyond Plexamp — mood
+stations from the model's tags, streamed tracks' Sweet Fades measured from the server,
+and beats and keys for beat-matched crossfades. Each falls back to Navidrome's similar
+songs when the service has no answer.
+
+In other workspaces, on branches off this one: the seekbar drawn from the service's
+loudness readings for every track (`music/waveform-seekbar`), and optional beat-matched
+crossfades (`music/beatmatch-crossfade`).
+
 ## Not done, and why
 
-- **Sonic analysis** — Plexamp's "sonically similar", Sonic Adventure's map, and the sonic
-  DJs use Plex's per-track audio analysis. Navidrome has none; everything sonic here is
-  built from `getSimilarSongs2` (artist similarity via the server's agents) and says so.
 - **Degrees of Separation, Include External Media** — need Plex's artist graph and
   TIDAL/shared servers.
 - **Half-star ratings** — Navidrome stores whole stars.

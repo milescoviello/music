@@ -11,7 +11,10 @@ how `server/sonic` rebuilds it.
 - **Model:** `Plex Media Server/Resources/Music.tflite` (3.1 MB). Input `model/Placeholder`
   `[1, 187, 96]` float32, output `model/Sigmoid` `[1, 50]`. Those are the tensor names
   and shapes of the open MusiCNN tagger: 187 frames × 96 mel bands is three seconds of
-  16 kHz audio, and the 50 outputs are tag probabilities.
+  16 kHz audio, and the 50 outputs are tag probabilities. It is a TFLite conversion of
+  Essentia's public **msd-musicnn-1** (Million Song Dataset tags): a third of its 1-D
+  weight tensors appear byte for byte in that model's graph and none in the MagnaTagATune
+  one, and the public model through the same recipe reproduces Plex's stored vectors.
 - **Input features:** Essentia's `TensorflowInputMusiCNN` — 512-sample frames, 256 hop,
   Hann, power spectrum, 96 Slaney mel bands to 8 kHz with unit-triangle normalisation,
   `log10(1 + 10000·x)`. Plex links Essentia: its binary carries the algorithm and
@@ -69,6 +72,12 @@ song, album and artist ids, and serves it to the app on port 8650:
 | `GET /v1/albums/{id}/similar`, `GET /v1/artists/{id}/similar` | Sonically Similar Albums / Artists |
 | `GET /v1/path?from=&to=&steps=` | Sonic Adventure, DJ Stretch |
 | `GET /v1/radio?seed=&exclude=&limit=` | track radio, stations |
+
+Beyond Plex, the same pass measures each track's beats, tempo and key
+(`/v1/tracks/{id}/rhythm`), for beat-matched crossfades, and serves the model's 50 tags
+(`/v1/tracks/{id}/tags`, `/v1/tags/{tag}/tracks`) — the source of the app's mood
+stations. Plex's model is MSD MusiCNN, so its outputs are the Million Song Dataset's
+Last.fm tags: rock, pop, chill, sad, happy, party, 80s and the rest.
 
 Lists answer `{"items": [{"id": "...", "distance": 0.12}]}`; levels answer
 `{"id": "...", "hop": 0.1, "levels": [-39.9, ...]}`. A track not analysed yet is a 404,
