@@ -18,6 +18,15 @@ struct SonicClientTests {
         #expect(levels.levels == [-39.9, -12.5])
         let status = try JSONDecoder().decode(SonicClient.Status.self, from: Data(#"{"tracks":10,"analysed":4,"analysing":true,"model":"musicnn","version":1}"#.utf8))
         #expect(status.analysed == 4)
+
+        // The service's real answer, extra keys and all.
+        let rhythm = try JSONDecoder().decode(SonicClient.Rhythm.self, from: Data(#"""
+        {"id":"s","bpm":88.77,"confidence":1.434,"beats":[0.65,1.3,1.95],"key":"A","scale":"major","keyStrength":0.81,"duration":193.5,"loudness":-16.65}
+        """#.utf8))
+        #expect(rhythm.beats.count == 3)
+        #expect(rhythm.key == "A")
+        let none = try JSONDecoder().decode(SonicClient.Rhythm.self, from: Data(#"{"id":"s","bpm":null,"confidence":null,"beats":[],"key":null,"scale":null,"keyStrength":null,"duration":10,"loudness":null}"#.utf8))
+        #expect(none.bpm == nil)
     }
 
     @Test func theSeekbarShapeIsPlexampsTransform() {

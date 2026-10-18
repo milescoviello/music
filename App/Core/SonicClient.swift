@@ -46,6 +46,25 @@ struct SonicClient: Sendable {
         let levels: [Float]
     }
 
+    /// Beats, tempo and key — not something Plex has; for beat-matched crossfades.
+    ///
+    /// `beats` are seconds from the start of the file, from Essentia's multi-feature beat
+    /// tracker; `confidence` is its own, 0 to about 5.3, where above 3.5 is excellent,
+    /// 1.5–3.5 usable and under 1 not to be trusted. `bpm` is nil and `beats` empty when
+    /// no beat was found. `key` is a pitch class ("A", "C#") and `scale` "major" or
+    /// "minor". `loudness` is the integrated BS.1770 loudness of the whole track.
+    struct Rhythm: Decodable, Equatable, Sendable {
+        let id: String
+        let bpm: Double?
+        let confidence: Double?
+        let beats: [Double]
+        let key: String?
+        let scale: String?
+        let keyStrength: Double?
+        let duration: Double?
+        let loudness: Double?
+    }
+
     struct Neighbour: Decodable, Equatable, Sendable {
         let id: String
         /// Cosine distance, 0 for identical; Plex's "maxDistance" is on this scale.
@@ -68,6 +87,17 @@ struct SonicClient: Sendable {
     /// The seekbar's data. Nil when the track has not been analysed yet.
     func levels(songID: String, points: Int = 128) async throws -> Levels? {
         try await getIfPresent("v1/tracks/\(songID)/levels", ["points": String(points)], as: Levels.self)
+    }
+
+    /// Every reading, 100 ms apart: what Sweet Fades measures a streamed track's intro and
+    /// outro from without having its file.
+    func allLevels(songID: String) async throws -> Levels? {
+        try await levels(songID: songID, points: 0)
+    }
+
+    /// Nil when the track has not been analysed yet.
+    func rhythm(songID: String) async throws -> Rhythm? {
+        try await getIfPresent("v1/tracks/\(songID)/rhythm", [:], as: Rhythm.self)
     }
 
     /// Plexamp's Sonically Similar tracks, nearest first.
