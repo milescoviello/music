@@ -50,6 +50,18 @@ enum Pages {
             return MixPages.mix(env, id: id)
         case .stations:
             return MixPages.stations(env)
+        case let .mixBuilder(kind):
+            return MixBuilder.make(env, kind: kind)
+        case let .sonicAdventure(song):
+            return SonicAdventure.make(env, start: song)
+        case .rediscover:
+            return RediscoverPage.make(env)
+        case .tripMode:
+            return TripModePage.make(env)
+        case .stats:
+            return StatsPage.make(env)
+        case .charts:
+            return ChartsPage.make(env)
         default:
             return pending(String(describing: destination), env: env)
         }

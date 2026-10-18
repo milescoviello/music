@@ -33,4 +33,24 @@ enum FilePicker {
         }, box)
         g_object_unref(dialog.rawPointer)
     }
+
+    /// Saves `data` where the person chooses, suggesting `name`: the listening history's CSV.
+    static func save(_ data: Data, suggestedName name: String, title: String) {
+        let dialog = gtk_file_dialog_new()!
+        gtk_file_dialog_set_title(dialog, title)
+        gtk_file_dialog_set_initial_name(dialog, name)
+        let box = Unmanaged.passRetained(ClosureBox<Data>(data)).toOpaque()
+        gtk_file_dialog_save(dialog, Desktop.window?.cast(), nil, { source, result, userData in
+            guard let userData else { return }
+            let data = Unmanaged<ClosureBox<Data>>.fromOpaque(userData).takeRetainedValue().value
+            var error: UnsafeMutablePointer<GError>?
+            let file = gtk_file_dialog_save_finish(OpaquePointer(source), result, &error)
+            if let error { g_error_free(error) }
+            guard let file else { return }
+            defer { g_object_unref(file.rawPointer) }
+            guard let path = String(gOwned: g_file_get_path(file)) else { return }
+            try? data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        }, box)
+        g_object_unref(dialog.rawPointer)
+    }
 }
