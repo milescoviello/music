@@ -6,6 +6,9 @@ import Foundation
 /// program draws.
 @MainActor
 final class VisualizerPane {
+    /// Plexamp's Higher Quality Visualizers, the phone's key.
+    static let highQualityKey = "visualizer.highQuality"
+
     let root: Widget
     private let feed: VisualizerFeed
     private let canvas: DrawingArea

@@ -10,7 +10,7 @@ enum Pages {
         case .library: return LibraryHub.make(env)
         case .search: return SearchPage.make(env)
         case .downloads: return DownloadsPage.make(env)
-        case .settings: return pending("Settings", env: env)
+        case .settings: return SettingsPages.root(env)
         }
     }
 
@@ -66,6 +66,22 @@ enum Pages {
             return DownloadsPage.make(env)
         case let .downloadFolder(id):
             return DownloadFolderPage.make(env, id: id)
+        case .settings:
+            return SettingsPages.root(env)
+        case .audioSettings:
+            return SettingsPages.audio(env)
+        case .equalizer:
+            return SettingsPages.equalizer(env)
+        case .streamingSettings:
+            return SettingsPages.streaming(env)
+        case .experienceSettings:
+            return SettingsPages.experience(env)
+        case .sonicSettings:
+            return SettingsPages.sonic(env)
+        case .offlineSettings:
+            return SettingsPages.offline(env)
+        case .diagnostics:
+            return SettingsPages.diagnostics(env)
         default:
             return pending(String(describing: destination), env: env)
         }
