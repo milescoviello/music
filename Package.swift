@@ -41,6 +41,9 @@ let package = Package(
                 "SonicClient.swift",
                 "BeatMatch.swift",
                 "RhythmStore.swift",
+                "Romanizer.swift",
+                "LyricsLanguage.swift",
+                "Romanization.swift",
             ]
         ),
         .testTarget(
