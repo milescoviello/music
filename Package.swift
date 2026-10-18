@@ -28,6 +28,7 @@ let package = Package(
                 "StreamCacheIndex.swift",
                 "StreamingPolicy.swift",
                 "TrackShape.swift",
+                "SeekbarLevels.swift",
                 "Autoplay.swift",
                 "GuestDJ.swift",
                 "Stations.swift",

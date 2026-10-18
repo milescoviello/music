@@ -645,11 +645,12 @@ private struct PlayerSeekBar: View {
     /// there is no duration and no seeking either.
     private var hasKnownDuration: Bool { player.duration > 0 }
 
-    /// The outline of the track playing, once it has been measured, as Plexamp's seekbar
-    /// heights on a 0…1 scale. Read without touching the disk: the `.task` below loads it.
+    /// The outline of the track playing, from the sonic service or measured here, as
+    /// Plexamp's seekbar heights on a 0…1 scale. Read without touching the disk or the
+    /// network: the `.task` below loads it.
     private var envelope: [Float]? {
         guard playerSettings.seekbarStyle != .line, let id = player.currentSong?.id,
-              let levels = appState.shapes.loadedShape(for: id)?.levels
+              let levels = appState.seekbarLevels.levels(for: id)
         else { return nil }
         return SeekbarShape.heights(fromLevels: levels).map { $0 / SeekbarShape.maximumHeight }
     }
@@ -710,7 +711,9 @@ private struct PlayerSeekBar: View {
         // position in the *previous* song.
         .onChange(of: player.currentSong?.id) { scrubValue = nil }
         .task(id: player.currentSong?.id) {
-            if let id = player.currentSong?.id { _ = appState.shapes.shape(for: id) }
+            guard let id = player.currentSong?.id else { return }
+            _ = appState.shapes.shape(for: id)
+            if playerSettings.seekbarStyle != .line { appState.seekbarLevels.request([id]) }
         }
     }
 }
