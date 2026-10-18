@@ -199,6 +199,26 @@ struct PlaybackQueue: Codable, Sendable {
         lastAddedTrackIndex = newIndices.last
     }
 
+    /// A Guest DJ's picks: placed where the DJ says, and not "additions" as far as Add to
+    /// Up Next is concerned — those are yours.
+    mutating func insertPicks(_ songs: [Song], afterOrderIndex index: Int) {
+        let yours = lastAddedTrackIndex
+        insert(songs, afterOrderIndex: index)
+        lastAddedTrackIndex = yours
+    }
+
+    /// Removes every upcoming occurrence of these songs — a DJ's picks, when the DJ
+    /// leaves. What already played, and what is playing, stay.
+    mutating func removeUpcoming(ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        for index in stride(from: order.count - 1, to: position, by: -1) {
+            let track = order[index]
+            if tracks.indices.contains(track), ids.contains(tracks[track].id) {
+                remove(atOrderIndex: index)
+            }
+        }
+    }
+
     /// Plexamp's Clear Play Queue: everything goes except the track playing, which plays on.
     mutating func clearAllButCurrent() {
         guard let current else {

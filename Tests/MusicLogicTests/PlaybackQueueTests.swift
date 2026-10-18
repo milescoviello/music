@@ -277,4 +277,16 @@ struct PlaybackQueueTests {
         #expect(decoded.lastAddedTrackIndex == nil)
         #expect(decoded.current?.id == "s1")
     }
+
+    @Test func aDJsPicksAreNotAdditionsAndLeaveWithIt() {
+        var queue = PlaybackQueue.make(tracks: songs(3), startingAt: 0, shuffled: false, source: "Album")
+        queue.insertPicks([Song(id: "dj", title: "DJ")], afterOrderIndex: 0)
+        #expect(ids(queue) == ["dj", "s2", "s3"])
+        #expect(!queue.canAddToUpNext)
+
+        queue.removeUpcoming(ids: ["dj", "s1"])
+        // The current track is never removed, even if it was a pick.
+        #expect(queue.current?.id == "s1")
+        #expect(ids(queue) == ["s2", "s3"])
+    }
 }

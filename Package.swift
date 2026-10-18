@@ -28,6 +28,8 @@ let package = Package(
                 "StreamCacheIndex.swift",
                 "StreamingPolicy.swift",
                 "TrackShape.swift",
+                "Autoplay.swift",
+                "GuestDJ.swift",
             ]
         ),
         .testTarget(
