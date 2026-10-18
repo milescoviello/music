@@ -185,6 +185,13 @@ final class AutoplayService {
 
         case .similarAlbum:
             guard let appState else { return nil }
+            // The sonically nearest album by someone else, when the analysis has it.
+            if let albumID = last.albumId, let album = await appState.sonic.similarAlbums(to: albumID, limit: 1)?.first {
+                return Option(
+                    choice: choice, title: album.name, subtitle: "Similar Album · \(album.artist ?? "")",
+                    coverArt: album.coverArt, plan: .album(id: album.id)
+                )
+            }
             for candidate in similar.prefix(3) {
                 guard let detail = try? await appState.client.artistDetail(id: candidate.id),
                       let album = (detail.album ?? []).max(by: { ($0.playCount ?? 0) < ($1.playCount ?? 0) })
@@ -280,6 +287,10 @@ final class AutoplayService {
             let theirs = (try? await like) ?? []
             return Array((Array(mine) + theirs).shuffled().prefix(count))
         case let .trackRadio(seed):
+            let queued = appState.player.queue.tracks.map(\.id)
+            if let sonic = await appState.sonic.radio(seeds: [seed.id], excluding: queued, limit: count) {
+                return sonic
+            }
             return Array(await radio.mix(seed: seed, scope: scope, size: count + 1).dropFirst())
         case let .similarArtists(seed):
             // `getSimilarSongs2` is exactly this: tracks by artists similar to the seed's.
@@ -409,8 +420,15 @@ final class GuestDJService {
         let queue = appState.player.queue.tracks
         let filter = { (songs: [Song]) in GuestDJRules.filter(songs, queue: queue, generated: self.generated) }
 
+        let sonic = appState.sonic
+
         switch dj {
         case .gemini:
+            // Plexamp's own query: the ten nearest by other artists within 0.175.
+            if let twins = await sonic.similarSongs(to: current, limit: 10, excludingArtist: true, maxDistance: 0.175),
+               let twin = filter(twins).first {
+                return [twin]
+            }
             let similar = (try? await client.similarSongs(toSongID: current.id, count: 20)) ?? []
             let others = similar.filter { $0.primaryArtistID != current.primaryArtistID }
             return Array(filter(others).prefix(1))
@@ -422,6 +440,15 @@ final class GuestDJService {
 
         case .stretch:
             guard let next else { return [] }
+            // Plexamp's: a short sonic adventure from this track to the next, three of its
+            // steps at random, kept in order.
+            if let path = await sonic.path(from: current, to: next, steps: 8) {
+                let steps = filter(path)
+                if !steps.isEmpty {
+                    let chosen = Set(steps.shuffled().prefix(dj.insertCount).map(\.id))
+                    return steps.filter { chosen.contains($0.id) }
+                }
+            }
             async let from = client.similarSongs(toSongID: current.id, count: 20)
             async let to = client.similarSongs(toSongID: next.id, count: 20)
             let outgoing = filter((try? await from) ?? [])
@@ -450,6 +477,9 @@ final class GuestDJService {
 
         switch dj {
         case .freeze:
+            if let sonic = await appState.sonic.radio(seeds: [seed.id], limit: dj.poolSize) {
+                return sonic
+            }
             return (try? await client.similarSongs(toSongID: seed.id, count: dj.poolSize)) ?? []
         case .contempo:
             guard let year = seed.year, year > 0 else { return nil }

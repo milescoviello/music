@@ -22,6 +22,9 @@ enum Station: Codable, Hashable, Sendable, Identifiable {
     /// Track, album or playlist radio: what is related to the seeds, drifting with what
     /// has played since — Plexamp's radios do not end, so neither do these.
     case radio(seedIDs: [String], title: String)
+    /// One of the sonic model's tags as a station — "Chill", "Sad", "Party" — drawn from
+    /// the tracks that sound most like it. Needs the sonic service.
+    case mood(String)
     /// Plexamp's Sonic Adventure: a path from one track to another. Not endless — it
     /// arrives — so it is never topped up.
     case adventure(fromID: String, toID: String)
@@ -38,6 +41,7 @@ enum Station: Codable, Hashable, Sendable, Identifiable {
         case let .albumMix(ids, _): return "albums-" + ids.joined(separator: ",")
         case let .adventure(from, to): return "adventure-\(from)-\(to)"
         case let .radio(seeds, title): return "radio-\(title)-" + seeds.joined(separator: ",")
+        case let .mood(tag): return "mood-\(tag)"
         }
     }
 
@@ -53,6 +57,7 @@ enum Station: Codable, Hashable, Sendable, Identifiable {
         case let .albumMix(_, names): return Self.mixTitle(names, fallback: "Album Mix")
         case .adventure: return "Sonic Adventure"
         case let .radio(_, title): return title
+        case let .mood(tag): return "\(Self.moodName(tag)) Radio"
         }
     }
 
@@ -68,6 +73,7 @@ enum Station: Codable, Hashable, Sendable, Identifiable {
         case .albumMix: return "These albums, shuffled together"
         case .adventure: return "From one track to another"
         case .radio: return "Related tracks, for as long as you listen"
+        case let .mood(tag): return "What sounds most \(Self.moodName(tag).lowercased())"
         }
     }
 
@@ -83,6 +89,7 @@ enum Station: Codable, Hashable, Sendable, Identifiable {
         case .albumMix: return "square.stack.3d.up"
         case .adventure: return "point.topleft.down.to.point.bottomright.curvepath"
         case .radio: return "dot.radiowaves.left.and.right"
+        case .mood: return "waveform.path"
         }
     }
 
@@ -91,6 +98,19 @@ enum Station: Codable, Hashable, Sendable, Identifiable {
         if case .adventure = self { return false }
         return true
     }
+
+    /// The model's tags are Last.fm's, in its spelling ("Mellow", "chillout"); this reads
+    /// them as names.
+    static func moodName(_ tag: String) -> String {
+        tag.split(separator: " ").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
+    }
+
+    /// The tags that make good stations: moods and textures, not decades or genres (which
+    /// have their own stations from the library's own tags).
+    static let moodTags = [
+        "chill", "Mellow", "happy", "sad", "party", "beautiful", "catchy", "sexy",
+        "easy listening", "chillout", "acoustic", "instrumental", "ambient", "experimental",
+    ]
 
     /// "Radiohead, Portishead & 2 more Mix".
     private static func mixTitle(_ names: [String], fallback: String) -> String {

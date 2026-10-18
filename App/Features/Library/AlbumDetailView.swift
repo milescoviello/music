@@ -11,6 +11,7 @@ struct AlbumDetailView: View {
     @State private var error: String?
     @State private var review: String?
     @State private var moreByArtist: [Album] = []
+    @State private var sonicallySimilar: [Album] = []
     @State private var isReviewExpanded = false
 
     var body: some View {
@@ -62,6 +63,10 @@ struct AlbumDetailView: View {
                     }
                     .listRowSeparator(.hidden)
                 }
+            }
+
+            if !sonicallySimilar.isEmpty {
+                albumRow("Sonically Similar", sonicallySimilar)
             }
 
             if !moreByArtist.isEmpty, let artist = album.artist ?? detail?.artist {
@@ -250,6 +255,30 @@ struct AlbumDetailView: View {
             moreByArtist = artist.albums.filter { $0.id != id }
         }
         review = await info?.plainNotes
+        sonicallySimilar = await appState.sonic.similarAlbums(to: id) ?? []
+    }
+
+    /// Plexamp's Sonically Similar Albums, from our sonic analysis: other artists' albums
+    /// that sound most like this one as a whole.
+    private func albumRow(_ title: String, _ albums: [Album]) -> some View {
+        Section(title) {
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: Metrics.itemSpacing) {
+                    ForEach(albums) { other in
+                        NavigationLink(value: Destination.album(AlbumRef(other))) {
+                            AlbumCard(album: other)
+                                .frame(width: Metrics.cardWidth)
+                        }
+                        .buttonStyle(.plain)
+                        .albumMenu(other)
+                    }
+                }
+            }
+            .contentMargins(.horizontal, Metrics.gutter, for: .scrollContent)
+            .scrollIndicators(.hidden)
+            .listRowInsets(EdgeInsets())
+            .listRowSeparator(.hidden)
+        }
     }
 
     /// Plexamp's codec badge and the release facts the header has no room for:

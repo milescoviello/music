@@ -5,6 +5,7 @@ import SwiftUI
 struct StationsView: View {
     @Environment(AppState.self) private var appState
     @Environment(LibraryScopeStore.self) private var scope
+    @Environment(SonicService.self) private var sonic
 
     @State private var decades: [Int] = []
     @State private var genres: [Genre] = []
@@ -23,6 +24,15 @@ struct StationsView: View {
                 }
                 NavigationLink(value: Destination.mixBuilder(.albums)) {
                     Label("Album Mix Builder", systemImage: Station.albumMix(ids: [], names: []).symbol)
+                }
+            }
+
+            // From the sonic analysis: what the music sounds like, not how it is tagged.
+            if sonic.isAvailable {
+                Section("Moods") {
+                    ForEach(Station.moodTags, id: \.self) { tag in
+                        StationRow(station: .mood(tag))
+                    }
                 }
             }
 

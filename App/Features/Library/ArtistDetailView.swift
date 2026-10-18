@@ -28,6 +28,7 @@ struct ArtistDetailView: View {
     /// "all of it or nothing" is a worse choice than "a bit more".
     @State private var visiblePopularCount = ArtistDetailView.popularStep
     @State private var info: ArtistInfo?
+    @State private var sonicallySimilar: [Artist] = []
     @State private var appearsOn: [Album] = []
     @State private var isBiographyExpanded = false
 
@@ -93,6 +94,10 @@ struct ArtistDetailView: View {
 
                 if !appearsOn.isEmpty {
                     albumCarousel("Appears On", appearsOn)
+                }
+
+                if !sonicallySimilar.isEmpty {
+                    artistCarousel("Sonically Similar", sonicallySimilar)
                 }
 
                 if !similarArtists.isEmpty {
@@ -215,6 +220,36 @@ struct ArtistDetailView: View {
         (info?.similarArtists ?? []).filter { !$0.id.isEmpty }
     }
 
+    /// Plexamp's Sonically Similar Artists: by the sound of their tracks, from our sonic
+    /// analysis — beside Similar Artists, which is who listeners also play.
+    private func artistCarousel(_ title: String, _ artists: [Artist]) -> some View {
+        VStack(alignment: .leading, spacing: Metrics.headerToContent) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .padding(.horizontal, Metrics.gutter)
+
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: Metrics.itemSpacing) {
+                    ForEach(artists) { other in
+                        NavigationLink(value: Destination.artist(ArtistRef(id: other.id, name: other.name, coverArt: other.coverArt))) {
+                            VStack(spacing: 6) {
+                                ArtistArtwork(id: other.coverArt, diameter: 96, initials: other.name.monogram)
+                                Text(other.name)
+                                    .font(.caption)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.center)
+                            }
+                            .frame(width: 100)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .contentMargins(.horizontal, Metrics.gutter, for: .scrollContent)
+            .scrollIndicators(.hidden)
+        }
+    }
+
     private func albumCarousel(_ title: String, _ albums: [Album]) -> some View {
         VStack(alignment: .leading, spacing: Metrics.headerToContent) {
             HStack(alignment: .firstTextBaseline) {
@@ -305,6 +340,7 @@ struct ArtistDetailView: View {
         async let about = try? client.artistInfo(id: id, similarCount: 15)
         async let found = try? client.search(query: name, artistCount: 0, albumCount: 0, songCount: 200)
         info = await about
+        sonicallySimilar = await appState.sonic.similarArtists(to: id) ?? []
         let own = Set((detail?.album ?? []).map(\.id))
         appearsOn = LibraryFacets.appearsOn(await found?.songs ?? [], artistID: id, excluding: own)
     }

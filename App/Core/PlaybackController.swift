@@ -145,8 +145,10 @@ final class PlaybackController {
             from: current,
             to: next,
             sweetFades: appState.audio.sweetFades,
-            outgoing: appState.shapes.shape(for: current.id),
-            incoming: appState.shapes.shape(for: next.id)
+            // A file's own measurement first; for a track that is only streaming, the sonic
+            // service's loudness readings of it.
+            outgoing: appState.shapes.shape(for: current.id) ?? appState.sonic.shape(for: current.id),
+            incoming: appState.shapes.shape(for: next.id) ?? appState.sonic.shape(for: next.id)
         )
     }
 
@@ -239,11 +241,21 @@ final class PlaybackController {
     /// be planned. Cached arrivals are measured as they land.
     private func measureLocal(_ songs: [Song]) {
         guard let appState else { return }
+        var streaming: [Song] = []
         for song in songs {
             guard let file = appState.downloads.localURL(for: song.id)
                 ?? appState.streamCache.anyFile(for: song.id)
-            else { continue }
+            else {
+                streaming.append(song)
+                continue
+            }
             appState.shapes.measure(songID: song.id, at: file)
+        }
+        // What is not on the phone is measured from the sonic service instead, so its fades
+        // are not guesses either.
+        appState.sonic.prefetchShapes(for: streaming) { [weak self] songID in
+            guard let self, currentWindow.contains(where: { $0.id == songID }) else { return }
+            output.refreshTransitions()
         }
     }
 

@@ -189,6 +189,12 @@ struct StationTests {
         #expect(mixed.map(\.id) == ["a1", "b1", "c1", "a2", "c2"])
     }
 
+    @Test func moodStationsReadTheTagsAsNames() {
+        #expect(Station.mood("easy listening").title == "Easy Listening Radio")
+        #expect(Station.mood("Mellow").id == "mood-Mellow")
+        #expect(Station.mood("chill").isEndless)
+    }
+
     @Test func mixTitlesNameTheirArtists() {
         #expect(Station.artistMix(ids: ["1"], names: ["Radiohead"]).title == "Radiohead Mix")
         #expect(Station.artistMix(ids: ["1", "2", "3"], names: ["A", "B", "C"]).title == "A, B & 1 More")

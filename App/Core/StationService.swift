@@ -38,6 +38,16 @@ final class StationService {
     /// similar songs: those near the start, then those near both, then those near the end.
     func playAdventure(from start: Song, to end: Song) async {
         guard let appState else { return }
+        // The real thing, when the sonic analysis has both ends.
+        if let path = await appState.sonic.path(from: start, to: end, steps: 12) {
+            appState.player.play(
+                songs: [start] + path + [end],
+                startingAt: 0,
+                source: "\(start.title) → \(end.title)",
+                station: .adventure(fromID: start.id, toID: end.id)
+            )
+            return
+        }
         let client = appState.client
         async let outgoing = client.similarSongs(toSongID: start.id, count: 30)
         async let incoming = client.similarSongs(toSongID: end.id, count: 30)
@@ -114,6 +124,12 @@ final class StationService {
 
         case let .radio(seeds, _):
             candidates = await radio(seeds: seeds, after: queue, size: size)
+
+        case let .mood(tag):
+            // The service ranks the whole library by the tag; a station wants a varied
+            // draw from the top of that, not the same order every time.
+            let ranked = await appState.sonic.tagged(tag, limit: 400) ?? []
+            candidates = Array(StationRules.fresh(ranked, excluding: queue).prefix(150).shuffled().prefix(size))
 
         case .adventure:
             return []
@@ -217,6 +233,14 @@ final class StationService {
         guard let appState else { return [] }
         let client = appState.client
         let recent = queue.suffix(5).map(\.id)
+
+        // Sonic radio, when the analysis is there: around the original seeds and one of the
+        // last few played, so it stays near where it started and still moves.
+        let sonicSeeds = Array(seeds.shuffled().prefix(3)) + Array(recent.suffix(1))
+        if let sonic = await appState.sonic.radio(seeds: sonicSeeds, excluding: queue.map(\.id), limit: size) {
+            return sonic
+        }
+
         let picks = [seeds.randomElement(), recent.randomElement()].compactMap { $0 }
         guard !picks.isEmpty else { return [] }
 
