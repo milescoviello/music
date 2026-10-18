@@ -30,8 +30,51 @@ struct VisualizerProgram: Identifiable, Hashable, Sendable {
     /// made for this app.
     static let defaultName = "Retrospect"
 
-    /// In name order, which is the order Plexamp lists and cycles them in.
+    /// In name order, which is the order Plexamp lists and cycles them in. All of
+    /// Plexamp's but Tahitian Pearls, which Plexamp itself only has on the web.
     static let all: [VisualizerProgram] = [
+        VisualizerProgram(
+            name: "Amnesiac",
+            function: "viz_amnesiac",
+            data: VisualizerData(frequency: true),
+            pixels: 375,
+            displayWhenIdle: true
+        ),
+        VisualizerProgram(
+            name: "Amoeba",
+            function: "viz_amoeba",
+            data: VisualizerData(frequency: true),
+            pixels: 375,
+            displayWhenIdle: true
+        ),
+        VisualizerProgram(
+            name: "Disco Ball",
+            function: "viz_disco_ball",
+            data: VisualizerData(frequency: true, alpha: 0.3),
+            pixels: 512,
+            displayWhenIdle: false
+        ),
+        VisualizerProgram(
+            name: "Galaxy",
+            function: "viz_galaxy",
+            data: VisualizerData(frequency: true, alpha: 0.25),
+            pixels: 375,
+            displayWhenIdle: false
+        ),
+        VisualizerProgram(
+            name: "Paint Mixer",
+            function: "viz_paint_mixer",
+            data: VisualizerData(frequency: true, peaks: true),
+            pixels: 375,
+            displayWhenIdle: true
+        ),
+        VisualizerProgram(
+            name: "Waffles",
+            function: "viz_waffles",
+            data: VisualizerData(frequencyHistory: true, frequency: true),
+            pixels: 375,
+            displayWhenIdle: true
+        ),
         VisualizerProgram(
             name: "Pulsar Joy",
             function: "viz_pulsar_joy",

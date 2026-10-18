@@ -131,18 +131,18 @@ inline float4 getTweenedTexture(texture2d<float> palette, float value, float cro
 // float's first byte, floor(v × 255) / 255, linearly filtered. Done by hand — four
 // texels, each quantised, then mixed — because filtering first and quantising after is
 // not the same number.
-inline float vizHighByte(texture2d<float> texture, float2 uv) {
-    float2 size = float2(texture.get_width(), texture.get_height());
+inline float vizHighByte(texture2d<float> source, float2 uv) {
+    float2 size = float2(source.get_width(), source.get_height());
     float2 st = uv * size - 0.5;
     float2 base = floor(st);
     float2 f = st - base;
     int2 last = int2(size) - 1;
     int2 i0 = clamp(int2(base), int2(0), last);
     int2 i1 = clamp(int2(base) + 1, int2(0), last);
-    float q00 = floor(texture.read(uint2(i0.x, i0.y)).r * 255.) / 255.;
-    float q10 = floor(texture.read(uint2(i1.x, i0.y)).r * 255.) / 255.;
-    float q01 = floor(texture.read(uint2(i0.x, i1.y)).r * 255.) / 255.;
-    float q11 = floor(texture.read(uint2(i1.x, i1.y)).r * 255.) / 255.;
+    float q00 = floor(source.read(uint2(i0.x, i0.y)).r * 255.) / 255.;
+    float q10 = floor(source.read(uint2(i1.x, i0.y)).r * 255.) / 255.;
+    float q01 = floor(source.read(uint2(i0.x, i1.y)).r * 255.) / 255.;
+    float q11 = floor(source.read(uint2(i1.x, i1.y)).r * 255.) / 255.;
     return mix(mix(q00, q10, f.x), mix(q01, q11, f.x), f.y);
 }
 
