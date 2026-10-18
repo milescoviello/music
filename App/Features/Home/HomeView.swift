@@ -25,6 +25,7 @@ struct HomeView: View {
                         .padding(.top, 60)
                     } else {
                         mixShelf
+                        StationsShelf()
                         albumShelf("Recently Played", model.recentlyPlayed, sort: .recent)
                         albumShelf("Recently Added", model.recentlyAdded, sort: .newest)
                         favoriteSongs
@@ -49,13 +50,9 @@ struct HomeView: View {
             .offlineBanner()
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    // Library Radio: the whole library shuffled, and it never runs out.
                     Button {
-                        Task {
-                            let songs = (try? await appState.client.randomSongs(
-                                size: 100, scope: scope.scope
-                            )) ?? []
-                            appState.startRadio(named: "Shuffle", songs: songs)
-                        }
+                        appState.stations.play(.library)
                     } label: {
                         Image(systemName: "shuffle")
                     }

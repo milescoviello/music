@@ -217,7 +217,10 @@ struct ArtistDetailView: View {
         Task {
             let mix = await appState.radio.artistMix(artist, scope: scope.scope)
             isGatheringDiscography = false
-            appState.startRadio(named: "\(artist.name) Radio", songs: mix)
+            appState.startRadio(
+                named: "\(artist.name) Radio", songs: mix,
+                station: .artistMix(ids: [artist.id], names: [artist.name])
+            )
         }
     }
 

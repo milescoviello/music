@@ -21,7 +21,10 @@ struct SongMenu: View {
     private func startRadio() {
         Task {
             let songs = await appState.radio.mix(seed: song, scope: scope.scope)
-            appState.startRadio(named: "\(song.title) Radio", songs: songs)
+            appState.startRadio(
+                named: "\(song.title) Radio", songs: songs,
+                station: .radio(seedIDs: [song.id], title: "\(song.title) Radio")
+            )
         }
     }
 
@@ -40,6 +43,14 @@ struct SongMenu: View {
 
         Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
             startRadio()
+        }
+
+        // A push, so only where there is a stack of the app's own to push onto — the
+        // player offers it as a jump instead.
+        if showsNavigation {
+            NavigationLink(value: Destination.sonicAdventure(song)) {
+                Label("Sonic Adventure…", systemImage: Station.adventure(fromID: "", toID: "").symbol)
+            }
         }
 
         AddToPlaylistMenu(songs: [song], suggestedName: song.album ?? song.title)

@@ -33,6 +33,9 @@ enum Destination: Hashable {
     case vibePlaylist
     case libraryHealth
     case dailyMixes
+    case stations
+    case mixBuilder(MixBuilderKind)
+    case sonicAdventure(Song)
 }
 
 extension View {
@@ -98,6 +101,12 @@ extension View {
                 LibraryHealthView()
             case .dailyMixes:
                 DailyMixesView()
+            case .stations:
+                StationsView()
+            case let .mixBuilder(kind):
+                MixBuilderView(kind: kind)
+            case let .sonicAdventure(song):
+                SonicAdventureView(start: song)
             }
         }
     }

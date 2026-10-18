@@ -200,6 +200,9 @@ struct NowPlayingView: View {
                     Button("Show Similar Tracks", systemImage: "wand.and.stars") {
                         similarTo = song
                     }
+                    Button("Sonic Adventure…", systemImage: Station.adventure(fromID: "", toID: "").symbol) {
+                        appState.navigator.open(.sonicAdventure(song))
+                    }
                     Divider()
 
                     GuestDJMenu()

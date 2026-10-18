@@ -48,6 +48,7 @@ final class AppState {
     let playerSettings = PlayerSettings()
     let autoplay = AutoplayService()
     let guestDJ = GuestDJService()
+    let stations = StationService()
     let streamCache = StreamCache()
     let shapes = TrackShapeStore()
     /// Shared PCM ring. One buffer for the whole app, because only one thing can be
@@ -74,6 +75,7 @@ final class AppState {
         downloads.attach(appState: self)
         autoplay.configure(appState: self)
         guestDJ.configure(appState: self)
+        stations.configure(appState: self)
         player.attach(appState: self)
 
         sleepTimer.onFire = { [weak self] in
@@ -177,9 +179,11 @@ final class AppState {
 
     /// Starts a mix and plays it. Here rather than in a view because three different
     /// screens start radio and none of them should own the sequencing.
-    func startRadio(named name: String, songs: [Song], shuffled: Bool = false) {
+    ///
+    /// With a `station`, the queue tops itself up as it plays, the way Plexamp's radios do.
+    func startRadio(named name: String, songs: [Song], shuffled: Bool = false, station: Station? = nil) {
         guard !songs.isEmpty else { return }
-        player.play(songs: songs, startingAt: 0, source: name, shuffled: shuffled)
+        player.play(songs: songs, startingAt: 0, source: name, shuffled: shuffled, station: station)
     }
 
     /// Called at launch, on foreground, and on regaining a network. Cheap when the

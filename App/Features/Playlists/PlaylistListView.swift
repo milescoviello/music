@@ -344,7 +344,10 @@ struct PlaylistDetailView: View {
         guard let seed = songs.randomElement() else { return }
         Task {
             let mix = await appState.radio.mix(seed: seed, scope: scope.scope)
-            appState.startRadio(named: "\(playlist.name) Radio", songs: mix)
+            appState.startRadio(
+                named: "\(playlist.name) Radio", songs: mix,
+                station: .radio(seedIDs: songs.map(\.id), title: "\(playlist.name) Radio")
+            )
         }
     }
 

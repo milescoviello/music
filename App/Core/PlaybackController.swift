@@ -301,7 +301,8 @@ final class PlaybackController {
         startingAt index: Int,
         source: String,
         shuffled: Bool = false,
-        startAt seconds: Double = 0
+        startAt seconds: Double = 0,
+        station: Station? = nil
     ) {
         guard !songs.isEmpty else { return }
 
@@ -310,7 +311,8 @@ final class PlaybackController {
             startingAt: index,
             shuffled: shuffled,
             source: source,
-            repeatMode: queue.repeatMode
+            repeatMode: queue.repeatMode,
+            station: station
         )
         appState?.guestDJ.queueReplaced()
 
@@ -635,6 +637,7 @@ final class PlaybackController {
     private func queueChanged() {
         planCache()
         autoplayRequested = false
+        appState?.stations.queueChanged()
         appState?.autoplay.queueChanged()
         appState?.guestDJ.queueChanged()
     }
@@ -642,6 +645,7 @@ final class PlaybackController {
     /// A mix or a station tops itself up, so Autoplay must not cap it with a carousel.
     var isSelfExtending: Bool {
         guard let appState else { return false }
+        if queue.station?.isEndless == true { return true }
         return appState.mixes.mixes.contains {
             $0.title == queue.sourceDescription && $0.isExhausted != true
         }

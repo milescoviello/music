@@ -28,6 +28,7 @@ struct MusicApp: App {
                 .environment(appState.playerSettings)
                 .environment(appState.autoplay)
                 .environment(appState.guestDJ)
+                .environment(appState.stations)
                 .environment(appState.streamCache)
                 .environment(appState.spectrum)
                 .preferredColorScheme(.dark)

@@ -48,7 +48,7 @@ struct GenreListView: View {
     private func startGenreRadio(_ genre: String) {
         Task {
             let mix = await appState.radio.genreMix(genre, scope: scope.scope)
-            appState.startRadio(named: "\(genre) Radio", songs: mix)
+            appState.startRadio(named: "\(genre) Radio", songs: mix, station: .genre(genre))
         }
     }
 
@@ -108,7 +108,7 @@ struct GenreDetailView: View {
                 Button {
                     Task {
                         let mix = await appState.radio.genreMix(genre, scope: scope.scope)
-                        appState.startRadio(named: "\(genre) Radio", songs: mix)
+                        appState.startRadio(named: "\(genre) Radio", songs: mix, station: .genre(genre))
                     }
                 } label: {
                     Image(systemName: "dot.radiowaves.left.and.right")
