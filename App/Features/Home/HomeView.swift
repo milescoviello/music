@@ -100,6 +100,8 @@ struct HomeView: View {
         case .recentlyAdded: albumShelf("Recently Added", model.recentlyAdded, sort: .newest)
         case .favourites: favoriteSongs
         case .mostPlayed: albumShelf("Most Played", model.mostPlayed, sort: .frequent)
+        case .mostPlayedThisMonth:
+            albumShelf(model.monthTitle, model.mostPlayedThisMonth, seeAll: .charts)
         case .forgottenFavourites: forgottenFavourites
         case .onThisDay: onThisDay
         case .moreInGenre:
@@ -366,7 +368,14 @@ final class HomeModel {
     var bestOfLastYear: [Album] = []
     var notPlayedLately: [Album] = []
     var moreInGenre: (name: String, albums: [Album])?
+    var mostPlayedThisMonth: [Album] = []
     var hasLoaded = false
+
+    /// Plexamp's "Most Played in October": whichever month the chart opens on.
+    var monthTitle: String {
+        let period = ChartPeriod.current(.month)
+        return "Most Played in \(period.start.formatted(.dateTime.month(.wide)))"
+    }
 
     var lastYear: Int { Calendar.current.component(.year, from: .now) - 1 }
 
@@ -374,6 +383,7 @@ final class HomeModel {
         recentlyPlayed.isEmpty && recentlyAdded.isEmpty
             && mostPlayed.isEmpty && favoriteSongs.isEmpty && forgotten.songs.isEmpty
             && onThisDay.isEmpty && bestOfLastYear.isEmpty && notPlayedLately.isEmpty
+            && mostPlayedThisMonth.isEmpty
     }
 
     /// Shelves load concurrently and a failing shelf is simply dropped: one dead
@@ -410,6 +420,16 @@ final class HomeModel {
         favoriteSongs = Array((await starred?.songs ?? []).prefix(4))
         forgotten = await neglected
         hasLoaded = true
+
+        // From this phone's own history: the server counts plays but never dates them.
+        let plays = appState.history.plays.map(\.chartPlay)
+        mostPlayedThisMonth = Charts.topAlbums(plays, in: ChartPeriod.current(.month), limit: 12).compactMap { row in
+            guard let id = row.albumID else { return nil }
+            var album = Album(id: id, name: row.title)
+            album.artist = row.subtitle
+            album.coverArt = row.coverArt
+            return album
+        }
 
         // The shelves cut from the whole album list. After the rest, so they never hold
         // Home up; the list itself is kept on disk and only refetched every few hours.
