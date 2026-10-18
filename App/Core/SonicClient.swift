@@ -132,6 +132,12 @@ struct SonicClient: Sendable {
         ])
     }
 
+    /// The tracks that sound most like one of the model's 50 tags ("chill", "sad",
+    /// "party"…), at most two per artist.
+    func tagged(_ tag: String, limit: Int = 100) async throws -> [Neighbour] {
+        try await items("v1/tags/\(tag)/tracks", ["limit": String(limit)])
+    }
+
     // MARK: - Plumbing
 
     /// Paths and queries, Foundation-only so they are tested.
@@ -212,5 +218,21 @@ enum SeekbarShape {
             let fraction = position - Float(lower)
             return values[lower] + (values[upper] - values[lower]) * fraction
         }
+    }
+}
+
+extension TrackShape {
+    /// A track's shape from the sonic service's loudness readings rather than its file:
+    /// the first and last `SweetFades.analysedSeconds` of momentary loudness, and the
+    /// gated loudness of the whole track — better than the file measurement's, which only
+    /// sees the two ends. Nil for a track too short to have both.
+    static func fromLevels(_ levels: [Float], hop: Double) -> TrackShape? {
+        guard hop > 0, levels.count >= 2 else { return nil }
+        let span = max(1, min(levels.count, Int((SweetFades.analysedSeconds / hop).rounded())))
+        return TrackShape(
+            intro: LoudnessRamp(levels: Array(levels.prefix(span)), hop: hop),
+            outro: LoudnessRamp(levels: Array(levels.suffix(span).reversed()), hop: hop),
+            measuredLoudness: LoudnessMeter.integrated(levels)
+        )
     }
 }

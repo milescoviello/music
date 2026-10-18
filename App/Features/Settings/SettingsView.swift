@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(LibraryScopeStore.self) private var scope
     @Environment(AudioSettings.self) private var audio
     @Environment(StreamingSettings.self) private var streaming
+    @Environment(SonicService.self) private var sonic
     @Environment(DownloadCenter.self) private var downloads
     @Environment(MusicRequestService.self) private var requests
     @Environment(PlaylistSync.self) private var playlistSync
@@ -68,6 +69,9 @@ struct SettingsView: View {
                 NavigationLink(value: Destination.streamingSettings) {
                     LabeledContent("Streaming & Caching", value: streamingSummary)
                 }
+                NavigationLink(value: Destination.sonicSettings) {
+                    LabeledContent("Sonic Analysis", value: sonicSummary)
+                }
                 NavigationLink(value: Destination.downloads) {
                     LabeledContent("Downloads", value: downloadSummary)
                 }
@@ -115,6 +119,12 @@ struct SettingsView: View {
             return policy.wifiQuality.label
         }
         return "\(policy.wifiQuality.label) · \(policy.cellularQuality.label)"
+    }
+
+    private var sonicSummary: String {
+        guard let status = sonic.status else { return "Not connected" }
+        if status.analysed < status.tracks { return "\(status.analysed) of \(status.tracks)" }
+        return "Ready"
     }
 
     private var offlineSummary: String {

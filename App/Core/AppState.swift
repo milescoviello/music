@@ -51,6 +51,7 @@ final class AppState {
     let stations = StationService()
     let libraryIndex = LibraryIndex()
     let recentPlays = RecentPlaysStore()
+    let sonic = SonicService()
     let streamCache = StreamCache()
     let shapes = TrackShapeStore()
     /// Shared PCM ring. One buffer for the whole app, because only one thing can be
@@ -79,6 +80,7 @@ final class AppState {
         guestDJ.configure(appState: self)
         stations.configure(appState: self)
         libraryIndex.configure(appState: self)
+        sonic.configure(appState: self)
         player.attach(appState: self)
 
         sleepTimer.onFire = { [weak self] in
@@ -125,6 +127,7 @@ final class AppState {
         phase = .ready
 
         await player.restore()
+        await sonic.refreshStatus(force: true)
         await flushOutbox()
         await refreshRequests()
 

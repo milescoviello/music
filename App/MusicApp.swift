@@ -31,6 +31,7 @@ struct MusicApp: App {
                 .environment(appState.stations)
                 .environment(appState.libraryIndex)
                 .environment(appState.recentPlays)
+                .environment(appState.sonic)
                 .environment(appState.streamCache)
                 .environment(appState.spectrum)
                 .preferredColorScheme(.dark)
@@ -49,6 +50,7 @@ struct MusicApp: App {
                         // again after listening offline.
                         Task { await appState.flushOutbox() }
                         Task { await appState.refreshRequests() }
+                        Task { await appState.sonic.refreshStatus() }
                         Task { await appState.playlistSync.sync() }
                         Task {
                             await appState.queueSync.check(
