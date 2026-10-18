@@ -19,7 +19,9 @@ import UIKit
 final class PlaybackController {
     // MARK: - Observable state
 
-    private(set) var queue = PlaybackQueue()
+    private(set) var queue = PlaybackQueue() {
+        didSet { queueDidChange() }
+    }
     private(set) var isPlaying = false
     private(set) var isBuffering = false
     /// Seconds. Read by the in-app scrubber at 4 Hz.
@@ -35,8 +37,25 @@ final class PlaybackController {
     }
     private(set) var duration: Double = 0
 
-    var currentSong: Song? { queue.current }
-    var hasQueue: Bool { !queue.isEmpty }
+    // What most views want from the queue, each kept apart from it and assigned only
+    // when it changes. Read through `queue`, every Guest DJ pick, Autoplay or station
+    // top-up and Play Next redrew everything that only wanted to know what is playing:
+    // every song row on screen (to tint the current one), every album card's menu, the
+    // mini player, the player itself, and every list's bottom clearance.
+
+    /// The track playing.
+    private(set) var currentSong: Song?
+    private(set) var hasQueue = false
+    /// Whether Add to Up Next is on offer: something added is still to come.
+    private(set) var canAddToUpNext = false
+
+    private func queueDidChange() {
+        let current = queue.current
+        if current != currentSong { currentSong = current }
+        if hasQueue == queue.isEmpty { hasQueue = !queue.isEmpty }
+        let canAdd = queue.canAddToUpNext
+        if canAdd != canAddToUpNext { canAddToUpNext = canAdd }
+    }
 
     // MARK: - Dependencies
 
@@ -44,7 +63,7 @@ final class PlaybackController {
 
     private let session = AudioSessionCoordinator()
     private let nowPlaying = NowPlayingCenter()
-    private let store = PlaybackQueueStore(url: Paths.queue)
+    private let store = PlaybackQueueStore(directory: Paths.root, legacyURL: Paths.queue)
     private let tracker = PlayTracker()
     private weak var appState: AppState?
 
@@ -462,8 +481,6 @@ final class PlaybackController {
         refillWindow()
         persist()
     }
-
-    var canAddToUpNext: Bool { queue.canAddToUpNext }
 
     /// Plexamp's Clear Play Queue: everything but the track playing, which plays on.
     func clearQueue() {

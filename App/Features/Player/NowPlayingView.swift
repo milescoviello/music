@@ -167,7 +167,7 @@ struct NowPlayingView: View {
                 Text("Playing From")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.5))
-                Text(source)
+                QueueSourceText()
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
@@ -240,11 +240,6 @@ struct NowPlayingView: View {
         .padding(.horizontal, 8)
         .contentShape(Rectangle())
         .gesture(dismissDrag, including: isScrollingMode ? .all : .subviews)
-    }
-
-    private var source: String {
-        let described = player.queue.sourceDescription
-        return described.isEmpty ? "Queue" : described
     }
 
     /// Blurred artwork behind everything: the only place colour comes from content.
@@ -433,11 +428,7 @@ struct NowPlayingView: View {
         let showsSkip = playerSettings.showsSkipButtons
 
         return HStack(spacing: showsSkip ? 16 : 28) {
-            Button { player.toggleShuffle() } label: {
-                Image(systemName: "shuffle")
-                    .foregroundStyle(player.queue.isShuffled ? Color.appTint : .white.opacity(0.7))
-            }
-            .accessibilityLabel(player.queue.isShuffled ? "Shuffle on" : "Shuffle off")
+            ShuffleButton()
 
             if showsSkip {
                 Button { player.skip(by: -Double(playerSettings.skipBackSeconds)) } label: {
@@ -469,13 +460,7 @@ struct NowPlayingView: View {
                 .accessibilityLabel("Forward \(playerSettings.skipForwardSeconds) seconds")
             }
 
-            Button { player.cycleRepeat() } label: {
-                Image(systemName: player.queue.repeatMode.symbol)
-                    .foregroundStyle(
-                        player.queue.repeatMode == .off ? .white.opacity(0.7) : Color.appTint
-                    )
-            }
-            .accessibilityLabel("Repeat: \(player.queue.repeatMode.rawValue)")
+            RepeatButton()
         }
         .foregroundStyle(.white)
         .padding(.top, Metrics.itemSpacing)
@@ -532,6 +517,48 @@ struct NowPlayingView: View {
         }
         .accessibilityLabel(String(describing: target).capitalized)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
+
+// The three things the player shows that are about the queue rather than the track:
+// views of their own, so that reading `queue` for them makes a queue edit redraw them and
+// not the whole player.
+
+/// Where the queue came from: "Kid A", or just "Queue".
+private struct QueueSourceText: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        let described = appState.player.queue.sourceDescription
+        Text(described.isEmpty ? "Queue" : described)
+    }
+}
+
+private struct ShuffleButton: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        let player = appState.player
+        Button { player.toggleShuffle() } label: {
+            Image(systemName: "shuffle")
+                .foregroundStyle(player.queue.isShuffled ? Color.appTint : .white.opacity(0.7))
+        }
+        .accessibilityLabel(player.queue.isShuffled ? "Shuffle on" : "Shuffle off")
+    }
+}
+
+private struct RepeatButton: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        let player = appState.player
+        Button { player.cycleRepeat() } label: {
+            Image(systemName: player.queue.repeatMode.symbol)
+                .foregroundStyle(
+                    player.queue.repeatMode == .off ? .white.opacity(0.7) : Color.appTint
+                )
+        }
+        .accessibilityLabel("Repeat: \(player.queue.repeatMode.rawValue)")
     }
 }
 

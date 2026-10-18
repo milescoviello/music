@@ -222,6 +222,11 @@ final class DownloadCenter {
         }
     }
 
+    /// Writes any finished songs the catalog is holding back. For going to the background.
+    func flushCatalog() {
+        Task { await store.flush() }
+    }
+
     func hasDownload(group groupID: String) -> Bool {
         groups.contains(groupID)
     }

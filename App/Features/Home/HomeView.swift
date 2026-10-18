@@ -424,7 +424,9 @@ final class HomeModel {
 
         // From this phone's own history: the server counts plays but never dates them.
         // Worked out off the main actor: it is the whole log, up to 20,000 plays, at the
-        // moment Home is first drawn and being scrolled.
+        // moment Home is first drawn and being scrolled. Which, at launch, may be before
+        // the log has been read.
+        await appState.history.loaded()
         let history = appState.history.plays
         let month = ChartPeriod.current(.month)
         let monthRows = await Task.detached(priority: .userInitiated) {
