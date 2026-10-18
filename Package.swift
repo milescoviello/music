@@ -39,6 +39,7 @@ let package = Package(
                 "RecentPlays.swift",
                 "SonicClient.swift",
                 "BeatMatch.swift",
+                "RhythmStore.swift",
             ]
         ),
         .testTarget(

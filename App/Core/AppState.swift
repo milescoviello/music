@@ -55,6 +55,7 @@ final class AppState {
     let streamCache = StreamCache()
     let shapes = TrackShapeStore()
     let seekbarLevels = SeekbarLevelsStore()
+    let rhythms = RhythmStore()
     /// Shared PCM ring. One buffer for the whole app, because only one thing can be
     /// visualised at a time and it must survive an output switch.
     let spectrumBuffer = AudioSampleBuffer()
@@ -88,6 +89,11 @@ final class AppState {
         seekbarLevels.fetch = { [sonic] songID in
             let client = SonicClient(configuration: await sonic.configuration)
             return try await client.levels(songID: songID, points: TrackShape.levelPoints)?.levels
+        }
+        // Beats for beat-matched fades, from the same service.
+        rhythms.fetch = { [sonic] songID in
+            let client = SonicClient(configuration: await sonic.configuration)
+            return try await client.rhythm(songID: songID)
         }
         player.attach(appState: self)
 
