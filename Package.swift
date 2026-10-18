@@ -38,6 +38,7 @@ let package = Package(
                 "SearchRanking.swift",
                 "RecentPlays.swift",
                 "SonicClient.swift",
+                "BeatMatch.swift",
             ]
         ),
         .testTarget(
