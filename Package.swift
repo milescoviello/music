@@ -36,6 +36,7 @@ let package = Package(
                 "HomeLayout.swift",
                 "SearchRanking.swift",
                 "RecentPlays.swift",
+                "SonicClient.swift",
             ]
         ),
         .testTarget(
