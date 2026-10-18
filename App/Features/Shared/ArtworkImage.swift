@@ -36,9 +36,17 @@ struct ArtworkImage: View {
         // `Color.clear` takes exactly the space offered and an overlay is sized by its
         // parent and can never enlarge it, so this now fills its slot, crops the overflow,
         // and cannot move anything around it.
+        //
+        // The memory cache is asked here as well as in `load()`, so a cover already in
+        // memory is drawn on the first frame. Asked only in `.task`, which runs once the
+        // view is on screen, every cell scrolled into view drew its placeholder first --
+        // monogram scaled down from 200 points and all -- and then drew again with the
+        // image. Not for a playlist, whose own photo, read from disk, wins over the cover.
+        let shown = image ?? (playlistID == nil ? store.cached(id, size) : nil)
+
         Color.clear
             .overlay {
-                if let image {
+                if let image = shown {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
@@ -107,8 +115,11 @@ struct ArtistArtwork: View {
     @State private var image: UIImage?
 
     var body: some View {
+        // From memory on the first frame when it is there, as `ArtworkImage` does.
+        let shown = image ?? store.cached(id, .thumb)
+
         ZStack {
-            if let image {
+            if let image = shown {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()

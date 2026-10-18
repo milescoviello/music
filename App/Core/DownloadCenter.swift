@@ -27,9 +27,16 @@ final class DownloadCenter {
             // this, and reading `progress` itself redrew the whole tab bar — the whole
             // app — on every chunk of every download.
             if progress.count != activeCount { activeCount = progress.count }
+            // The same for which songs: a row only shows whether its song is arriving,
+            // and reading `progress` for that redrew every visible row on every percent.
+            if progress.count != arriving.count || progress.keys.contains(where: { !arriving.contains($0) }) {
+                arriving = Set(progress.keys)
+            }
         }
     }
     private(set) var activeCount = 0
+    /// The songs with a transfer under way: `progress`'s keys, changed only when they do.
+    private(set) var arriving: Set<String> = []
     private(set) var isDownloading = false
 
     private let store = DownloadCatalogStore()
@@ -89,6 +96,12 @@ final class DownloadCenter {
 
     func isDownloaded(_ songID: String) -> Bool {
         catalog.entries[songID] != nil
+    }
+
+    /// Waiting or downloading, as `status(for:)` would say, but without the fraction, so
+    /// a view that asks this is not redrawn as the fraction moves.
+    func isArriving(_ songID: String) -> Bool {
+        catalog.entries[songID] == nil && (arriving.contains(songID) || catalog.pending[songID] != nil)
     }
 
     /// The file to play, or nil to stream. Synchronous by design: the player asks

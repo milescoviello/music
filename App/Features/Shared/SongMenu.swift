@@ -57,18 +57,19 @@ struct SongMenu: View {
 
         Divider()
 
-        switch downloads.status(for: song.id) {
-        case .none:
-            Button("Download", systemImage: "arrow.down.circle") {
-                downloads.download([song])
+        // Not `status(for:)`, which reads the download's fraction: this menu does not show
+        // it, and every row carries one of these.
+        if downloads.isDownloaded(song.id) {
+            Button("Remove Download", systemImage: "trash", role: .destructive) {
+                downloads.remove([song.id])
             }
-        case .waiting, .downloading:
+        } else if downloads.isArriving(song.id) {
             Button("Cancel Download", systemImage: "xmark.circle") {
                 downloads.remove([song.id])
             }
-        case .downloaded:
-            Button("Remove Download", systemImage: "trash", role: .destructive) {
-                downloads.remove([song.id])
+        } else {
+            Button("Download", systemImage: "arrow.down.circle") {
+                downloads.download([song])
             }
         }
 

@@ -152,7 +152,9 @@ struct QueueView: View {
                 if let last = earlierWithIndices.last { proxy.scrollTo(last.orderIndex, anchor: .bottom) }
             }
             .overlay {
-                if player.queue.earlier.isEmpty {
+                // The same test `earlier` makes, without building every track already
+                // played just to see whether there are any.
+                if player.queue.position == 0 || player.queue.position > player.queue.order.count {
                     placeholder("Earlier tracks in the play queue\nwill show up here")
                 }
             }
@@ -204,7 +206,9 @@ struct QueueView: View {
     private var earlierWithIndices: [(orderIndex: Int, song: Song)] {
         let queue = player.queue
         guard queue.position > 0, queue.position <= queue.order.count else { return [] }
-        return (0..<queue.position).map { index in
+        // The last few hundred, like Up Next: deep into a 28,000-track queue this was every
+        // track already played, built and handed to the list on each redraw.
+        return (max(0, queue.position - 300)..<queue.position).map { index in
             (orderIndex: index, song: queue.tracks[queue.order[index]])
         }
     }

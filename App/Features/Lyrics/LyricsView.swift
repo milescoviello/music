@@ -29,15 +29,25 @@ struct LyricsView: View {
             }
         }
         .task(id: song.id) { await load() }
-        // Only assign when the line actually changes: the observer fires ~5x/s but a
-        // track has ~40 lines, so this keeps re-renders in the tens, not thousands.
-        .onChange(of: currentLineIndex) { _, index in
-            guard index != activeIndex else { return }
-            activeIndex = index
-            guard shouldAutoScroll, let index else { return }
-            withAnimation(.easeInOut(duration: 0.4)) {
-                scrollPosition.scrollTo(id: index, anchor: UnitPoint(x: 0.5, y: 0.32))
+        // The clock is a view of its own, because it reads `elapsed`, which ticks four
+        // times a second: read here, it re-ran this body, every line of the lyrics
+        // included, on every tick. Out there it re-runs an empty view, and this one runs
+        // only when the line changes.
+        .background {
+            LyricClock(lines: lines, isSynced: isSynced, offset: lyrics?.offset ?? 0) { index in
+                lineChanged(to: index)
             }
+        }
+    }
+
+    /// Only assigns when the line actually changes: the clock ticks four times a second
+    /// but a track has ~40 lines, so this keeps re-renders in the tens, not thousands.
+    private func lineChanged(to index: Int?) {
+        guard index != activeIndex else { return }
+        activeIndex = index
+        guard shouldAutoScroll, let index else { return }
+        withAnimation(.easeInOut(duration: 0.4)) {
+            scrollPosition.scrollTo(id: index, anchor: UnitPoint(x: 0.5, y: 0.32))
         }
     }
 
@@ -116,31 +126,6 @@ struct LyricsView: View {
         return resumeAutoScrollAt < .now
     }
 
-    /// Binary search rather than a scan: called on every tick.
-    private var currentLineIndex: Int? {
-        guard isSynced, !lines.isEmpty else { return nil }
-
-        let now = Int(player.elapsed * 1000) - (lyrics?.offset ?? 0)
-        var low = 0
-        var high = lines.count - 1
-        var result: Int?
-
-        while low <= high {
-            let mid = (low + high) / 2
-            guard let start = lines[mid].start else {
-                low = mid + 1
-                continue
-            }
-            if start <= now {
-                result = mid
-                low = mid + 1
-            } else {
-                high = mid - 1
-            }
-        }
-        return result
-    }
-
     private func load() async {
         state = .loading
         activeIndex = nil
@@ -163,5 +148,45 @@ struct LyricsView: View {
             ?? sets.first
 
         state = (lyrics?.lines.isEmpty ?? true) ? .missing : .loaded
+    }
+}
+
+/// Which line is being sung, told to the lyrics whenever it changes.
+private struct LyricClock: View {
+    @Environment(AppState.self) private var appState
+
+    let lines: [LyricLine]
+    let isSynced: Bool
+    let offset: Int
+    let onChange: (Int?) -> Void
+
+    var body: some View {
+        Color.clear
+            .onChange(of: currentLineIndex) { _, index in onChange(index) }
+    }
+
+    /// Binary search rather than a scan: called on every tick.
+    private var currentLineIndex: Int? {
+        guard isSynced, !lines.isEmpty else { return nil }
+
+        let now = Int(appState.player.elapsed * 1000) - offset
+        var low = 0
+        var high = lines.count - 1
+        var result: Int?
+
+        while low <= high {
+            let mid = (low + high) / 2
+            guard let start = lines[mid].start else {
+                low = mid + 1
+                continue
+            }
+            if start <= now {
+                result = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return result
     }
 }
