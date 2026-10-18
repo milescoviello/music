@@ -174,6 +174,34 @@ struct DSPTests {
         #expect(settled.allSatisfy { abs($0 - -3.01) < 0.3 })
     }
 
+    @Test func aTrackFedInBlocksMeasuresTheSameAsInOnePiece() throws {
+        // Stereo, a length that is no multiple of the hop, and blocks that split windows
+        // and hops anywhere: the readings must not depend on where the reads fell.
+        let left = sine(frequency: 997, amplitude: 0.5, seconds: 3.37, sampleRate: 44_100)
+            .enumerated().map { $0.element * Float($0.offset) / 150_000 }
+        let right = sine(frequency: 220, amplitude: 0.2, seconds: 3.37, sampleRate: 44_100)
+        let whole = LoudnessMeter.momentary(channels: [left, right], sampleRate: 44_100)
+
+        var meter = try #require(MomentaryLoudness(sampleRate: 44_100, channels: 2))
+        let sizes = [1, 4_409, 4_411, 17_640, 1_000, 30_000]
+        var start = 0
+        for block in 0... {
+            guard start < left.count else { break }
+            let end = min(left.count, start + sizes[block % sizes.count])
+            meter.add([Array(left[start..<end]), Array(right[start..<end])])
+            start = end
+        }
+        #expect(meter.finish() == whole)
+        // One reading per started hop.
+        #expect(whole.count == Int((Double(left.count) / 4_410).rounded(.up)))
+    }
+
+    @Test func nothingToMeasureMeasuresNothing() {
+        #expect(LoudnessMeter.momentary(channels: [], sampleRate: 48_000).isEmpty)
+        #expect(LoudnessMeter.momentary(channels: [[]], sampleRate: 48_000).isEmpty)
+        #expect(LoudnessMeter.momentary(channels: [[0.5]], sampleRate: 0).isEmpty)
+    }
+
     @Test func integratedLoudnessIgnoresSilence() {
         var samples = sine(frequency: 997, amplitude: 0.1, seconds: 3)
         samples += [Float](repeating: 0, count: 48_000 * 3)
