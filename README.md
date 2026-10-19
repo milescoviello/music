@@ -50,7 +50,10 @@ Linux/install.sh
 
 That builds in release and installs `~/.local/bin/music`, a launcher entry
 and the icon; `PREFIX` installs elsewhere, and `--uninstall` takes it out
-again. If a package is missing, the script names it and prints the install
+again. `music-update` (or `Linux/install.sh --update`) pulls the latest,
+rebuilds, and restarts the app if it is open; it quits it gracefully first, so
+the queue, settings and downloads carry over, and it backs the settings up to
+`~/.config/music.plist.bak` before it starts. If a package is missing, the script names it and prints the install
 command for Fedora, Debian and Ubuntu, and Arch. With Fedora's `swift-lang`
 the Swift runtime stays shared, so the machine running it needs
 `swift-lang-runtime`; a Swift.org toolchain links the runtime in.
