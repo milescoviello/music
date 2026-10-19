@@ -131,7 +131,7 @@ enum FavoritesPage {
             }) { starred in
                 songs = starred.songs
                 guard !starred.songs.isEmpty || !starred.albums.isEmpty || !starred.artists.isEmpty else {
-                    return Loader.empty("No Favourites", icon: "emblem-favorite-symbolic", description: "Starred songs, albums and artists appear here.")
+                    return Loader.empty("No Favourites", icon: "music-heart-symbolic", description: "Starred songs, albums and artists appear here.")
                 }
                 let body = Box.vertical(spacing: 24)
                 if !starred.artists.isEmpty {
@@ -271,7 +271,7 @@ enum LibraryFacetPage {
 
     private static func groups(_ env: Env, _ groups: [LibraryFacets.Group], empty: String) -> Widget {
         guard !groups.isEmpty else {
-            return Loader.empty(empty, icon: "tag-symbolic", description: "Your server reads these from the files' tags.")
+            return Loader.empty(empty, icon: "music-tag-symbolic", description: "Your server reads these from the files' tags.")
         }
         let list = ListBox()
         for group in groups {

@@ -36,7 +36,7 @@ enum LibraryHub {
             count.text = total > 0 ? String(total) : ""
         }
         let more = PreferencesGroup {
-            row("Favourites", "emblem-favorite-symbolic", .favorites)
+            row("Favourites", "music-heart-symbolic", .favorites)
             downloads
             row("Rediscover", "document-open-recent-symbolic", .rediscover)
             row("Make a Playlist", "starred-symbolic", .vibePlaylist)

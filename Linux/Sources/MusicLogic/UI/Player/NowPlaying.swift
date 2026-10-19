@@ -158,7 +158,7 @@ final class NowPlaying {
                 gtk_label_set_ellipsize(OpaquePointer(label), PANGO_ELLIPSIZE_END)
             }
         }
-        let heart = Button(icon: "emblem-favorite-symbolic", "flat", "circular")
+        let heart = Button(icon: "music-heart-symbolic", "flat", "circular")
         heart.valign(GTK_ALIGN_CENTER)
 
         let app = app
@@ -353,7 +353,7 @@ final class NowPlaying {
         let entries: [(Mode, String, String)] = [
             (.lyrics, "format-justify-left-symbolic", "Lyrics"),
             (.artwork, "image-x-generic-symbolic", "Artwork"),
-            (.visualizer, "media-eq-symbolic", "Visualizer"),
+            (.visualizer, "music-equalizer-symbolic", "Visualizer"),
             (.queue, "view-list-symbolic", "Queue"),
         ]
         for (target, icon, name) in entries {

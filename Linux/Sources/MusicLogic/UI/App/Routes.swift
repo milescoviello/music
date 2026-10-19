@@ -66,7 +66,7 @@ enum LibraryFacet: String, Hashable, Sendable, CaseIterable {
         case .soundtracks: return "camera-video-symbolic"
         case .live: return "audio-input-microphone-symbolic"
         case .singles: return "media-optical-symbolic"
-        case .labels: return "tag-symbolic"
+        case .labels: return "music-tag-symbolic"
         case .moods: return "face-smile-symbolic"
         }
     }

@@ -99,7 +99,7 @@ enum ArtistPage {
 
     static func make(_ env: Env, artist: ArtistRef) -> NavigationPage {
         let app = env.app
-        let favourite = Button(icon: "emblem-favorite-symbolic", "flat")
+        let favourite = Button(icon: "music-heart-symbolic", "flat")
         let radio = Button(icon: "network-wireless-symbolic", "flat") {
             Task {
                 let mix = await app.radio.artistMix(artist, scope: app.scope.scope)

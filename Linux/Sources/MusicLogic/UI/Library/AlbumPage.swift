@@ -11,7 +11,7 @@ enum AlbumPage {
         let loader = Loader()
         var songs: [Song] = []
 
-        let favourite = Button(icon: "emblem-favorite-symbolic", "flat")
+        let favourite = Button(icon: "music-heart-symbolic", "flat")
         let download = CollectionDownloadButton(env, groupID: album.id, groupName: album.name) { songs }
         let menu = MenuButton(icon: "view-more-symbolic", "flat") {
             Menu([

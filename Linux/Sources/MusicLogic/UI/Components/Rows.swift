@@ -21,7 +21,7 @@ final class SongRowView {
     private let title = Label("", "title").ellipsize()
     private let subtitle = Label("", "caption", "dim").ellipsize()
     private let downloaded = Icon("folder-download-symbolic", size: 14).css("accent").tooltip("Downloaded")
-    private let heart = Icon("emblem-favorite-symbolic", size: 14).css("accent")
+    private let heart = Icon("music-heart-symbolic", size: 14).css("accent")
     private let trailing = Label("", "song-meta")
     private(set) var song: Song?
 

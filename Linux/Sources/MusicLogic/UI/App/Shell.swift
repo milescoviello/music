@@ -329,7 +329,7 @@ enum RemoteQueueBar {
         let title = Label("", "heading")
         let detail = Label("", "caption", "dim").ellipsize()
         let bar = Box.horizontal(spacing: 12) {
-            Icon("emblem-synchronizing-symbolic").css("accent")
+            Icon("view-refresh-symbolic").css("accent")
             Box.vertical(spacing: 0) {
                 title
                 detail

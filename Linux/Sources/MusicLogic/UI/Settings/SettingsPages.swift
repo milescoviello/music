@@ -478,7 +478,7 @@ enum SettingsPages {
             summary
         })
         page.add(list)
-        let syncNow = ButtonRow("Sync Now", icon: "emblem-synchronizing-symbolic") { Task { await sync.sync() } }
+        let syncNow = ButtonRow("Sync Now", icon: "view-refresh-symbolic") { Task { await sync.sync() } }
         let onDisk = ActionRow("On This Computer")
         let onDiskValue = Label("", "dim")
         onDisk.suffix(onDiskValue)
@@ -590,7 +590,7 @@ enum SettingsPages {
                     waiting.add(ActionRow(label(kind)).suffix(Label("\(pending[kind] ?? 0)", "dim")))
                 }
             }
-            let flush = ButtonRow("Sync Now", icon: "emblem-synchronizing-symbolic") {
+            let flush = ButtonRow("Sync Now", icon: "view-refresh-symbolic") {
                 Task { @MainActor in
                     await app.flushOutbox()
                     reload()
