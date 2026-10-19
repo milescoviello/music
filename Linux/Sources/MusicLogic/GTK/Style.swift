@@ -77,21 +77,21 @@ enum Style {
 
     /* The full player. */
     .now-playing { background-color: #000000; color: #ffffff; }
-    /* Plexamp's sizes: its title lines 15 pixels, 20 side by side; its transport 60. */
+    /* Plexamp's sizes for the title lines, 15 pixels and 20 side by side; the transport
+       a little smaller than its 60. */
     .now-playing .np-meta button, .now-playing .np-meta label { font-size: 15px; }
     .now-playing .np-meta.large button, .now-playing .np-meta.large label { font-size: 20px; }
     .now-playing .np-title { font-weight: 700; }
     .now-playing .np-album { color: alpha(#ffffff, 0.6); }
     .now-playing .detail-line { font-size: 12px; opacity: 0.55; }
     .np-transport button { color: #ffffff; }
-    .np-transport .np-skip { min-width: 60px; min-height: 60px; padding: 0; border-radius: 30px; -gtk-icon-size: 20px; }
-    .np-transport .np-play { min-width: 60px; min-height: 60px; padding: 0; border-radius: 30px; -gtk-icon-size: 22px;
+    .np-transport .np-skip { min-width: 48px; min-height: 48px; padding: 0; border-radius: 24px; -gtk-icon-size: 18px; }
+    .np-transport .np-play { min-width: 52px; min-height: 52px; padding: 0; border-radius: 26px; -gtk-icon-size: 20px;
                              background-color: alpha(#ffffff, 0.15); }
     .np-transport .np-play:hover { filter: brightness(1.25); }
-    .now-playing .np-small { min-width: 40px; min-height: 40px; padding: 0; border-radius: 20px; -gtk-icon-size: 18px;
+    .now-playing .np-small { min-width: 34px; min-height: 34px; padding: 0; border-radius: 17px; -gtk-icon-size: 16px;
                              color: alpha(#ffffff, 0.7); }
     .now-playing .np-small.active, .now-playing .np-small.selected { color: var(--accent-color); }
-    .np-hover { background: linear-gradient(to top, alpha(#000000, 0.55), transparent); border-radius: 0 0 12px 12px; }
     .now-playing .source-caption { font-size: 0.75em; font-weight: 700; opacity: 0.5; }
     .now-playing .source-title { font-size: 0.9em; font-weight: 600; opacity: 0.85; }
     .now-playing .time { font-size: 0.85em; opacity: 0.6; font-feature-settings: "tnum"; }
