@@ -174,6 +174,24 @@ enum VisualizerArtworkPalette {
         return colours
     }
 
+    private static var cornerCache: [String: [VisualizerPalette.RGB]] = [:]
+
+    /// The cover's four corner colours, clockwise from the top left, as Plexamp picks them
+    /// for the player's background (`pickBestCircularGradientColors`).
+    static func corners(for coverArt: String?, artwork: ArtworkStore) async -> [VisualizerPalette.RGB]? {
+        guard let coverArt else { return nil }
+        if let cached = cornerCache[coverArt] { return cached }
+        guard let texture = await artwork.image(for: coverArt, size: .thumb) else { return nil }
+        let colours = await Task.detached(priority: .utility) { () -> [VisualizerPalette.RGB] in
+            let (pixels, width, height) = rgba(texture)
+            return VisualizerPalette.pickCircularGradientColours(ColorCube.quadrantColours(pixels: pixels, width: width, height: height))
+        }.value
+        guard colours.count == 4 else { return nil }
+        if cornerCache.count > 256 { cornerCache.removeAll() }
+        cornerCache[coverArt] = colours
+        return colours
+    }
+
     /// RGBA rows from the texture's premultiplied BGRA, nearest-sampled to 150 across.
     nonisolated private static func rgba(_ texture: Texture) -> ([UInt8], Int, Int) {
         let (source, stride) = texture.pixels()

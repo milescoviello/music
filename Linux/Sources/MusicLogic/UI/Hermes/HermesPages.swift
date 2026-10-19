@@ -128,7 +128,7 @@ enum HermesPages {
         let problem = Label("", "caption", "error").wrap().visible(false)
         let page = PreferencesPage()
         page.add(PreferencesGroup("Hermes Webhook", description: """
-        The secret is kept in the keyring on this computer. Requests are signed with it, and the \
+        The secret is kept on this computer, readable by you alone. Requests are signed with it, and the \
         gateway rejects anything unsigned or older than five minutes. The results address is where \
         Hermes's answers are read from — the webhook itself is one-way.
         """) {

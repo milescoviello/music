@@ -213,45 +213,6 @@ final class NavigationSplitView: Widget {
     }
 }
 
-/// A sheet that slides up over the window, with a bar showing while it is closed: the
-/// mini player and the full one.
-final class BottomSheet: Widget {
-    init(content: Widget, sheet: Widget, bar: Widget) {
-        super.init(adw_bottom_sheet_new()!)
-        adw_bottom_sheet_set_content(widget.cast(), content.widget)
-        adw_bottom_sheet_set_sheet(widget.cast(), sheet.widget)
-        adw_bottom_sheet_set_bottom_bar(widget.cast(), bar.widget)
-        adw_bottom_sheet_set_full_width(widget.cast(), 1)
-        adw_bottom_sheet_set_show_drag_handle(widget.cast(), 1)
-    }
-
-    var isOpen: Bool {
-        get { adw_bottom_sheet_get_open(widget.cast()) != 0 }
-        set {
-            guard newValue != isOpen else { return }
-            adw_bottom_sheet_set_open(widget.cast(), newValue ? 1 : 0)
-        }
-    }
-
-    var revealsBar: Bool {
-        get { adw_bottom_sheet_get_reveal_bottom_bar(widget.cast()) != 0 }
-        set { adw_bottom_sheet_set_reveal_bottom_bar(widget.cast(), newValue ? 1 : 0) }
-    }
-
-    var canOpen: Bool {
-        get { adw_bottom_sheet_get_can_open(widget.cast()) != 0 }
-        set { adw_bottom_sheet_set_can_open(widget.cast(), newValue ? 1 : 0) }
-    }
-
-    @discardableResult
-    func onOpenChanged(_ action: @escaping @MainActor (Bool) -> Void) -> Self {
-        Signal.connect(widget, "notify::open", pointer: { [widget] _ in
-            action(adw_bottom_sheet_get_open(widget.cast()) != 0)
-        })
-        return self
-    }
-}
-
 final class StatusPage: Widget {
     init(icon: String? = nil, title: String, description: String? = nil, child: Widget? = nil) {
         super.init(adw_status_page_new()!)

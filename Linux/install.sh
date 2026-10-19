@@ -3,18 +3,25 @@
 # launcher entry and its icon. PREFIX moves it (default ~/.local).
 #
 #   Linux/install.sh               build in release and install
+#   Linux/install.sh --update      pull the latest, rebuild, reinstall, restart the app
 #   Linux/install.sh --uninstall   remove what it installed (settings and downloads stay)
 #
 # SWIFT_BUILD_FLAGS is passed to `swift build`, for toolchains that need a linker flag.
+# Installing also adds `music-update`, which runs --update with the same settings.
+#
+# Nothing here touches what the app keeps: settings in ~/.config/music.plist, the
+# sign-in, the queue, library cache and downloads under
+# ~/.local/share/com.milescoviello.Music. An update backs the settings up first.
 set -eu
 
 ID=com.milescoviello.Music
 PREFIX=${PREFIX:-$HOME/.local}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 SIZES="64 128 256 512"
+CONFIG="$PREFIX/share/$ID/install.conf"
 
 uninstall() {
-    rm -f "$PREFIX/bin/music" "$PREFIX/share/applications/$ID.desktop"
+    rm -f "$PREFIX/bin/music" "$PREFIX/bin/music-update" "$PREFIX/share/applications/$ID.desktop" "$CONFIG"
     for size in $SIZES; do rm -f "$PREFIX/share/icons/hicolor/${size}x$size/apps/$ID.png"; done
     refresh
     echo "Removed. Settings are in ~/.config/music.plist, the library cache and downloads in ~/.local/share/$ID."
@@ -27,16 +34,18 @@ refresh() {
     touch "$PREFIX/share/icons/hicolor" 2>/dev/null || true
 }
 
+update=""
 case "${1:-}" in
     --uninstall) uninstall; exit 0 ;;
+    --update) update=1 ;;
     "") ;;
-    *) sed -n '2,9s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    *) sed -n '2,14s/^# \{0,1\}//p' "$0"; exit 0 ;;
 esac
 
 # What the build links against, by pkg-config name, with the package that provides it
 # on Fedora / Debian and Ubuntu / Arch.
 missing=""
-for module in gtk4 libadwaita-1 libavformat libavcodec libswresample libavutil libpulse rubberband libsecret-1; do
+for module in gtk4 libadwaita-1 epoxy libavformat libavcodec libswresample libavutil libpulse rubberband; do
     pkg-config --exists "$module" 2>/dev/null || missing="$missing $module"
 done
 if ! command -v swift >/dev/null; then
@@ -47,11 +56,25 @@ if [ -n "$missing" ]; then
     cat >&2 <<EOF
 Missing development files for:$missing
 
-  Fedora:         sudo dnf install gtk4-devel libadwaita-devel ffmpeg-free-devel pulseaudio-libs-devel rubberband-devel libsecret-devel
-  Debian, Ubuntu: sudo apt install libgtk-4-dev libadwaita-1-dev libavformat-dev libavcodec-dev libswresample-dev libpulse-dev librubberband-dev libsecret-1-dev
-  Arch:           sudo pacman -S gtk4 libadwaita ffmpeg libpulse rubberband libsecret
+  Fedora:         sudo dnf install gtk4-devel libadwaita-devel libepoxy-devel ffmpeg-free-devel pulseaudio-libs-devel rubberband-devel
+  Debian, Ubuntu: sudo apt install libgtk-4-dev libadwaita-1-dev libepoxy-dev libavformat-dev libavcodec-dev libswresample-dev libpulse-dev librubberband-dev
+  Arch:           sudo pacman -S gtk4 libadwaita libepoxy ffmpeg libpulse rubberband
 EOF
     exit 1
+fi
+
+cd "$ROOT"
+if [ -n "$update" ]; then
+    # Only a fast-forward: a checkout with work of its own in it is left alone, and the
+    # build below uses what is there.
+    if git rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
+        git pull --ff-only || echo "Could not fast-forward; building what is checked out." >&2
+    else
+        echo "No upstream branch to pull from; building what is checked out." >&2
+    fi
+    if [ -f "$HOME/.config/music.plist" ]; then
+        cp -p "$HOME/.config/music.plist" "$HOME/.config/music.plist.bak"
+    fi
 fi
 
 # Swift.org toolchains can link the Swift runtime in, so the binary keeps working after
@@ -62,12 +85,25 @@ if [ -e "$toolchain/lib/swift_static/linux/libswiftCore.a" ]; then
     static="--static-swift-stdlib"
 fi
 
-cd "$ROOT"
 # shellcheck disable=SC2086
 swift build -c release --product music $static ${SWIFT_BUILD_FLAGS:-}
 binary=$(swift build -c release --product music $static ${SWIFT_BUILD_FLAGS:-} --show-bin-path)/music
 
-install -Dm755 "$binary" "$PREFIX/bin/music"
+# A running copy is asked to quit first: it saves the queue and its settings as it goes,
+# and comes back where it was.
+running=""
+if pgrep -x music >/dev/null 2>&1; then
+    running=1
+    pkill -TERM -x music || true
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        pgrep -x music >/dev/null 2>&1 || break
+        sleep 0.5
+    done
+fi
+
+# Written beside, then moved into place, so nothing ever sees half a binary.
+install -Dm755 "$binary" "$PREFIX/bin/music.new"
+mv -f "$PREFIX/bin/music.new" "$PREFIX/bin/music"
 # The launcher entry names the binary by path: ~/.local/bin is not on every session's PATH.
 mkdir -p "$PREFIX/share/applications"
 sed "s|^Exec=music$|Exec=$PREFIX/bin/music|" "Linux/Resources/$ID.desktop" > "$PREFIX/share/applications/$ID.desktop"
@@ -76,4 +112,27 @@ for size in $SIZES; do
 done
 refresh
 
-echo "Installed $PREFIX/bin/music. Start it from the app launcher (Music), or run: $PREFIX/bin/music"
+# `music-update` remembers where the source is and how this machine builds it.
+mkdir -p "$(dirname "$CONFIG")"
+{
+    printf "ROOT='%s'\n" "$ROOT"
+    printf "SWIFT_BUILD_FLAGS='%s'\n" "${SWIFT_BUILD_FLAGS:-}"
+    printf "LD_LIBRARY_PATH='%s'\n" "${LD_LIBRARY_PATH:-}"
+} > "$CONFIG"
+cat > "$PREFIX/bin/music-update" <<EOF
+#!/bin/sh
+# Pulls the latest Music, rebuilds and reinstalls it, and restarts it if it was open.
+set -a
+. "$CONFIG"
+set +a
+exec "\$ROOT/Linux/install.sh" --update
+EOF
+chmod 755 "$PREFIX/bin/music-update"
+
+if [ -n "$running" ]; then
+    setsid "$PREFIX/bin/music" >/dev/null 2>&1 < /dev/null &
+    echo "Updated and restarted $PREFIX/bin/music."
+else
+    echo "Installed $PREFIX/bin/music. Start it from the app launcher (Music), or run: $PREFIX/bin/music"
+fi
+echo "To update later: music-update"

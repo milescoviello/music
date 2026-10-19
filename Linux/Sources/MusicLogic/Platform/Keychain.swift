@@ -1,24 +1,28 @@
-import CGtk
-import CSecret
 import Foundation
 
-/// The iPhone's Keychain wrapper, on the desktop's keyring.
+/// The iPhone's Keychain wrapper, kept in the app's own folder: one small file per item,
+/// readable by this user alone, under the same names and as the same JSON as the phone's
+/// two Keychain items.
 ///
-/// libsecret talks to whatever implements the Secret Service — GNOME Keyring, or KWallet
-/// on Plasma — so the password lives where the desktop keeps every other password. Same
-/// two items as on the phone, as JSON, under the same names.
+/// Not the desktop's keyring. Through the Secret Service that means KWallet or GNOME
+/// Keyring, which can ask for a password or a first-run wizard at any moment, can fail to
+/// answer at all, and with KWallet not set up keeps what it is given in memory only — and
+/// signs the app out at the next reboot. The server is on a LAN behind the same login,
+/// and a file only this user can read is what most desktop music players use.
 ///
-/// When there is no keyring at all — a bare window manager, a session with no D-Bus
-/// secrets service — it falls back to a file only this user can read. Signing in on
-/// every launch would be worse than that, and the server is on a LAN behind the same
-/// login anyway; the fallback is recorded in Diagnostics so it is never a secret itself.
+/// The server's address and the username are also kept in the settings, which are not
+/// secret, so signing in again — on a new install, after Sign Out — starts filled in.
 enum Keychain {
     private static let account = "server-credentials"
     private static let requestAccount = "music-request-webhook"
+    static let lastServerKey = "signIn.server"
+    static let lastUsernameKey = "signIn.username"
 
     static func save(_ credentials: SubsonicClient.Credentials) {
         guard let data = try? JSONEncoder().encode(credentials) else { return }
-        write(data, account: account, label: "Music: Navidrome sign-in")
+        UserDefaults.standard.set(credentials.baseURL.absoluteString, forKey: lastServerKey)
+        UserDefaults.standard.set(credentials.username, forKey: lastUsernameKey)
+        write(data, account: account)
     }
 
     static func loadCredentials() -> SubsonicClient.Credentials? {
@@ -34,7 +38,7 @@ enum Keychain {
 
     static func saveMusicRequestConfiguration(_ configuration: MusicRequestService.Configuration) {
         guard let data = try? JSONEncoder().encode(configuration) else { return }
-        write(data, account: requestAccount, label: "Music: request webhook")
+        write(data, account: requestAccount)
     }
 
     static func loadMusicRequestConfiguration() -> MusicRequestService.Configuration? {
@@ -46,110 +50,31 @@ enum Keychain {
         delete(account: requestAccount)
     }
 
-    // MARK: - Plumbing
-    //
-    // Every call goes to libsecret on a thread of its own, never the UI's. A keyring can
-    // ask for a password or show a first-run wizard, and with some Secret Service builds
-    // its answer never arrives at all — KWallet's "Completed" signal carries a type
-    // libsecret does not expect, the call waits forever, and on the UI thread that froze
-    // the window for good. So reads wait a few seconds and then use the private file, and
-    // writes carry on in the background, falling back to the file if the keyring fails.
+    // MARK: - Files
 
-    private static func write(_ data: Data, account: String, label: String) {
-        let secret = String(decoding: data, as: UTF8.self)
-        DispatchQueue.global(qos: .userInitiated).async {
-            let stored = withTimeout(10) {
-                withAttributes(account) { attributes in
-                    var error: UnsafeMutablePointer<GError>?
-                    let ok = secret_password_storev_sync(
-                        csecret_music_schema(), attributes, "default", label, secret, nil, &error
-                    )
-                    if let error { g_error_free(error) }
-                    return ok != 0
-                }
-            } ?? false
-            if stored {
-                // A file left by an earlier session without a keyring would otherwise
-                // outlive the item that replaced it.
-                try? FileManager.default.removeItem(at: fallbackFile(account))
-            } else {
-                writeFallback(data, account: account)
-            }
+    private static func file(_ account: String) -> URL {
+        Paths.root.appendingPathComponent(".\(account).json")
+    }
+
+    /// Written whole beside the old one, private from the moment it exists, then moved
+    /// over it: a crash part-way never leaves half a file, or a readable one.
+    private static func write(_ data: Data, account: String) {
+        let url = file(account)
+        let temporary = url.appendingPathExtension("new")
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard FileManager.default.createFile(atPath: temporary.path, contents: data, attributes: [.posixPermissions: 0o600]),
+              rename(temporary.path, url.path) == 0
+        else {
+            Task { await Diagnostics.shared.record("credentials", "could not save \(account)") }
+            return
         }
     }
 
     private static func read(account: String) -> Data? {
-        let found: Data? = withTimeout(4) {
-            withAttributes(account) { attributes -> Data? in
-                var error: UnsafeMutablePointer<GError>?
-                let password = secret_password_lookupv_sync(csecret_music_schema(), attributes, nil, &error)
-                if let error { g_error_free(error) }
-                guard let password else { return nil }
-                defer { secret_password_free(password) }
-                return Data(String(cString: password).utf8)
-            }
-        } ?? nil
-        return found ?? (try? Data(contentsOf: fallbackFile(account)))
+        try? Data(contentsOf: file(account))
     }
 
     private static func delete(account: String) {
-        try? FileManager.default.removeItem(at: fallbackFile(account))
-        DispatchQueue.global(qos: .utility).async {
-            _ = withTimeout(10) {
-                withAttributes(account) { attributes in
-                    var error: UnsafeMutablePointer<GError>?
-                    secret_password_clearv_sync(csecret_music_schema(), attributes, nil, &error)
-                    if let error { g_error_free(error) }
-                }
-            }
-        }
+        try? FileManager.default.removeItem(at: file(account))
     }
-
-    /// Runs a keyring call on its own thread and waits at most `seconds` for it. Nil if it
-    /// did not answer in time; the thread is left to finish, or not, on its own.
-    private static func withTimeout<T: Sendable>(_ seconds: Double, _ body: @escaping @Sendable () -> T) -> T? {
-        let result = KeyringResult<T>()
-        let done = DispatchSemaphore(value: 0)
-        Thread {
-            result.value = body()
-            done.signal()
-        }.start()
-        guard done.wait(timeout: .now() + seconds) == .success else {
-            Task { await Diagnostics.shared.record("keyring", "the Secret Service did not answer in \(Int(seconds)) s") }
-            return nil
-        }
-        return result.value
-    }
-
-    private static func withAttributes<T>(_ account: String, _ body: (OpaquePointer?) -> T) -> T {
-        let table = g_hash_table_new(g_str_hash, g_str_equal)
-        defer { g_hash_table_unref(table) }
-        return "account".withCString { key in
-            account.withCString { value in
-                g_hash_table_insert(table, UnsafeMutableRawPointer(mutating: key), UnsafeMutableRawPointer(mutating: value))
-                return body(table)
-            }
-        }
-    }
-
-    // MARK: - Without a keyring
-
-    private static func fallbackFile(_ account: String) -> URL {
-        Paths.root.appendingPathComponent(".\(account).json")
-    }
-
-    private static func writeFallback(_ data: Data, account: String) {
-        let url = fallbackFile(account)
-        _ = FileManager.default.createFile(
-            atPath: url.path,
-            contents: data,
-            attributes: [.posixPermissions: 0o600]
-        )
-        Task { await Diagnostics.shared.record("keyring", "no Secret Service; \(account) kept in a private file") }
-    }
-}
-
-/// What a keyring call on its own thread hands back.
-private final class KeyringResult<Value>: @unchecked Sendable {
-    var value: Value?
 }

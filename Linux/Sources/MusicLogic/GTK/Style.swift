@@ -28,6 +28,16 @@ enum Style {
     }
 
     .accent { color: var(--accent-color); }
+
+    /* The visualiser's name, shown briefly when it changes. */
+    .visualizer-name {
+        background: alpha(black, 0.45);
+        color: alpha(white, 0.75);
+        border-radius: 9999px;
+        padding: 5px 10px;
+        font-size: smaller;
+        font-weight: 600;
+    }
     .dim { opacity: 0.55; }
     .dimmer { opacity: 0.4; }
     .numeric { font-feature-settings: "tnum"; }
@@ -38,7 +48,6 @@ enum Style {
     .artwork.player { border-radius: 12px; box-shadow: 0 12px 32px alpha(black, 0.5); }
     .artwork.round { border-radius: 9999px; }
     .artwork.flat-corners { border-radius: 0; }
-    .backdrop-blur { filter: blur(60px); }
     .artwork-placeholder { background-color: alpha(currentColor, 0.08); }
     .monogram { font-weight: 600; opacity: 0.45; }
 
@@ -68,10 +77,21 @@ enum Style {
 
     /* The full player. */
     .now-playing { background-color: #000000; color: #ffffff; }
-    .now-playing .song-title { font-size: 1.45em; font-weight: 800; }
-    .now-playing .song-artist { font-size: 1.2em; opacity: 0.7; }
-    .now-playing .song-album { opacity: 0.5; }
-    .now-playing .detail-line { font-size: 0.8em; opacity: 0.55; }
+    /* Plexamp's sizes: its title lines 15 pixels, 20 side by side; its transport 60. */
+    .now-playing .np-meta button, .now-playing .np-meta label { font-size: 15px; }
+    .now-playing .np-meta.large button, .now-playing .np-meta.large label { font-size: 20px; }
+    .now-playing .np-title { font-weight: 700; }
+    .now-playing .np-album { color: alpha(#ffffff, 0.6); }
+    .now-playing .detail-line { font-size: 12px; opacity: 0.55; }
+    .np-transport button { color: #ffffff; }
+    .np-transport .np-skip { min-width: 60px; min-height: 60px; padding: 0; border-radius: 30px; -gtk-icon-size: 20px; }
+    .np-transport .np-play { min-width: 60px; min-height: 60px; padding: 0; border-radius: 30px; -gtk-icon-size: 22px;
+                             background-color: alpha(#ffffff, 0.15); }
+    .np-transport .np-play:hover { filter: brightness(1.25); }
+    .now-playing .np-small { min-width: 40px; min-height: 40px; padding: 0; border-radius: 20px; -gtk-icon-size: 18px;
+                             color: alpha(#ffffff, 0.7); }
+    .now-playing .np-small.active, .now-playing .np-small.selected { color: var(--accent-color); }
+    .np-hover { background: linear-gradient(to top, alpha(#000000, 0.55), transparent); border-radius: 0 0 12px 12px; }
     .now-playing .source-caption { font-size: 0.75em; font-weight: 700; opacity: 0.5; }
     .now-playing .source-title { font-size: 0.9em; font-weight: 600; opacity: 0.85; }
     .now-playing .time { font-size: 0.85em; opacity: 0.6; font-feature-settings: "tnum"; }

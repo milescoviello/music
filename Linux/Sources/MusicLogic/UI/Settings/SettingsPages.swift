@@ -370,9 +370,7 @@ enum SettingsPages {
             }
             SwitchRow("Keep Screen On", isOn: app.screenAwake.isEnabled) { app.screenAwake.isEnabled = $0 }
             SwitchRow("Higher Quality Visualizers", subtitle: "Draw them at the window's full resolution",
-                      isOn: UserDefaults.standard.bool(forKey: VisualizerPane.highQualityKey)) {
-                UserDefaults.standard.set($0, forKey: VisualizerPane.highQualityKey)
-            }
+                      isOn: VisualizerChoice.shared.highQuality) { VisualizerChoice.shared.highQuality = $0 }
         })
         let back = ComboRow("Skip Backwards", options: skips.map { "\($0) sec" }, selected: skips.firstIndex(of: settings.skipBackSeconds) ?? 0) { index in
             if skips.indices.contains(index) { settings.skipBackSeconds = skips[index] }
