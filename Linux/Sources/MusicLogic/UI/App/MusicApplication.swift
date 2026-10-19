@@ -14,6 +14,8 @@ public enum MusicApplication {
     public static func run() {
         MainLoop.install()
         g_set_application_name("Music")
+        // X11 matches the window to its launcher entry by class, which comes from this.
+        g_set_prgname(Desktop.applicationID)
         gtk_window_set_default_icon_name(Desktop.applicationID)
 
         let application = adw_application_new(Desktop.applicationID, GApplicationFlags(rawValue: 0))!
@@ -30,6 +32,7 @@ public enum MusicApplication {
 
         Signal.connect(application, "startup") {
             Style.install()
+            BundledIcons.install()
             installAccelerators(application)
         }
         Signal.connect(application, "activate") {
@@ -80,7 +83,9 @@ public enum MusicApplication {
             g_application_quit(application.cast())
         })
         g_action_map_add_action(application.opaque, quit)
-        var accels: [UnsafePointer<CChar>?] = [("<Control>q" as NSString).utf8String, nil]
-        gtk_application_set_accels_for_action(application.cast(), "app.quit", &accels)
+        "<Control>q".withCString { accel in
+            var accels: [UnsafePointer<CChar>?] = [accel, nil]
+            gtk_application_set_accels_for_action(application.cast(), "app.quit", &accels)
+        }
     }
 }
