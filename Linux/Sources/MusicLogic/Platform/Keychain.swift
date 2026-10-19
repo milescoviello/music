@@ -8,16 +8,24 @@ import Foundation
 /// on Plasma — so the password lives where the desktop keeps every other password. Same
 /// two items as on the phone, as JSON, under the same names.
 ///
-/// When there is no keyring at all — a bare window manager, a session with no D-Bus
-/// secrets service — it falls back to a file only this user can read. Signing in on
+/// When there is no keyring to keep things in — a bare window manager, a session with no
+/// D-Bus secrets service, or KWallet with no wallet set up, whose "keyring" forgets
+/// everything at logout — it falls back to a file only this user can read. Signing in on
 /// every launch would be worse than that, and the server is on a LAN behind the same
 /// login anyway; the fallback is recorded in Diagnostics so it is never a secret itself.
+///
+/// The server's address and the username are kept in the settings as well, which are not
+/// secret: whatever becomes of the password, signing in again starts filled in.
 enum Keychain {
     private static let account = "server-credentials"
     private static let requestAccount = "music-request-webhook"
+    static let lastServerKey = "signIn.server"
+    static let lastUsernameKey = "signIn.username"
 
     static func save(_ credentials: SubsonicClient.Credentials) {
         guard let data = try? JSONEncoder().encode(credentials) else { return }
+        UserDefaults.standard.set(credentials.baseURL.absoluteString, forKey: lastServerKey)
+        UserDefaults.standard.set(credentials.username, forKey: lastUsernameKey)
         write(data, account: account, label: "Music: Navidrome sign-in")
     }
 
@@ -59,7 +67,9 @@ enum Keychain {
         let secret = String(decoding: data, as: UTF8.self)
         DispatchQueue.global(qos: .userInitiated).async {
             let stored = withTimeout(10) {
-                withAttributes(account) { attributes in
+                // Stored without a default collection, it would last only until logout.
+                guard csecret_has_default_collection() != 0 else { return false }
+                return withAttributes(account) { attributes in
                     var error: UnsafeMutablePointer<GError>?
                     let ok = secret_password_storev_sync(
                         csecret_music_schema(), attributes, "default", label, secret, nil, &error
@@ -79,17 +89,23 @@ enum Keychain {
     }
 
     private static func read(account: String) -> Data? {
-        let found: Data? = withTimeout(4) {
-            withAttributes(account) { attributes -> Data? in
+        let found: (data: Data, lasting: Bool)? = withTimeout(4) {
+            withAttributes(account) { attributes -> (data: Data, lasting: Bool)? in
                 var error: UnsafeMutablePointer<GError>?
                 let password = secret_password_lookupv_sync(csecret_music_schema(), attributes, nil, &error)
                 if let error { g_error_free(error) }
                 guard let password else { return nil }
                 defer { secret_password_free(password) }
-                return Data(String(cString: password).utf8)
+                return (Data(String(cString: password).utf8), csecret_has_default_collection() != 0)
             }
         } ?? nil
-        return found ?? (try? Data(contentsOf: fallbackFile(account)))
+        if let found {
+            // Found only in a keyring with nowhere lasting to keep it: kept in the file too,
+            // so the next login still has it.
+            if !found.lasting { writeFallback(found.data, account: account) }
+            return found.data
+        }
+        return try? Data(contentsOf: fallbackFile(account))
     }
 
     private static func delete(account: String) {

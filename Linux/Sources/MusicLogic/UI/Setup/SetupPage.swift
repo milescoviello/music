@@ -76,7 +76,17 @@ enum SetupPage {
             }
         )
         // Typing goes straight into the address, as a sign-in form should.
-        address.onMap { address.grabFocus() }
+        // The last server and username, if this computer has signed in before: only the
+        // password left to type.
+        let defaults = UserDefaults.standard
+        if let server = defaults.string(forKey: Keychain.lastServerKey), !server.isEmpty {
+            address.text = server
+            username.text = defaults.string(forKey: Keychain.lastUsernameKey) ?? ""
+            refresh()
+        }
+        address.onMap {
+            if address.text.isEmpty { address.grabFocus() } else if username.text.isEmpty { username.grabFocus() } else { password.grabFocus() }
+        }
         let clamp = Clamp(status, maximum: 480)
         let toolbar = ToolbarView(content: ScrolledWindow(clamp).vexpand()).top(HeaderBar().title(WindowTitle("Set Up")))
         return toolbar
