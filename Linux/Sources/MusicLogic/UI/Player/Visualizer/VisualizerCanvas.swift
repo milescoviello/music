@@ -280,7 +280,7 @@ final class VisualizerCanvas {
     private func report(_ name: String, log: (GLsizei, UnsafeMutablePointer<CChar>) -> Void) {
         var buffer = [CChar](repeating: 0, count: 4096)
         buffer.withUnsafeMutableBufferPointer { log(GLsizei($0.count), $0.baseAddress!) }
-        let message = String(cString: buffer)
+        let message = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
         FileHandle.standardError.write(Data("visualizer: \(name) failed to build: \(message)\n".utf8))
         Task { await Diagnostics.shared.record("visualizer", "\(name) failed to build: \(message.prefix(300))") }
     }
