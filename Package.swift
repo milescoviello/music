@@ -1,4 +1,5 @@
 // swift-tools-version: 6.0
+import Foundation
 import PackageDescription
 
 // Two packages in one manifest, chosen by the machine building it.
@@ -17,8 +18,18 @@ import PackageDescription
 // same name and shape. The UI is GTK 4 and libadwaita, the sound FFmpeg, Rubber Band and
 // PulseAudio (which PipeWire also speaks). The module keeps the name `MusicLogic` so the
 // same tests run against it.
+//
+// `MUSIC_LOGIC_ONLY=1 swift test` on Linux builds the macOS package instead: the logic
+// tests alone, on a machine without the GTK, FFmpeg and audio development packages.
+//
+// Each package is made inside a function, so only the chosen one is ever created: a
+// `Package` registers itself as the manifest's result when it is made.
 
 #if os(Linux)
+let buildsDesktop = ProcessInfo.processInfo.environment["MUSIC_LOGIC_ONLY"] == nil
+#else
+let buildsDesktop = false
+#endif
 
 /// The Core files that are Apple frameworks through and through. Each is replaced, not
 /// patched, by a file of the same name in `Platform/`.
@@ -37,85 +48,87 @@ let appleOnly = [
     "ScreenAwake.swift",
 ].map { "Core/\($0)" }
 
-let package = Package(
-    name: "Music",
-    targets: [
-        .systemLibrary(name: "CGtk", path: "Linux/Modules/CGtk", pkgConfig: "gtk4 libadwaita-1"),
-        .systemLibrary(
-            name: "CFFmpeg",
-            path: "Linux/Modules/CFFmpeg",
-            pkgConfig: "libavformat libavcodec libswresample libavutil"
-        ),
-        .systemLibrary(name: "CPulse", path: "Linux/Modules/CPulse", pkgConfig: "libpulse"),
-        .systemLibrary(name: "CRubberBand", path: "Linux/Modules/CRubberBand", pkgConfig: "rubberband"),
-        .systemLibrary(name: "CSecret", path: "Linux/Modules/CSecret", pkgConfig: "libsecret-1"),
-        .target(
-            name: "MusicLogic",
-            dependencies: ["CGtk", "CFFmpeg", "CPulse", "CRubberBand", "CSecret"],
-            path: "Linux/Sources/MusicLogic",
-            exclude: appleOnly
-        ),
-        .executableTarget(
-            name: "music",
-            dependencies: ["MusicLogic"],
-            path: "Linux/Sources/music"
-        ),
-        .testTarget(
-            name: "MusicLogicTests",
-            dependencies: ["MusicLogic"],
-            path: "Tests/MusicLogicTests"
-        ),
-    ]
-)
+func desktopPackage() -> Package {
+    Package(
+        name: "Music",
+        targets: [
+            .systemLibrary(name: "CGtk", path: "Linux/Modules/CGtk", pkgConfig: "gtk4 libadwaita-1"),
+            .systemLibrary(
+                name: "CFFmpeg",
+                path: "Linux/Modules/CFFmpeg",
+                pkgConfig: "libavformat libavcodec libswresample libavutil"
+            ),
+            .systemLibrary(name: "CPulse", path: "Linux/Modules/CPulse", pkgConfig: "libpulse"),
+            .systemLibrary(name: "CRubberBand", path: "Linux/Modules/CRubberBand", pkgConfig: "rubberband"),
+            .systemLibrary(name: "CSecret", path: "Linux/Modules/CSecret", pkgConfig: "libsecret-1"),
+            .target(
+                name: "MusicLogic",
+                dependencies: ["CGtk", "CFFmpeg", "CPulse", "CRubberBand", "CSecret"],
+                path: "Linux/Sources/MusicLogic",
+                exclude: appleOnly
+            ),
+            .executableTarget(
+                name: "music",
+                dependencies: ["MusicLogic"],
+                path: "Linux/Sources/music"
+            ),
+            .testTarget(
+                name: "MusicLogicTests",
+                dependencies: ["MusicLogic"],
+                path: "Tests/MusicLogicTests"
+            ),
+        ]
+    )
+}
 
-#else
+func logicPackage() -> Package {
+    Package(
+        name: "MusicLogic",
+        platforms: [.macOS(.v15)],
+        targets: [
+            .target(
+                name: "MusicLogic",
+                path: "App/Core",
+                sources: [
+                    "Models.swift",
+                    "Paths.swift",
+                    "PlaybackQueue.swift",
+                    "PlayTracker.swift",
+                    "DownloadCatalog.swift",
+                    "DownloadFolders.swift",
+                    "HermesResults.swift",
+                    "MixEngine.swift",
+                    "TripPlanner.swift",
+                    "DSP.swift",
+                    "StreamCacheIndex.swift",
+                    "StreamingPolicy.swift",
+                    "TrackShape.swift",
+                    "SeekbarLevels.swift",
+                    "Autoplay.swift",
+                    "GuestDJ.swift",
+                    "Stations.swift",
+                    "LibraryFacets.swift",
+                    "Charts.swift",
+                    "HomeLayout.swift",
+                    "SearchRanking.swift",
+                    "RecentPlays.swift",
+                    "SonicClient.swift",
+                    "BeatMatch.swift",
+                    "RhythmStore.swift",
+                    "VisualizerHost.swift",
+                    "VisualizerPalette.swift",
+                    "Romanizer.swift",
+                    "LyricsLanguage.swift",
+                    "LyricTranslationStore.swift",
+                ]
+            ),
+            .testTarget(
+                name: "MusicLogicTests",
+                dependencies: ["MusicLogic"],
+                path: "Tests/MusicLogicTests"
+            ),
+        ]
+    )
+}
 
-let package = Package(
-    name: "MusicLogic",
-    platforms: [.macOS(.v15)],
-    targets: [
-        .target(
-            name: "MusicLogic",
-            path: "App/Core",
-            sources: [
-                "Models.swift",
-                "Paths.swift",
-                "PlaybackQueue.swift",
-                "PlayTracker.swift",
-                "DownloadCatalog.swift",
-                "DownloadFolders.swift",
-                "HermesResults.swift",
-                "MixEngine.swift",
-                "TripPlanner.swift",
-                "DSP.swift",
-                "StreamCacheIndex.swift",
-                "StreamingPolicy.swift",
-                "TrackShape.swift",
-                "SeekbarLevels.swift",
-                "Autoplay.swift",
-                "GuestDJ.swift",
-                "Stations.swift",
-                "LibraryFacets.swift",
-                "Charts.swift",
-                "HomeLayout.swift",
-                "SearchRanking.swift",
-                "RecentPlays.swift",
-                "SonicClient.swift",
-                "BeatMatch.swift",
-                "RhythmStore.swift",
-                "VisualizerHost.swift",
-                "VisualizerPalette.swift",
-                "Romanizer.swift",
-                "LyricsLanguage.swift",
-                "LyricTranslationStore.swift",
-            ]
-        ),
-        .testTarget(
-            name: "MusicLogicTests",
-            dependencies: ["MusicLogic"],
-            path: "Tests/MusicLogicTests"
-        ),
-    ]
-)
-
-#endif
+let package = buildsDesktop ? desktopPackage() : logicPackage()
