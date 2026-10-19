@@ -24,6 +24,14 @@ final class DrawingArea: Widget {
     func redraw() {
         gtk_widget_queue_draw(widget)
     }
+
+    /// Called with the new size whenever the area is allocated a different one: how a
+    /// screen learns the space it has, to lay itself out for it.
+    @discardableResult
+    func onResize(_ action: @escaping @MainActor (Int32, Int32) -> Void) -> Self {
+        Signal.connect(widget, "resize", size: action)
+        return self
+    }
 }
 
 /// The few cairo calls the app draws with, named for what they do.

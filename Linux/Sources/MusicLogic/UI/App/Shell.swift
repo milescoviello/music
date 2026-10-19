@@ -2,8 +2,8 @@ import CGtk
 import Foundation
 
 /// The window: a sidebar of sections where the phone has tabs, each section its own stack
-/// of pages, and the player as a bottom sheet — the mini player along the bottom, the full
-/// player sliding up over everything, as the phone's player is a layer over the library.
+/// of pages, and the player as a layer over it all — the mini player along the bottom, the
+/// full player sliding up to fill the window, as Plexamp's does.
 ///
 /// Narrow, the sidebar folds away and the window works like the phone: one page at a time,
 /// back buttons, the bar at the bottom.
@@ -41,7 +41,7 @@ final class Shell {
     private var content = Stack(transition: GTK_STACK_TRANSITION_TYPE_NONE)
     private var sidebar: ListBox?
     private var split: NavigationSplitView?
-    private var sheet: BottomSheet?
+    private var sheet: PlayerLayer?
     private var builtFor: AppState.Phase?
     private(set) var section: Section = .home
 
@@ -123,14 +123,14 @@ final class Shell {
 
         let player = NowPlaying(app: app, shell: self)
         let mini = MiniPlayer(app: app)
-        let sheet = BottomSheet(content: main, sheet: player.root, bar: mini.root)
+        let sheet = PlayerLayer(content: main, player: player.root, bar: mini.root)
         self.sheet = sheet
         sheet.onOpenChanged { [app] open in
             if app.navigator.showsPlayer != open { app.navigator.showsPlayer = open }
         }
 
         let reference = WeakReference(self)
-        sheet.observe { [app] in
+        sheet.root.observe { [app] in
             let hasQueue = app.player.hasQueue
             let shows = app.navigator.showsPlayer
             guard let shell = reference.value, let sheet = shell.sheet else { return }
@@ -139,12 +139,12 @@ final class Shell {
             sheet.isOpen = shows && hasQueue
         }
         // Jumps out of the player, and from anywhere else that asks.
-        sheet.observe { [app] in
+        sheet.root.observe { [app] in
             guard !app.navigator.requests.isEmpty else { return }
             Task { @MainActor in reference.value?.takeNavigationRequests() }
         }
         // Menus give no feedback of their own, so playlist changes say so.
-        sheet.observe { [app] in
+        sheet.root.observe { [app] in
             guard let message = app.playlistStore.lastMessage else { return }
             Task { @MainActor in
                 reference.value?.toast(message)
@@ -152,7 +152,7 @@ final class Shell {
             }
         }
         select(.home)
-        return sheet
+        return sheet.root
     }
 
     private func makeSidebar() -> NavigationPage {
@@ -263,7 +263,9 @@ final class Shell {
         let height = defaults.integer(forKey: "window.height")
         gtk_window_set_default_size(window.widget.cast(), Int32(width > 0 ? width : 1180), Int32(height > 0 ? height : 820))
         if defaults.bool(forKey: "window.maximized") { gtk_window_maximize(window.widget.cast()) }
-        gtk_widget_set_size_request(window.widget, 360, 480)
+        // Small enough for Plexamp's smallest player; the library asks for more itself
+        // when it is showing.
+        gtk_widget_set_size_request(window.widget, 200, 150)
     }
 
     /// Also called on quit: Ctrl+Q and SIGTERM end the application without a close-request.

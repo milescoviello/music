@@ -294,6 +294,13 @@ final class Box: Widget {
         gtk_box_set_homogeneous(widget.cast(), value ? 1 : 0)
         return self
     }
+
+    /// A row or a column, switchable after the fact: how a screen relays itself out.
+    @discardableResult
+    func orientation(_ value: GtkOrientation) -> Self {
+        gtk_orientable_set_orientation(OpaquePointer(widget), value)
+        return self
+    }
 }
 
 final class ScrolledWindow: Widget {

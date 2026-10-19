@@ -34,6 +34,16 @@ final class Texture: @unchecked Sendable {
         self.init(adopting: texture)
     }
 
+    /// Premultiplied BGRA rows, as `pixels()` returns them: an image made rather than
+    /// decoded, such as the player's blurred backdrop.
+    convenience init(pixels: [UInt8], width: Int, height: Int) {
+        let bytes = pixels.withUnsafeBytes { g_bytes_new($0.baseAddress, gsize($0.count)) }
+        defer { g_bytes_unref(bytes) }
+        self.init(adopting: gdk_memory_texture_new(
+            Int32(width), Int32(height), GDK_MEMORY_B8G8R8A8_PREMULTIPLIED, bytes, gsize(width * 4)
+        )!)
+    }
+
     convenience init?(contentsOf url: URL) {
         guard let data = try? Data(contentsOf: url) else { return nil }
         self.init(data: data)
