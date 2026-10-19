@@ -37,11 +37,12 @@ The same app runs on the Linux desktop: every screen of the phone, built with
 GTK 4 and libadwaita over the phone's own `App/Core`. Playback is FFmpeg into
 PulseAudio or PipeWire, with Rubber Band for tempo, so gapless, crossfades,
 beat-matched transitions and the equalizer behave as they do on the phone.
-The desktop's media keys and panel controls work through MPRIS; the password
-and webhook secret go in the keyring (GNOME Keyring or KWallet).
+Plexamp's visualisers are its shaders in OpenGL. The desktop's media keys and
+panel controls work through MPRIS; the password and webhook secret go in the
+keyring (GNOME Keyring or KWallet).
 
 It needs Swift 6, GTK 4 with libadwaita 1.6 or newer, and the development
-files for FFmpeg, PulseAudio, Rubber Band and libsecret. Then:
+files for libepoxy, FFmpeg, PulseAudio, Rubber Band and libsecret. Then:
 
 ```sh
 Linux/install.sh

@@ -132,6 +132,37 @@ enum Signal {
         return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
+    /// A pointer argument, returning whether handled: a GL area's `render(context)`.
+    @discardableResult
+    static func connectHandled(
+        _ instance: GPointer,
+        _ name: String,
+        pointer handler: @escaping @MainActor (UnsafeMutableRawPointer?) -> Bool
+    ) -> gulong {
+        typealias H = @MainActor (UnsafeMutableRawPointer?) -> Bool
+        let trampoline: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> gboolean = { _, argument, data in
+            let handler = unbox(data, as: H.self)
+            nonisolated(unsafe) let argument = argument
+            return MainActor.assumeIsolated { handler(argument) } ? 1 : 0
+        }
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
+    }
+
+    /// Two ints: a drawing area's `resize(width, height)`.
+    @discardableResult
+    static func connect(
+        _ instance: GPointer,
+        _ name: String,
+        size handler: @escaping @MainActor (Int32, Int32) -> Void
+    ) -> gulong {
+        typealias H = @MainActor (Int32, Int32) -> Void
+        let trampoline: @convention(c) (UnsafeMutableRawPointer?, gint, gint, UnsafeMutableRawPointer?) -> Void = { _, width, height, data in
+            let handler = unbox(data, as: H.self)
+            MainActor.assumeIsolated { handler(width, height) }
+        }
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
+    }
+
     /// A click gesture's `pressed` and `released`: presses, x, y.
     @discardableResult
     static func connect(

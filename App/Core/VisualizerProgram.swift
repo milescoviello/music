@@ -7,7 +7,8 @@ import Foundation
 /// One that does not flips back to the artwork when the music stops, as in Plexamp.
 struct VisualizerProgram: Identifiable, Hashable, Sendable {
     let name: String
-    /// The shader's entry point in the app's Metal library.
+    /// The shader's entry point: a function in the app's Metal library on the phone, the
+    /// key of its GLSL in `VisualizerShaders` on Linux.
     let function: String
     let data: VisualizerData
     let pixels: Int

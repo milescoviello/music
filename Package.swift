@@ -15,9 +15,9 @@ import PackageDescription
 // `App/Core`, so the queue, the clients, the stores and the planners are the iPhone's own
 // code, unforked; only the files that are Apple frameworks through and through are left
 // out, and each has a Linux counterpart under `Linux/Sources/MusicLogic/Platform` with the
-// same name and shape. The UI is GTK 4 and libadwaita, the sound FFmpeg, Rubber Band and
-// PulseAudio (which PipeWire also speaks). The module keeps the name `MusicLogic` so the
-// same tests run against it.
+// same name and shape. The UI is GTK 4 and libadwaita, the visualisers GL through
+// libepoxy, the sound FFmpeg, Rubber Band and PulseAudio (which PipeWire also speaks).
+// The module keeps the name `MusicLogic` so the same tests run against it.
 //
 // `MUSIC_LOGIC_ONLY=1 swift test` on Linux builds the macOS package instead: the logic
 // tests alone, on a machine without the GTK, FFmpeg and audio development packages.
@@ -61,9 +61,10 @@ func desktopPackage() -> Package {
             .systemLibrary(name: "CPulse", path: "Linux/Modules/CPulse", pkgConfig: "libpulse"),
             .systemLibrary(name: "CRubberBand", path: "Linux/Modules/CRubberBand", pkgConfig: "rubberband"),
             .systemLibrary(name: "CSecret", path: "Linux/Modules/CSecret", pkgConfig: "libsecret-1"),
+            .systemLibrary(name: "CEpoxy", path: "Linux/Modules/CEpoxy", pkgConfig: "epoxy"),
             .target(
                 name: "MusicLogic",
-                dependencies: ["CGtk", "CFFmpeg", "CPulse", "CRubberBand", "CSecret"],
+                dependencies: ["CGtk", "CFFmpeg", "CPulse", "CRubberBand", "CSecret", "CEpoxy"],
                 path: "Linux/Sources/MusicLogic",
                 exclude: appleOnly
             ),

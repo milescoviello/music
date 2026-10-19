@@ -1,0 +1,5 @@
+module CEpoxy [system] {
+    header "CEpoxy.h"
+    link "epoxy"
+    export *
+}

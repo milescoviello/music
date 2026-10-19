@@ -28,6 +28,16 @@ enum Style {
     }
 
     .accent { color: var(--accent-color); }
+
+    /* The visualiser's name, shown briefly when it changes. */
+    .visualizer-name {
+        background: alpha(black, 0.45);
+        color: alpha(white, 0.75);
+        border-radius: 9999px;
+        padding: 5px 10px;
+        font-size: smaller;
+        font-weight: 600;
+    }
     .dim { opacity: 0.55; }
     .dimmer { opacity: 0.4; }
     .numeric { font-feature-settings: "tnum"; }
