@@ -1,6 +1,7 @@
 #include <gtk/gtk.h>
 #include <adwaita.h>
 #include <gio/gio.h>
+#include <glib-unix.h>
 
 // libdispatch's hooks for a run loop that is not its own. Exported but undeclared: they
 // are how Foundation's RunLoop drains the main queue, and how GLib's main loop does here.

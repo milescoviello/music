@@ -266,7 +266,8 @@ final class Shell {
         gtk_widget_set_size_request(window.widget, 360, 480)
     }
 
-    private func saveSize() {
+    /// Also called on quit: Ctrl+Q and SIGTERM end the application without a close-request.
+    func saveSize() {
         var width: Int32 = 0
         var height: Int32 = 0
         gtk_window_get_default_size(window.widget.cast(), &width, &height)

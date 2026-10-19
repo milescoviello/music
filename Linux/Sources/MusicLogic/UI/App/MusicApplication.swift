@@ -18,6 +18,15 @@ public enum MusicApplication {
 
         let application = adw_application_new(Desktop.applicationID, GApplicationFlags(rawValue: 0))!
         Desktop.application = OpaquePointer(application)
+        persistDefaults()
+        // Logging out or `kill` sends SIGTERM, which would otherwise end the process
+        // without "shutdown" and lose the queue position and unsaved settings.
+        for signal in [SIGTERM, SIGINT, SIGHUP] {
+            g_unix_signal_add(signal, { application in
+                g_application_quit(application?.assumingMemoryBound(to: GApplication.self))
+                return 0
+            }, UnsafeMutableRawPointer(application))
+        }
 
         Signal.connect(application, "startup") {
             Style.install()
@@ -37,11 +46,13 @@ public enum MusicApplication {
         Signal.connect(application, "shutdown") {
             // The phone's backgrounding, which on a desktop is quitting: termination while
             // paused is what loses a queue position.
+            shell?.saveSize()
             guard let state else { return }
             state.player.persistNow()
             state.history.saveNow()
             state.downloads.flushCatalog()
             state.screenAwake.release()
+            UserDefaults.standard.synchronize()
         }
 
         let arguments = CommandLine.arguments
@@ -49,6 +60,17 @@ public enum MusicApplication {
         let status = g_application_run(application.cast(), Int32(pointers.count), &pointers)
         pointers.forEach { free($0) }
         exit(status)
+    }
+
+    /// Foundation on Linux keeps UserDefaults in memory until told to write them out (to
+    /// `~/.config/music.plist`) — on Darwin cfprefsd does that behind the app's back — so
+    /// every setting, history and layout would be lost with the process. A write when
+    /// nothing changed is a no-op.
+    private static func persistDefaults() {
+        g_timeout_add_seconds(3, { _ in
+            UserDefaults.standard.synchronize()
+            return 1
+        }, nil)
     }
 
     @MainActor
