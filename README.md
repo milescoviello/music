@@ -38,11 +38,11 @@ GTK 4 and libadwaita over the phone's own `App/Core`. Playback is FFmpeg into
 PulseAudio or PipeWire, with Rubber Band for tempo, so gapless, crossfades,
 beat-matched transitions and the equalizer behave as they do on the phone.
 Plexamp's visualisers are its shaders in OpenGL. The desktop's media keys and
-panel controls work through MPRIS; the password and webhook secret go in the
-keyring (GNOME Keyring or KWallet).
+panel controls work through MPRIS. The sign-in is kept in the app's own folder,
+in a file only you can read, not in KWallet or GNOME Keyring.
 
 It needs Swift 6, GTK 4 with libadwaita 1.6 or newer, and the development
-files for libepoxy, FFmpeg, PulseAudio, Rubber Band and libsecret. Then:
+files for libepoxy, FFmpeg, PulseAudio and Rubber Band. Then:
 
 ```sh
 Linux/install.sh
@@ -71,7 +71,7 @@ still build and run the same way on macOS.
 App/Core        Subsonic client, models, session, Keychain
 App/Features    One directory per screen
 Linux/Sources   The Linux app: GTK bindings, audio engine, desktop services, screens
-Linux/Modules   C module maps for GTK, FFmpeg, PulseAudio, Rubber Band, libsecret
+Linux/Modules   C module maps for GTK, epoxy, FFmpeg, PulseAudio, Rubber Band
 ```
 
 `Linux/Sources/MusicLogic/Core` is a link to `App/Core`: the Linux build

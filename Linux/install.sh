@@ -10,7 +10,7 @@
 # Installing also adds `music-update`, which runs --update with the same settings.
 #
 # Nothing here touches what the app keeps: settings in ~/.config/music.plist, the
-# session in the keyring, the queue, library cache and downloads under
+# sign-in, the queue, library cache and downloads under
 # ~/.local/share/com.milescoviello.Music. An update backs the settings up first.
 set -eu
 
@@ -45,7 +45,7 @@ esac
 # What the build links against, by pkg-config name, with the package that provides it
 # on Fedora / Debian and Ubuntu / Arch.
 missing=""
-for module in gtk4 libadwaita-1 epoxy libavformat libavcodec libswresample libavutil libpulse rubberband libsecret-1; do
+for module in gtk4 libadwaita-1 epoxy libavformat libavcodec libswresample libavutil libpulse rubberband; do
     pkg-config --exists "$module" 2>/dev/null || missing="$missing $module"
 done
 if ! command -v swift >/dev/null; then
@@ -56,9 +56,9 @@ if [ -n "$missing" ]; then
     cat >&2 <<EOF
 Missing development files for:$missing
 
-  Fedora:         sudo dnf install gtk4-devel libadwaita-devel libepoxy-devel ffmpeg-free-devel pulseaudio-libs-devel rubberband-devel libsecret-devel
-  Debian, Ubuntu: sudo apt install libgtk-4-dev libadwaita-1-dev libepoxy-dev libavformat-dev libavcodec-dev libswresample-dev libpulse-dev librubberband-dev libsecret-1-dev
-  Arch:           sudo pacman -S gtk4 libadwaita libepoxy ffmpeg libpulse rubberband libsecret
+  Fedora:         sudo dnf install gtk4-devel libadwaita-devel libepoxy-devel ffmpeg-free-devel pulseaudio-libs-devel rubberband-devel
+  Debian, Ubuntu: sudo apt install libgtk-4-dev libadwaita-1-dev libepoxy-dev libavformat-dev libavcodec-dev libswresample-dev libpulse-dev librubberband-dev
+  Arch:           sudo pacman -S gtk4 libadwaita libepoxy ffmpeg libpulse rubberband
 EOF
     exit 1
 fi

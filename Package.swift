@@ -60,11 +60,10 @@ func desktopPackage() -> Package {
             ),
             .systemLibrary(name: "CPulse", path: "Linux/Modules/CPulse", pkgConfig: "libpulse"),
             .systemLibrary(name: "CRubberBand", path: "Linux/Modules/CRubberBand", pkgConfig: "rubberband"),
-            .systemLibrary(name: "CSecret", path: "Linux/Modules/CSecret", pkgConfig: "libsecret-1"),
             .systemLibrary(name: "CEpoxy", path: "Linux/Modules/CEpoxy", pkgConfig: "epoxy"),
             .target(
                 name: "MusicLogic",
-                dependencies: ["CGtk", "CFFmpeg", "CPulse", "CRubberBand", "CSecret", "CEpoxy"],
+                dependencies: ["CGtk", "CFFmpeg", "CPulse", "CRubberBand", "CEpoxy"],
                 path: "Linux/Sources/MusicLogic",
                 exclude: appleOnly
             ),

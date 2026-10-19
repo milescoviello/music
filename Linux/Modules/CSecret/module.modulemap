@@ -1,5 +1,0 @@
-module CSecret [system] {
-    header "CSecret.h"
-    link "secret-1"
-    export *
-}
