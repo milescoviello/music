@@ -9,8 +9,6 @@ import Foundation
 ///
 /// - **Portrait** (narrower than tall, or under 500 wide): the cover on top, at most 300
 ///   across, then the seekbar, artist, title and album, the transport and the toolbar.
-///   As the window shortens, the codec line goes first, then the seekbar, then the title;
-///   with too little height for the transport, it appears over the cover on hover.
 /// - **Landscape** (wider than tall, up to 680 high): the cover on the left as tall as the
 ///   window allows, everything else beside it.
 /// - **Side by side** (wider than tall and over 680 high): the player in the left half,
@@ -18,6 +16,10 @@ import Foundation
 ///
 /// The thresholds and sizes are Plexamp 4.13's own. The cover's flip side — visualiser or
 /// lyrics — takes the cover's place at the cover's size.
+///
+/// Whatever does not fit goes, least important first, measured rather than guessed: the
+/// volume, the codec line, the toolbar, then the cover shrinks and goes, then the seekbar,
+/// then the title. Previous, play and next are the last thing left.
 @MainActor
 final class NowPlaying {
     enum Mode: String {
@@ -41,7 +43,6 @@ final class NowPlaying {
     private var layout: Layout?
     private var size = (width: Int32(0), height: Int32(0))
     private var showsQueueColumn = UserDefaults.standard.object(forKey: NowPlaying.showsQueueKey) as? Bool ?? true
-    private var hoverEnabled = false
 
     // The pieces, made once and arranged for each layout.
     private let topBar: Widget
@@ -54,7 +55,6 @@ final class NowPlaying {
     /// which a size request can raise but not cap.
     private let posterFrame: ScrolledWindow
     private var sourceBlock: Widget?
-    private let hoverControls: Revealer
     private let sideClamp: Clamp
     private let side = Box.vertical(spacing: 0)
     private let topSpace = Spacer(horizontal: false)
@@ -95,11 +95,7 @@ final class NowPlaying {
         posterFrame = ScrolledWindow(poster, horizontal: GTK_POLICY_EXTERNAL, vertical: GTK_POLICY_EXTERNAL)
         posterFrame.propagatesNaturalWidth().propagatesNaturalHeight()
         posterFrame.halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_CENTER)
-        let hover = Self.compactTransport(app)
-        hoverControls = Revealer(hover, transition: GTK_REVEALER_TRANSITION_TYPE_CROSSFADE)
-        hoverControls.valign(GTK_ALIGN_END)
         posterCell = Overlay(posterFrame)
-        posterCell.add(hoverControls)
 
         seek = SeekBar(app: app).root
         seek.margin(horizontal: Self.margin, vertical: 0)
@@ -159,10 +155,6 @@ final class NowPlaying {
         // right-click picks which one.
         artwork.root.onClick { modeReference.value?.select(.visualizer) }
         artwork.root.onContextClick { _, _ in modeReference.value?.selectVisualizer() }
-        posterCell.onHover { inside in
-            guard let player = modeReference.value else { return }
-            player.hoverControls.isRevealed = inside && player.hoverEnabled
-        }
         sizer.onResize { width, height in
             // Applied after this allocation rather than during it: the layout changes
             // size requests, which GTK takes on the next pass.
@@ -182,7 +174,8 @@ final class NowPlaying {
         arrange()
     }
 
-    /// Plexamp's choice of layout and every size in it, from the window's size.
+    /// Plexamp's choice of layout and every size in it, from the window's size; then
+    /// whatever does not fit, dropped least important first.
     private func arrange() {
         let (width, height) = (Int(size.width), Int(size.height))
         guard width > 0 else { return }
@@ -202,33 +195,26 @@ final class NowPlaying {
         let changed = layout != self.layout
         self.layout = layout
 
+        // Start with everything the layout shows, then take away what does not fit.
+        for piece in [seek, titleBlock, codec, transportRow, toolbar] { piece.isVisible = true }
+        posterCell.isVisible = true
         var posterSize: Double
         var lyricsWidth: Double
+        var posterGap: Double
+        var sideWidth: Double
         switch layout {
         case .portrait:
             let fullBleed = w < 300 || (h > 700 && w < 350)
             posterSize = fullBleed ? w : min(w - 70, 300)
-            // Too short for the toolbar under the cover and it goes too, leaving the cover
-            // alone with its hover controls — the smallest Plexamp.
-            let fitsToolbar = available - min(posterSize, available - 12) >= 56
-            posterSize = min(posterSize, available - (fitsToolbar ? 62 : 12))
             lyricsWidth = w - 2 * margin
-            // What is left below the cover decides what else fits.
-            var room = h - posterSize
-            if w <= 300 { room += 40 }
-            let showsTransport = room > 340
-            seek.isVisible = room > 220
-            titleBlock.isVisible = room > 135
-            codec.isVisible = room > 245
-            transportRow.isVisible = showsTransport
+            posterGap = fullBleed ? 0 : 6
+            sideWidth = min(w, 600)
             volume.isVisible = h >= 675
-            toolbar.isVisible = fitsToolbar
-            hoverEnabled = !showsTransport
             playerBox.orientation(GTK_ORIENTATION_VERTICAL)
             playerBox.size(width: -1, height: Int32(min(available, 700)))
             playerBox.halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_CENTER).hexpand(true)
-            posterCell.halign(GTK_ALIGN_CENTER).margins(top: fullBleed ? 0 : 6, bottom: 0, start: 0, end: 0)
-            posterCell.size(width: -1, height: -1)
+            posterCell.halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_START)
+            posterCell.margins(top: Int32(posterGap), bottom: 0, start: 0, end: 0)
             sideClamp.hexpand(true).vexpand(true).valign(GTK_ALIGN_FILL)
             adw_clamp_set_maximum_size(sideClamp.widget.cast(), 600)
             setSpacers(top: true, middle: true, bottom: false)
@@ -236,53 +222,76 @@ final class NowPlaying {
             reorder(seekFirst: true)
             titleBlock.setCSS("large", false)
         case .landscape:
-            let tiny = h <= 100
             posterSize = h > 100 ? min(w - 250, h - 4 * margin) : h
             posterSize = min(posterSize, available - 2 * margin)
             lyricsWidth = posterSize
-            // Plexamp shows its seekbar from 150; this one is taller, so it waits for room.
-            seek.isVisible = h > 195
-            titleBlock.isVisible = true
-            codec.isVisible = h > 230
-            transportRow.isVisible = h > 300 || (h < 150 && w > 500)
+            posterGap = 0
+            sideWidth = min(w - posterSize - 3 * margin, 560)
             volume.isVisible = h > 420
-            toolbar.isVisible = h > 325
-            hoverEnabled = h <= 300 && h > 150 && !(h < 150 && w > 500)
             playerBox.orientation(GTK_ORIENTATION_HORIZONTAL)
             playerBox.size(width: -1, height: -1)
             playerBox.halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_FILL).hexpand(true)
             // The cover in a cell its own width plus a margin, against the right edge.
-            posterCell.halign(GTK_ALIGN_END).margins(top: 0, bottom: 0, start: Self.margin, end: tiny ? 0 : Self.margin)
-            posterCell.size(width: -1, height: -1)
-            posterCell.valign(GTK_ALIGN_CENTER)
+            posterCell.halign(GTK_ALIGN_END).valign(GTK_ALIGN_CENTER)
+            posterCell.margins(top: 0, bottom: 0, start: Self.margin, end: Self.margin)
             sideClamp.hexpand(true).vexpand(true).valign(GTK_ALIGN_FILL)
             adw_clamp_set_maximum_size(sideClamp.widget.cast(), 560)
             setSpacers(top: true, middle: true, bottom: false)
-            volume.size(width: Int32(max(min(w - posterSize - 6 * margin, 500), 120)), height: -1)
+            volume.size(width: Int32(max(min(sideWidth - 2 * margin, 500), 120)), height: -1)
             reorder(seekFirst: false)
             titleBlock.setCSS("large", false)
         case .sideBySide:
             posterSize = (h / 2.5).rounded()
             lyricsWidth = posterSize
-            seek.isVisible = true
-            titleBlock.isVisible = true
-            codec.isVisible = true
-            transportRow.isVisible = true
+            posterGap = margin
+            sideWidth = max(w / 2 - 2 * margin, 300)
             volume.isVisible = true
-            toolbar.isVisible = true
-            hoverEnabled = false
             playerBox.orientation(GTK_ORIENTATION_VERTICAL)
             playerBox.size(width: Int32(w / 2), height: -1)
             playerBox.hexpand(false).valign(GTK_ALIGN_CENTER)
             playerBox.halign(showsQueueColumn ? GTK_ALIGN_START : GTK_ALIGN_CENTER)
-            posterCell.halign(GTK_ALIGN_CENTER).margins(top: 0, bottom: Self.margin, start: 0, end: 0)
-            posterCell.size(width: -1, height: -1)
+            posterCell.halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_START)
+            posterCell.margins(top: 0, bottom: Self.margin, start: 0, end: 0)
             sideClamp.hexpand(true).vexpand(false).valign(GTK_ALIGN_START)
-            adw_clamp_set_maximum_size(sideClamp.widget.cast(), Int32(max(w / 2 - 2 * margin, 300)))
+            adw_clamp_set_maximum_size(sideClamp.widget.cast(), Int32(sideWidth))
             setSpacers(top: false, middle: false, bottom: false)
             volume.size(width: Int32(min(w / 2 - 4 * margin, 500)), height: -1)
             reorder(seekFirst: true)
             titleBlock.setCSS("large", true)
+        }
+        // Extra controls beside the transport only side by side; otherwise shuffle and
+        // repeat live in the toolbar, as in Plexamp.
+        let extra = layout == .sideBySide
+        inlineShuffle.isVisible = extra
+        inlineRepeat.isVisible = extra
+        toolbarShuffle.isVisible = !extra
+        toolbarRepeat.isVisible = !extra
+
+        // Fit. In the stacked layouts the cover shares the height with everything else;
+        // in landscape it stands beside them, and only needs width.
+        let stacked = layout != .landscape
+        let minimumPoster = 110.0
+        if !stacked, posterSize < minimumPoster || w - posterSize - 3 * margin < 260 {
+            posterCell.isVisible = false
+            sideWidth = min(w, 560)
+        }
+        func needed() -> Double {
+            let side = measuredHeight(sideClamp, width: Int32(max(sideWidth, 1)))
+            return stacked && posterCell.isVisible ? posterSize + posterGap + side : side
+        }
+        for piece in [volume, codec, toolbar] where needed() > available {
+            piece.isVisible = false
+        }
+        if stacked, needed() > available, posterCell.isVisible {
+            let room = available - posterGap - measuredHeight(sideClamp, width: Int32(max(sideWidth, 1)))
+            if room >= minimumPoster {
+                posterSize = room
+            } else {
+                posterCell.isVisible = false
+            }
+        }
+        for piece in [seek, titleBlock] where needed() > available {
+            piece.isVisible = false
         }
 
         let side = Int32(max(posterSize, 40))
@@ -294,19 +303,17 @@ final class NowPlaying {
         gtk_scrolled_window_set_max_content_height(posterFrame.widget.cast(), side)
         // A tiny window keeps the way down, the menu and its own buttons.
         sourceBlock?.isVisible = w >= 330
-        hoverControls.size(width: side, height: -1)
-        if !hoverEnabled { hoverControls.isRevealed = false }
-
-        // Extra controls beside the transport only side by side; otherwise shuffle and
-        // repeat live in the toolbar, as in Plexamp.
-        let extra = layout == .sideBySide
-        inlineShuffle.isVisible = extra
-        inlineRepeat.isVisible = extra
-        toolbarShuffle.isVisible = !extra
-        toolbarRepeat.isVisible = !extra
 
         if changed { placeQueue() }
         refreshMode()
+    }
+
+    /// What a widget asks for in height at a width, as laid out now.
+    private func measuredHeight(_ widget: Widget, width: Int32) -> Double {
+        var minimum: Int32 = 0
+        var natural: Int32 = 0
+        gtk_widget_measure(widget.widget, GTK_ORIENTATION_VERTICAL, width, &minimum, &natural, nil, nil)
+        return Double(natural)
     }
 
     private func setSpacers(top: Bool, middle: Bool, bottom: Bool) {
@@ -579,9 +586,9 @@ final class NowPlaying {
 
     // MARK: - Controls
 
-    /// Plexamp's transport: previous and next at 20, play in a 60-pixel circle tinted with
-    /// the cover's accent; with shuffle and repeat either side when side by side. Skip
-    /// back and forward join it when the setting asks.
+    /// Plexamp's transport: previous and next, play in a circle tinted with the cover's
+    /// accent, a little smaller than Plexamp's 60; with shuffle and repeat either side when
+    /// side by side. Skip back and forward join it when the setting asks.
     private static func transport(_ app: AppState) -> (Box, Button, Button) {
         let player = app.player
         let settings = app.playerSettings
@@ -621,24 +628,6 @@ final class NowPlaying {
             forward.tooltip("Forward \(settings.skipForwardSeconds) Seconds")
         }
         return (row, shuffle, repeatButton)
-    }
-
-    /// Previous, play and next along the bottom of the cover, shown on hover when the
-    /// window is too short for the transport below it — Plexamp's `hoverPlayControls`.
-    private static func compactTransport(_ app: AppState) -> Widget {
-        let player = app.player
-        let previous = Button(icon: "media-skip-backward-symbolic", "flat", "np-skip") { player.previous() }
-        let play = Button(icon: "media-playback-start-symbolic", "flat", "np-skip") { player.togglePlayPause() }
-        let next = Button(icon: "media-skip-forward-symbolic", "flat", "np-skip") { player.next() }
-        let row = Box.horizontal(spacing: 4) {
-            previous
-            play
-            next
-        }.halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_END)
-        row.observe {
-            play.icon = player.isPlaying ? "media-playback-pause-symbolic" : "media-playback-start-symbolic"
-        }
-        return Box.vertical { row.vexpand() }.css("np-hover", "np-transport").size(width: -1, height: 45)
     }
 
     private static func shuffleButton(_ app: AppState) -> Button {
