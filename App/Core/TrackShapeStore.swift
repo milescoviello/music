@@ -1,7 +1,10 @@
+#if canImport(AVFoundation)
 import AVFoundation
+#endif
 import Foundation
 import Observation
 
+#if canImport(AVFoundation)
 /// Reads a local file's loudness, start to end, for Sweet Fades and the seekbar.
 enum TrackAnalyzer {
     /// Nil for anything AVFoundation cannot open as audio, or that fails part way: a
@@ -41,6 +44,7 @@ enum TrackAnalyzer {
         return TrackShape.measure(momentary: meter.finish())
     }
 }
+#endif
 
 /// The measured shapes of tracks, one small file each in Caches.
 ///

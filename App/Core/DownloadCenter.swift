@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Observation
 
 /// Downloads, from the UI's point of view: what is on the phone, what is arriving,
@@ -55,6 +58,7 @@ final class DownloadCenter {
     private weak var appState: AppState?
 
     init() {
+        #if canImport(Darwin)
         let configuration = URLSessionConfiguration.background(
             withIdentifier: "com.milescoviello.music.downloads"
         )
@@ -63,6 +67,12 @@ final class DownloadCenter {
         configuration.isDiscretionary = false
         configuration.sessionSendsLaunchEvents = true
         configuration.allowsCellularAccess = true
+        #else
+        // A desktop process is not suspended when its window is not in front, so an
+        // ordinary session keeps transferring; one that quits is resumed by the catalog's
+        // pending entries on the next launch.
+        let configuration = URLSessionConfiguration.default
+        #endif
 
         // The delegate queue is main, so every callback is already on the actor that
         // owns this object -- no hops, and the file move can be done inline where it

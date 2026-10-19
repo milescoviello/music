@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Navidrome's own API, used for the one thing Subsonic cannot answer: **when**.
 ///

@@ -1,5 +1,10 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#endif
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Builds authenticated URLs for endpoints that return *media* rather than JSON.
 ///
@@ -128,7 +133,9 @@ actor SubsonicClient {
         // for a minute before falling back. Offline detection is only as fast as
         // the failure, and this server is on the LAN.
         configuration.timeoutIntervalForRequest = 8
+        #if canImport(Darwin)
         configuration.waitsForConnectivity = false
+        #endif
         session = URLSession(configuration: configuration)
     }
 

@@ -1,0 +1,3 @@
+import MusicLogic
+
+MusicApplication.run()

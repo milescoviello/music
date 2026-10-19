@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Observation
 
 /// Plexamp's "cache ahead": the tracks about to play, fetched whole onto the phone before
@@ -65,7 +68,9 @@ final class StreamCache {
         let configuration = URLSessionConfiguration.default
         // A cache fetch is opportunistic: if there is no network, give up and let the
         // next plan try again, rather than holding a request open.
+        #if canImport(Darwin)
         configuration.waitsForConnectivity = false
+        #endif
         configuration.timeoutIntervalForRequest = 30
         session = URLSession(configuration: configuration)
         load()

@@ -7,9 +7,18 @@ import Foundation
 /// Documents either -- that is included in iCloud backups, and a lossless library
 /// has no business in someone's iCloud quota.
 enum Paths {
+    /// The phone's container is the app's own, so "Music" is unambiguous there. A desktop's
+    /// `~/.local/share` and `~/.cache` are shared by every app, so on Linux the folders are
+    /// named for this one.
+    #if os(Linux)
+    private static let folder = "com.milescoviello.Music"
+    #else
+    private static let folder = "Music"
+    #endif
+
     static let root: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("Music", isDirectory: true)
+        return base.appendingPathComponent(folder, isDirectory: true)
     }()
 
     /// Completed, playable audio. Flat rather than per-album: song ids are unique,
@@ -30,7 +39,7 @@ enum Paths {
     /// and every store checks for its files rather than trusting an index.
     static let caches: URL = {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("Music", isDirectory: true)
+        return base.appendingPathComponent(folder, isDirectory: true)
     }()
     static let streamCache = caches.appendingPathComponent("Streams", isDirectory: true)
     static let trackShapes = caches.appendingPathComponent("Shapes", isDirectory: true)
@@ -82,9 +91,11 @@ enum Paths {
         let values = try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         return values?.volumeAvailableCapacityForImportantUsage ?? 0
         #else
-        // Linux Foundation has no such key. Only the test package ever builds there, and
-        // nothing it tests asks how much room the phone has.
-        return 0
+        // Linux Foundation has no such key; the free blocks an unprivileged user may fill
+        // are the same question asked of the file system directly.
+        var stats = statvfs()
+        guard statvfs(root.path, &stats) == 0 else { return 0 }
+        return Int64(stats.f_bavail) * Int64(stats.f_frsize)
         #endif
     }
 }

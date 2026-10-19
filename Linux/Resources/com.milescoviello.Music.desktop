@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Music
+GenericName=Music Player
+Comment=Play your Navidrome library
+Exec=music
+Icon=com.milescoviello.Music
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=Navidrome;Subsonic;Plexamp;Player;
+StartupNotify=true
+StartupWMClass=com.milescoviello.Music
+SingleMainWindow=true

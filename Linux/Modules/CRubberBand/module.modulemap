@@ -1,0 +1,5 @@
+module CRubberBand [system] {
+    header "CRubberBand.h"
+    link "rubberband"
+    export *
+}
