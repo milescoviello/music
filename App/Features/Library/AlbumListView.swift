@@ -41,13 +41,15 @@ struct AlbumListView: View {
                 }
                 .padding(.top, 60)
             } else {
+                let shown = displayed
                 LazyVGrid(columns: columns, spacing: 20) {
-                    ForEach(displayed) { album in
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, album in
                         NavigationLink(value: Destination.album(AlbumRef(album))) {
                             AlbumCard(album: album)
                         }
                         .buttonStyle(.plain)
                         .albumMenu(album)
+                        .prefetchingCovers(of: shown, after: index)
                     }
                 }
                 .padding(.horizontal, Metrics.gutter)

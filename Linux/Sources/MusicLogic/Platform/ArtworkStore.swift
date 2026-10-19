@@ -27,6 +27,7 @@ final class ArtworkStore {
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private var inFlight: [String: Task<Texture?, Never>] = [:]
     @ObservationIgnored private var signer: SubsonicSigner?
+    @ObservationIgnored private var warming: Task<Void, Never>?
 
     init() {
         memory.countLimit = 400
@@ -294,6 +295,53 @@ final class ArtworkStore {
             memory.setObject(texture, forKey: key(id, size), cost: texture.width * texture.height * 4)
         }
         return texture
+    }
+
+    /// Loads the covers a list is about to show into memory, as the iPhone's does, so a
+    /// fast scroll finds them there.
+    func prefetch(_ ids: some Sequence<String?>, size: Size) {
+        for case let id? in ids where memory.object(forKey: key(id, size)) == nil
+            && inFlight["\(id)@\(size.rawValue)"] == nil {
+            Task { _ = await image(for: id, size: size) }
+        }
+    }
+
+    /// The whole library's covers to the disk cache ahead of time, a few at once and at
+    /// low priority, as the iPhone's does: no cover is first seen from the network.
+    func warm(_ ids: [String], sizes: [Size]) {
+        guard warming == nil, signer != nil else { return }
+        var wanted: [(file: URL, remote: URL)] = []
+        for id in Set(ids) {
+            for size in sizes {
+                guard let remote = url(for: id, size: size) else { continue }
+                wanted.append((cacheURL(id, size), remote))
+            }
+        }
+        let session = session
+        warming = Task.detached(priority: .background) {
+            let missing = wanted.filter { !FileManager.default.fileExists(atPath: $0.file.path) }
+            await withTaskGroup(of: Void.self) { group in
+                var next = missing.makeIterator()
+                func addNext() -> Bool {
+                    guard let item = next.next() else { return false }
+                    group.addTask {
+                        guard !Task.isCancelled,
+                              let (data, response) = try? await session.data(from: item.remote),
+                              (response as? HTTPURLResponse)?.statusCode ?? 200 < 300,
+                              !Self.isErrorBody(data)
+                        else { return }
+                        try? data.write(to: item.file, options: .atomic)
+                    }
+                    return true
+                }
+                for _ in 0..<4 where addNext() {}
+                for await _ in group {
+                    if Task.isCancelled { break }
+                    _ = addNext()
+                }
+            }
+            await MainActor.run { self.warming = nil }
+        }
     }
 
     /// Keeps the seen-covers cache to a size: oldest first, past half a gigabyte.

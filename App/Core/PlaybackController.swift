@@ -927,6 +927,11 @@ final class PlaybackController {
                 guard queue.current?.id == songID else { return }
                 nowPlaying.setArtwork(image, songID: songID)
             }
+            // The next two tracks' covers too, at the player's size and the rows', so a
+            // skip lands on its artwork rather than on a grey square that fills in.
+            let coming = queue.upcoming(2).map(\.coverArt)
+            artwork.prefetch(coming, size: .full)
+            artwork.prefetch(coming, size: .thumb)
         }
     }
 

@@ -85,12 +85,13 @@ struct AlbumGrid: View {
     var body: some View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 20) {
-                ForEach(albums) { album in
+                ForEach(Array(albums.enumerated()), id: \.element.id) { index, album in
                     NavigationLink(value: Destination.album(AlbumRef(album))) {
                         AlbumCard(album: album)
                     }
                     .buttonStyle(.plain)
                     .albumMenu(album)
+                    .prefetchingCovers(of: albums, after: index)
                 }
             }
             .padding(.horizontal, Metrics.gutter)

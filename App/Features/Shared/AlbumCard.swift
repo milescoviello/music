@@ -45,3 +45,26 @@ struct PlaylistCard: View {
         }
     }
 }
+
+/// Loads the covers of the next few albums of a grid into memory as a card comes into
+/// view, so a fast scroll finds them there instead of drawing placeholders first.
+private struct CoverPrefetch: ViewModifier {
+    @Environment(ArtworkStore.self) private var artwork
+
+    let albums: [Album]
+    let index: Int
+
+    func body(content: Content) -> some View {
+        content.onAppear {
+            guard index + 1 < albums.count else { return }
+            // Two columns, so a dozen is the next six rows.
+            artwork.prefetch(albums[(index + 1)..<min(index + 13, albums.count)].lazy.map(\.coverArt), size: .card)
+        }
+    }
+}
+
+extension View {
+    func prefetchingCovers(of albums: [Album], after index: Int) -> some View {
+        modifier(CoverPrefetch(albums: albums, index: index))
+    }
+}
