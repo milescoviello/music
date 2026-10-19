@@ -82,12 +82,16 @@ enum Pages {
             return SettingsPages.offline(env)
         case .diagnostics:
             return SettingsPages.diagnostics(env)
-        default:
-            return pending(String(describing: destination), env: env)
+        case let .requestMusic(text):
+            return HermesPages.request(env, prefill: text)
+        case .requestSettings:
+            return HermesPages.requestSettings(env)
+        case let .lyricSearch(query):
+            return HermesPages.lyricSearch(env, prefill: query)
+        case .vibePlaylist:
+            return HermesPages.vibePlaylist(env)
+        case .libraryHealth:
+            return HermesPages.libraryHealth(env)
         }
-    }
-
-    private static func pending(_ title: String, env: Env) -> NavigationPage {
-        Page.make(title, content: StatusPage(icon: "content-loading-symbolic", title: title))
     }
 }
