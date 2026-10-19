@@ -8,6 +8,7 @@ import SwiftUI
 /// ever play one song, which is the single most common way a music app feels broken.
 struct PlayableSongRow: View {
     @Environment(AppState.self) private var appState
+    @Environment(ArtworkStore.self) private var artwork
 
     let songs: [Song]
     let index: Int
@@ -24,10 +25,18 @@ struct PlayableSongRow: View {
     private var song: Song { songs[index] }
 
     var body: some View {
-        if let selection, selection.isActive {
-            selectableRow(selection)
-        } else {
-            playableRow
+        Group {
+            if let selection, selection.isActive {
+                selectableRow(selection)
+            } else {
+                playableRow
+            }
+        }
+        // The next rows' covers, loaded as this one comes into view, so a fast scroll finds
+        // them in memory rather than drawing grey squares and filling them in.
+        .onAppear {
+            guard case .withArtwork = style, index + 1 < songs.count else { return }
+            artwork.prefetch(songs[(index + 1)..<min(index + 16, songs.count)].lazy.map(\.coverArt), size: .thumb)
         }
     }
 

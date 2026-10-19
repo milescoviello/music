@@ -46,6 +46,9 @@ enum Paths {
     static let seekbarLevels = caches.appendingPathComponent("Levels", isDirectory: true)
     /// English translations of lyrics, made on the phone.
     static let lyricTranslations = caches.appendingPathComponent("Translations", isDirectory: true)
+    /// Every cover fetched, as the server sent it, so a cover is only ever fetched once.
+    /// Offline covers for downloads live in `artwork` instead, where iOS cannot purge them.
+    static let covers = caches.appendingPathComponent("Covers", isDirectory: true)
 
     static let catalog = root.appendingPathComponent("catalog.json")
     static let queue = root.appendingPathComponent("queue.json")
@@ -56,7 +59,7 @@ enum Paths {
     /// download session's delegate can fire before any UI exists. The exclusion flag
     /// is re-applied every launch: it is lost whenever a directory is recreated.
     static func bootstrap() {
-        for directory in [root, media, incoming, artwork, outbox, lyrics, metadata, streamCache, trackShapes, seekbarLevels, lyricTranslations] {
+        for directory in [root, media, incoming, artwork, outbox, lyrics, metadata, streamCache, trackShapes, seekbarLevels, lyricTranslations, covers] {
             try? FileManager.default.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true

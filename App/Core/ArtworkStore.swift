@@ -9,22 +9,32 @@ import UIKit
 /// crucial part is `cached(_:_:)` being **synchronous**: a view can check it during
 /// `init` and, on a hit, render with no placeholder and no transition at all.
 ///
-/// Three layers, and the third is the reason this file changed: memory, then a
-/// **permanent** copy in Application Support, then the network. `URLCache` alone was not
-/// enough — iOS purges it under storage pressure, so a downloaded album could keep its
-/// audio and lose its cover, which offline is unrecoverable. Anything downloaded gets
-/// its art kept deliberately, next to the music.
+/// Four layers: memory; a **permanent** copy in Application Support of the art of
+/// anything downloaded, which iOS cannot purge, so a downloaded album never loses its
+/// cover offline; a copy of every cover ever fetched, in Caches, as the server sent it;
+/// then the network. The third replaced `URLCache`, which iOS purges as it likes and
+/// which kept nothing beyond 512 MB, so covers seen yesterday came from the network
+/// again — a blank square in the meantime.
+///
+/// Covers are also fetched before they are needed: the whole library's, to disk, on
+/// Wi-Fi (`warm`), and the next few of a grid's, into memory, as it scrolls (`prefetch`).
 @MainActor
 @Observable
 final class ArtworkStore {
     /// Three sizes only, so both this cache and the server's stay hot.
-    enum Size: Int, Sendable {
+    enum Size: Int, Sendable, CaseIterable {
         case thumb = 160
         case card = 512
         case full = 1200
     }
 
-    private let memory = NSCache<NSString, UIImage>()
+    /// One cache per size, so a few player-sized covers cannot push out the hundreds of
+    /// thumbnails a list is made of. Sized to the phone: the old 64 MB for everything held
+    /// about sixty grid covers, so a grid scrolled back up, or a tab switched back to,
+    /// drew most of them again from scratch.
+    private let thumbs = NSCache<NSString, UIImage>()
+    private let cards = NSCache<NSString, UIImage>()
+    private let fulls = NSCache<NSString, UIImage>()
     private let session: URLSession
     // None of this is anything a view should redraw for. Observed, every fetch starting
     // and finishing, and every palette cached while the visualiser draws, was a change
@@ -35,30 +45,79 @@ final class ArtworkStore {
     /// same cover at once, write it once.
     @ObservationIgnored private var persisting: Set<URL> = []
     @ObservationIgnored private var palettes: [String: Palette] = [:]
+    @ObservationIgnored private var warming: Task<Void, Never>?
 
     init() {
-        memory.countLimit = 300
-        memory.totalCostLimit = 64 * 1024 * 1024
+        let ram = Double(ProcessInfo.processInfo.physicalMemory)
+        func budget(_ share: Double, cap megabytes: Double) -> Int {
+            Int(min(ram * share, megabytes * 1_048_576))
+        }
+        // A 160-pixel cover is 100 KB decoded, a 512 one 1 MB, a 1200 one 5.8 MB. On an
+        // 8 GB phone that is about 1,600 thumbnails, 330 grid covers and 20 player covers,
+        // and NSCache gives it all back the moment iOS asks for memory.
+        thumbs.totalCostLimit = budget(0.02, cap: 256)
+        thumbs.countLimit = 4_000
+        cards.totalCostLimit = budget(0.04, cap: 512)
+        cards.countLimit = 1_000
+        fulls.totalCostLimit = budget(0.015, cap: 160)
+        fulls.countLimit = 24
 
         let configuration = URLSessionConfiguration.default
-        configuration.urlCache = URLCache(
-            memoryCapacity: 16 * 1024 * 1024,
-            diskCapacity: 512 * 1024 * 1024,
-            diskPath: "artwork"
-        )
-        configuration.requestCachePolicy = .returnCacheDataElseLoad
+        // The disk copy below is the cache; a URLCache as well would keep every cover
+        // twice, and purge its copy whenever iOS likes.
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = 12
+        configuration.httpMaximumConnectionsPerHost = 6
         session = URLSession(configuration: configuration)
 
-        // Covers fetched while Navidrome was rebuilding its artwork came back wrong, and
-        // `returnCacheDataElseLoad` keeps whatever it got forever. Cleared once, so every
-        // cover is fetched again from the server as it is now.
-        let version = 2
-        if UserDefaults.standard.integer(forKey: "artwork.cacheVersion") < version {
-            configuration.urlCache?.removeAllCachedResponses()
-            let saved = (try? FileManager.default.contentsOfDirectory(at: Paths.artwork, includingPropertiesForKeys: nil)) ?? []
-            for file in saved { try? FileManager.default.removeItem(at: file) }
+        // Version 2 cleared covers fetched while Navidrome was rebuilding its artwork,
+        // which `returnCacheDataElseLoad` would have kept forever. Version 3 drops the
+        // URLCache that held them, now replaced by `Paths.covers`.
+        let version = 3
+        let stored = UserDefaults.standard.integer(forKey: "artwork.cacheVersion")
+        if stored < version {
+            URLCache(memoryCapacity: 0, diskCapacity: 0, diskPath: "artwork").removeAllCachedResponses()
+            if stored < 2 {
+                let saved = (try? FileManager.default.contentsOfDirectory(at: Paths.artwork, includingPropertiesForKeys: nil)) ?? []
+                // Not a playlist's chosen photo: that is the user's, not a cache.
+                for file in saved where !file.lastPathComponent.hasPrefix("playlist-") {
+                    try? FileManager.default.removeItem(at: file)
+                }
+            }
             UserDefaults.standard.set(version, forKey: "artwork.cacheVersion")
+        }
+        Task.detached(priority: .background) { Self.trimCovers() }
+    }
+
+    /// Keeps the cover cache to a size, oldest written first, once it passes a gigabyte:
+    /// the whole library's covers are a few hundred megabytes, and every track's own
+    /// cover seen in a list adds to it.
+    nonisolated private static func trimCovers() {
+        let limit: Int64 = 1_024 * 1_048_576
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: Paths.covers, includingPropertiesForKeys: Array(keys)
+        )) ?? []
+        var entries = files.compactMap { url -> (url: URL, size: Int64, date: Date)? in
+            guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
+            return (url, Int64(values.fileSize ?? 0), values.contentModificationDate ?? .distantPast)
+        }
+        var total = entries.reduce(Int64(0)) { $0 + $1.size }
+        guard total > limit else { return }
+        // Down to three quarters, so this is not back at the limit after a day.
+        entries.sort { $0.date < $1.date }
+        for entry in entries where total > limit * 3 / 4 {
+            try? FileManager.default.removeItem(at: entry.url)
+            total -= entry.size
+        }
+    }
+
+    private func memory(_ size: Size) -> NSCache<NSString, UIImage> {
+        switch size {
+        case .thumb: return thumbs
+        case .card: return cards
+        case .full: return fulls
         }
     }
 
@@ -67,6 +126,12 @@ final class ArtworkStore {
     private func fileURL(_ id: String, _ size: Size) -> URL {
         let safe = id.replacingOccurrences(of: "/", with: "_")
         return Paths.artwork.appendingPathComponent("\(safe)@\(size.rawValue).jpg")
+    }
+
+    /// Where every fetched cover is kept, in the server's own bytes.
+    nonisolated private static func coverURL(_ id: String, _ size: Size) -> URL {
+        let safe = id.replacingOccurrences(of: "/", with: "_")
+        return Paths.covers.appendingPathComponent("\(safe)@\(size.rawValue)")
     }
 
     /// Persists a size for offline use. Called when a track is downloaded.
@@ -81,10 +146,13 @@ final class ArtworkStore {
 
         guard let image = await image(for: id, size: size) else { return }
 
-        // Encoded and written off the main actor. A JPEG encode of a 1,200-pixel cover is
-        // long enough to see, and on the main actor it ran three times per track of an
-        // album or playlist being downloaded, every one queued at the same moment.
+        // The server's own bytes when the cover cache has them, which it does once the
+        // image above came from the network; encoded again only when it does not.
+        // Off the main actor either way: a JPEG encode of a 1,200-pixel cover is long
+        // enough to see, and it ran three times per track of an album being downloaded.
+        let cached = Self.coverURL(id, size)
         await Task.detached(priority: .utility) {
+            if (try? FileManager.default.copyItem(at: cached, to: destination)) != nil { return }
             guard let data = image.jpegData(compressionQuality: 0.85) else { return }
             try? data.write(to: destination, options: .atomic)
         }.value
@@ -97,12 +165,15 @@ final class ArtworkStore {
         }
     }
 
-    /// Bytes held for offline artwork, for the settings screen.
+    /// Bytes held for artwork, offline copies and the cover cache both, for the
+    /// settings screen.
     static func diskUsage() -> Int64 {
-        let contents = (try? FileManager.default.contentsOfDirectory(
-            at: Paths.artwork,
-            includingPropertiesForKeys: [.fileSizeKey]
-        )) ?? []
+        let contents = [Paths.artwork, Paths.covers].flatMap { directory in
+            (try? FileManager.default.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.fileSizeKey]
+            )) ?? []
+        }
         return contents.reduce(Int64(0)) { total, url in
             let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             return total + Int64(size)
@@ -125,7 +196,7 @@ final class ArtworkStore {
     func palette(for id: String?) -> Palette? {
         guard let id else { return nil }
         if let cached = palettes[id] { return cached }
-        guard let image = memory.object(forKey: key(id, .thumb)) else { return nil }
+        guard let image = thumbs.object(forKey: key(id, .thumb)) else { return nil }
 
         guard let palette = Self.extractPalette(from: image) else { return nil }
         palettes[id] = palette
@@ -224,9 +295,11 @@ final class ArtworkStore {
     func configure(signer: SubsonicSigner?) {
         self.signer = signer
         if signer == nil {
-            memory.removeAllObjects()
+            for cache in [thumbs, cards, fulls] { cache.removeAllObjects() }
             inFlight.removeAll()
             palettes.removeAll()
+            warming?.cancel()
+            warming = nil
         }
     }
 
@@ -237,7 +310,19 @@ final class ArtworkStore {
     /// Synchronous memory-cache probe. This is what removes the flicker.
     func cached(_ id: String?, _ size: Size) -> UIImage? {
         guard let id else { return nil }
-        return memory.object(forKey: key(id, size))
+        return memory(size).object(forKey: key(id, size))
+    }
+
+    /// The same cover at another size, while the one asked for loads: the grid's cover
+    /// in the player until the full one arrives, a row's thumbnail in a grid. Softer for a
+    /// moment beats a grey square. Larger sizes first, since they scale down cleanly.
+    func cachedStandIn(_ id: String?, for size: Size) -> UIImage? {
+        guard let id else { return nil }
+        let others = Size.allCases.filter { $0 != size }.sorted { $0.rawValue > $1.rawValue }
+        for other in others {
+            if let image = memory(other).object(forKey: key(id, other)) { return image }
+        }
+        return nil
     }
 
     func url(for id: String?, size: Size) -> URL? {
@@ -250,32 +335,34 @@ final class ArtworkStore {
     func image(for id: String?, size: Size) async -> UIImage? {
         guard let id else { return nil }
 
-        if let hit = memory.object(forKey: key(id, size)) { return hit }
+        let cache = memory(size)
+        if let hit = cache.object(forKey: key(id, size)) { return hit }
 
         let cacheKey = "\(id)@\(size.rawValue)"
         if let existing = inFlight[cacheKey] { return await existing.value }
 
-        let file = fileURL(id, size)
+        let kept = fileURL(id, size)
+        let copy = Self.coverURL(id, size)
         let remote = url(for: id, size: size)
 
         let task = Task<UIImage?, Never> { [session] in
-            // Disk before network, so offline art appears and an online launch does not
-            // re-fetch what is already kept. Reading and decoding are expensive either
-            // way, so both paths do them off the main actor -- this task itself is on it.
+            // Disk before network, so offline art appears and nothing seen before is
+            // fetched again. Reading and decoding are expensive either way, so both paths
+            // do them off the main actor -- this task itself is on it.
             //
             // Bound to a local first: a trailing closure inside an `if let` condition
             // cannot be parsed -- it reads as the `if` body.
             let stored = await Task.detached(priority: .userInitiated) {
-                (try? Data(contentsOf: file)).flatMap(Self.decoded)
+                ((try? Data(contentsOf: kept)) ?? (try? Data(contentsOf: copy))).flatMap(Self.decoded)
             }.value
             if let stored { return stored }
 
-            guard let remote,
-                  let (data, _) = try? await session.data(from: remote)
-            else { return nil }
+            guard let remote, let data = await Self.fetch(remote, session: session) else { return nil }
 
             return await Task.detached(priority: .userInitiated) {
-                Self.decoded(data)
+                // Kept as sent, before decoding, so the next launch reads it from disk.
+                try? data.write(to: copy, options: .atomic)
+                return Self.decoded(data)
             }.value
         }
         inFlight[cacheKey] = task
@@ -284,10 +371,73 @@ final class ArtworkStore {
         inFlight[cacheKey] = nil
 
         if let image {
-            let cost = Int(image.size.width * image.size.height * 4)
-            memory.setObject(image, forKey: key(id, size), cost: cost)
+            let cost = Int(image.size.width * image.size.height * image.scale * image.scale * 4)
+            cache.setObject(image, forKey: key(id, size), cost: cost)
         }
         return image
+    }
+
+    /// A cover's bytes, or nil for anything that is not an image: Navidrome answers a
+    /// failure with an error page, which must not be kept as the cover.
+    nonisolated private static func fetch(_ url: URL, session: URLSession) async -> Data? {
+        guard let (data, response) = try? await session.data(from: url),
+              (response as? HTTPURLResponse).map({ (200...299).contains($0.statusCode) }) ?? true,
+              !(response.mimeType ?? "").contains("json"),
+              !(response.mimeType ?? "").contains("xml"),
+              !data.isEmpty
+        else { return nil }
+        return data
+    }
+
+    /// Loads the covers a grid is about to show into memory, so a fast scroll finds them
+    /// there instead of drawing a placeholder first. Cheap for covers already loaded or
+    /// loading.
+    func prefetch(_ ids: some Sequence<String?>, size: Size) {
+        let cache = memory(size)
+        for case let id? in ids where cache.object(forKey: key(id, size)) == nil
+            && inFlight["\(id)@\(size.rawValue)"] == nil {
+            Task(priority: .utility) { _ = await image(for: id, size: size) }
+        }
+    }
+
+    /// Fetches covers to disk ahead of time, a few at a time at low priority, so that the
+    /// first sight of any of them is a disk read rather than a request. To disk only: into
+    /// memory, the whole library would push out what is on screen.
+    ///
+    /// Called with the whole library once it is loaded, on Wi-Fi. Covers already on disk
+    /// cost a file check; a second call while one is running is ignored.
+    func warm(_ ids: [String], sizes: [Size]) {
+        guard warming == nil, signer != nil else { return }
+        var wanted: [(file: URL, remote: URL)] = []
+        for id in Set(ids) {
+            for size in sizes {
+                guard let remote = url(for: id, size: size) else { continue }
+                wanted.append((Self.coverURL(id, size), remote))
+            }
+        }
+        let session = session
+        warming = Task.detached(priority: .background) {
+            let missing = wanted.filter { !FileManager.default.fileExists(atPath: $0.file.path) }
+            await withTaskGroup(of: Void.self) { group in
+                var next = missing.makeIterator()
+                func addNext() -> Bool {
+                    guard let item = next.next() else { return false }
+                    group.addTask {
+                        guard !Task.isCancelled, let data = await Self.fetch(item.remote, session: session) else { return }
+                        try? data.write(to: item.file, options: .atomic)
+                    }
+                    return true
+                }
+                // Four at once: quick enough to cover a few thousand albums in a minute
+                // or two on Wi-Fi, gentle enough on the server and on what is on screen.
+                for _ in 0..<4 where addNext() {}
+                for await _ in group {
+                    if Task.isCancelled { break }
+                    _ = addNext()
+                }
+            }
+            await MainActor.run { self.warming = nil }
+        }
     }
 
     /// An image that is decoded already, not merely parsed.
