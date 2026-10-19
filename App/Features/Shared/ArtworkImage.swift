@@ -18,8 +18,20 @@ struct ArtworkImage: View {
     /// worst possible way to show that. Initials at least tell them apart.
     var fallbackText: String?
 
-    @State private var image: UIImage?
-    @State private var didLoad = false
+    /// The loaded image and what it was loaded for. A list that identifies its rows by
+    /// position hands this view a different cover id when the list changes, and an image
+    /// kept without its key went on showing the old cover until the new one arrived:
+    /// another album's art on a track.
+    @State private var loaded: Loaded?
+
+    private struct Loaded {
+        let key: String
+        let image: UIImage
+    }
+
+    private var loadKey: String {
+        "\(id ?? "")|\(playlistID ?? "")|\(playlistArtwork.generation)"
+    }
 
     var body: some View {
         // `Color.clear` plus an **overlay**, not a `ZStack`, and that distinction is the
@@ -42,7 +54,15 @@ struct ArtworkImage: View {
         // view is on screen, every cell scrolled into view drew its placeholder first --
         // monogram scaled down from 200 points and all -- and then drew again with the
         // image. Not for a playlist, whose own photo, read from disk, wins over the cover.
-        let shown = image ?? (playlistID == nil ? store.cached(id, size) : nil)
+        //
+        // And while this size loads, the same cover at another size if one is in memory:
+        // the grid's cover in the player, a row's thumbnail in a grid. Soft for a moment
+        // is far better than a grey square.
+        let key = loadKey
+        let current = loaded?.key == key ? loaded?.image : nil
+        let shown = current ?? (playlistID == nil
+            ? store.cached(id, size) ?? store.cachedStandIn(id, for: size)
+            : nil)
 
         Color.clear
             .overlay {
@@ -57,8 +77,8 @@ struct ArtworkImage: View {
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             // Re-reads when a playlist photo is set or cleared, which changes no id.
-            .task(id: "\(id ?? "")|\(playlistID ?? "")|\(playlistArtwork.generation)") {
-                await load()
+            .task(id: key) {
+                await load(key)
             }
     }
 
@@ -83,27 +103,24 @@ struct ArtworkImage: View {
             }
     }
 
-    private func load() async {
+    private func load(_ key: String) async {
         // A chosen playlist photo takes precedence, and is read straight from disk --
         // it is already local, so there is nothing to await.
         if let playlistID, let custom = playlistArtwork.image(for: playlistID) {
-            image = custom
-            didLoad = true
+            loaded = Loaded(key: key, image: custom)
             return
         }
 
         if let hit = store.cached(id, size) {
-            image = hit
-            didLoad = true
+            loaded = Loaded(key: key, image: hit)
             return
         }
 
-        let loaded = await store.image(for: id, size: size)
-        guard !Task.isCancelled else { return }
-        image = loaded
-        didLoad = true
+        guard let image = await store.image(for: id, size: size), !Task.isCancelled else { return }
+        loaded = Loaded(key: key, image: image)
     }
 }
+
 /// Circular variant for artists.
 struct ArtistArtwork: View {
     @Environment(ArtworkStore.self) private var store
