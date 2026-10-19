@@ -180,8 +180,10 @@ final class NowPlaying {
         let (width, height) = (Int(size.width), Int(size.height))
         guard width > 0 else { return }
         let w = Double(width)
-        let bar = Double(max(gtk_widget_get_height(topBar.widget), 48))
-        let available = Double(height) - bar
+        // The bar as tall as it asks to be with this desktop's fonts and buttons, and a
+        // margin at the bottom, clear of the window's rounded corners.
+        let bar = max(measuredHeight(topBar, width: size.width), 40)
+        let available = Double(height) - bar - 12
         // Plexamp's header floats over the top 30 of its player; this one takes a row of
         // its own, so Plexamp's heights are measured from below it, plus that 30.
         let h = available + 30

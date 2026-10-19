@@ -35,6 +35,8 @@ final class Shell {
 
     let app: AppState
     let window: Widget
+    /// Whether the window still exists: quitting after it has closed must not touch it.
+    private let windowAlive: WeakObject
     private let toasts: ToastOverlay
     private let root = Bin()
     private var navigations: [Section: Navigation] = [:]
@@ -49,6 +51,7 @@ final class Shell {
         self.app = app
         let window = Widget(adw_application_window_new(application.cast())!)
         self.window = window
+        windowAlive = window.liveness
         Desktop.window = window.widget
         gtk_window_set_title(window.widget.cast(), "Music")
 
@@ -270,6 +273,7 @@ final class Shell {
 
     /// Also called on quit: Ctrl+Q and SIGTERM end the application without a close-request.
     func saveSize() {
+        guard windowAlive.isAlive else { return }
         var width: Int32 = 0
         var height: Int32 = 0
         gtk_window_get_default_size(window.widget.cast(), &width, &height)
