@@ -2,8 +2,8 @@ import CGtk
 import Foundation
 import Observation
 
-/// Which visualiser is up and whether it draws at full resolution: remembered under the
-/// phone's keys, and shared by the player, Select Visualizer and Settings.
+/// Which visualiser is up: remembered under the phone's key, and shared by the player and
+/// Select Visualizer.
 @MainActor
 @Observable
 final class VisualizerChoice {
@@ -13,15 +13,9 @@ final class VisualizerChoice {
         didSet { UserDefaults.standard.set(program.name, forKey: VisualizerProgram.storageKey) }
     }
 
-    /// Plexamp's Higher Quality Visualizers. Off by default, as there.
-    var highQuality: Bool {
-        didSet { UserDefaults.standard.set(highQuality, forKey: VisualizerProgram.highQualityKey) }
-    }
-
     private init() {
         let defaults = UserDefaults.standard
         program = .named(defaults.string(forKey: VisualizerProgram.storageKey) ?? VisualizerProgram.defaultName)
-        highQuality = defaults.bool(forKey: VisualizerProgram.highQualityKey)
     }
 }
 
@@ -108,7 +102,6 @@ final class VisualizerPane {
         root.observe {
             guard let pane = reference.value else { return }
             let program = pane.choice.program
-            pane.canvas.highQuality = pane.choice.highQuality
             if pane.canvas.program != program { pane.canvas.program = program }
             if let shown = pane.shownProgram, shown != program.name { pane.flashName(program.name) }
             pane.shownProgram = program.name
