@@ -1,0 +1,17 @@
+# usbmuxd (Apple Mobile Device Muxer listening on /var/run/usbmuxd)
+# Overrides /lib/udev/rules.d/39-usbmuxd.rules: usbmuxd is the OpenRC service
+# /etc/init.d/usbmuxd now, not started per plug-in by udev (see that script for why).
+
+# systemd should receive all events relating to device
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{PRODUCT}=="5ac/12[9a][0-9a-f]/*|5ac/190[1-5]/*|5ac/8600/*", TAG+="systemd"
+
+# Initialize iOS devices into "deactivated" USB configuration state and activate usbmuxd
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{PRODUCT}=="5ac/12[9a][0-9a-f]/*|5ac/190[1-5]/*", ACTION=="add", ENV{USBMUX_SUPPORTED}="1", ATTR{bConfigurationValue}="0", OWNER="usbmux"
+# but make sure iBridge (T1) doesn't end up in an unconfigured state
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{PRODUCT}=="5ac/8600/*", ACTION=="add", ENV{USBMUX_SUPPORTED}="1", ATTR{bConfigurationValue}="1", OWNER="usbmux"
+
+
+# Make sure properties don't get lost when bind action is called
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{PRODUCT}=="5ac/12[9a][0-9a-f]/*|5ac/190[1-5]/*|5ac/8600/*", ACTION=="bind", ENV{USBMUX_SUPPORTED}="1", OWNER="usbmux"
+
+# (No exit on removal: the usbmuxd OpenRC service runs all the time.)

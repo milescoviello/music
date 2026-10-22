@@ -1,0 +1,35 @@
+#!/sbin/openrc-run
+# usbmuxd as one long-running daemon, instead of an instance udev starts per plug-in.
+#
+# The udev-started instance runs with hotplug off and only finds devices when a new
+# instance nudges it. An iPhone re-enumerates about twenty seconds after it is plugged in
+# (a USB disconnect and a new device number). The udev-started instance kept a stale entry
+# for the first enumeration, its preflight failed (lockdown error -8), and it never picked
+# up the second, so nothing on this machine could see the phone until usbmuxd was killed
+# by hand. Run like this, usbmuxd watches hotplug itself and follows every re-enumeration.
+# Installed by hand (see /etc/udev/rules.d/39-usbmuxd.rules); not from the package.
+
+description="Apple mobile device multiplexer"
+supervisor=supervise-daemon
+command=/usr/sbin/usbmuxd
+# Foreground for supervise-daemon; hotplug on; no --enable-exit, so a device's removal
+# never stops it.
+command_args="--foreground --user usbmux"
+output_log=/var/log/usbmuxd.log
+error_log=/var/log/usbmuxd.log
+respawn_delay=2
+respawn_max=0
+
+depend() {
+	need udev
+	after udev-trigger
+}
+
+start_pre() {
+	# An instance the old udev rule started would hold the pid file and the socket. Matched
+	# by its whole command line: this script's own process is called usbmuxd too, and a
+	# plain `pkill -x usbmuxd` killed the start itself, leaving the service "starting".
+	pkill -9 -f '^/usr/sbin/usbmuxd --user usbmux --udev' >/dev/null 2>&1
+	rm -f /var/run/usbmuxd.pid
+	return 0
+}

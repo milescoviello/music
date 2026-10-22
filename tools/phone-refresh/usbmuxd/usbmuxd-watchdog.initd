@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+# Restarts usbmuxd when an iPhone is on USB but usbmuxd does not list it. A safety net
+# under the usbmuxd service; see /usr/local/sbin/usbmuxd-watchdog. Installed by hand.
+
+description="Restart usbmuxd when it stops seeing a plugged-in iPhone"
+supervisor=supervise-daemon
+command=/usr/local/sbin/usbmuxd-watchdog
+respawn_delay=5
+respawn_max=0
+
+depend() {
+	# After, not need: restarting usbmuxd must not stop this.
+	after usbmuxd
+}

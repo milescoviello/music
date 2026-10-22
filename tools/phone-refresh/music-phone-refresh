@@ -191,8 +191,8 @@ def main() -> None:
                 log("iPhone on USB but usbmuxd does not list it")
                 notify(
                     "Music: phone connected but not visible",
-                    "usbmuxd is stuck. Run: sudo /usr/sbin/usbmuxd -X; sudo kill $(pgrep -x usbmuxd); "
-                    "sudo udevadm trigger --action=add --subsystem-match=usb --attr-match=idVendor=05ac",
+                    "usbmuxd is not listing it. The usbmuxd watchdog restarts it within a minute; "
+                    "if not: sudo rc-service usbmuxd restart",
                     urgent=True,
                 )
             elif not usb_sees_iphone():
