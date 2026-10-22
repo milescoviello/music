@@ -131,11 +131,13 @@ final class HTTPServer: @unchecked Sendable {
 
     // MARK: - Addresses
 
-    /// Loopback, RFC 1918 and link-local.
+    /// Loopback, RFC 1918, link-local, and 100.64.0.0/10, which is Tailscale's: on a network
+    /// that keeps devices apart, such as a campus's Wi-Fi, the tailnet is how the phone
+    /// reaches the computer, and only the owner's own devices are on it.
     static func isLocal(_ host: UInt32) -> Bool {
         let a = host >> 24, b = (host >> 16) & 0xff
         return a == 127 || a == 10 || (a == 172 && (16...31).contains(b)) || (a == 192 && b == 168)
-            || (a == 169 && b == 254)
+            || (a == 169 && b == 254) || (a == 100 && (64...127).contains(b))
     }
 
     static func dotted(_ host: UInt32) -> String {

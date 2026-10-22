@@ -14,8 +14,8 @@ import Foundation
 /// port otherwise. A desktop can also be added by address, for networks mDNS does not
 /// cross. `GET /v1/info` answers anyone on the LAN with that same `RemoteInfo`.
 ///
-/// **LAN only.** The server answers peers on loopback, private (RFC 1918) and link-local
-/// addresses, and closes anything else unanswered.
+/// **LAN only.** The server answers peers on loopback, private (RFC 1918), link-local and
+/// Tailscale (100.64.0.0/10) addresses, and closes anything else unanswered.
 ///
 /// **Pairing.** Everything but `/v1/info` and pairing itself needs
 /// `Authorization: Bearer <token>`, and a token comes only from pairing:

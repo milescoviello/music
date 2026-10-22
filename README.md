@@ -86,9 +86,11 @@ and lists the paired phones with Forget.
 Both apps must be signed in to the same Navidrome server, since the phone sends
 songs by their ids. The computer advertises itself over mDNS through Avahi as
 `_music-remote._tcp` and listens on TCP port 47823 (any free port if that one is
-taken). It answers only loopback, private and link-local addresses. Where mDNS
-doesn't cross the network, or Avahi isn't running, use **Add by Address** on
-the phone with the address the computer's settings show. A firewall that blocks
+taken). It answers only loopback, private, link-local and Tailscale addresses.
+Where mDNS doesn't cross the network, or Avahi isn't running, use **Add by
+Address** on the phone with the address the computer's settings show. On a
+network that keeps devices apart (a campus or hotel Wi-Fi), use the computer's
+Tailscale address (100.x) with Tailscale on in both. A firewall that blocks
 incoming connections needs 47823/tcp opened, plus mDNS (5353/udp) for the
 computer to be found. Traffic is plain HTTP on the LAN, like the server's own.
 
