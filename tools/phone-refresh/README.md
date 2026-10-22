@@ -42,7 +42,13 @@ sudo rc-service usbmuxd start && sudo rc-service usbmuxd-watchdog start
 ```
 
 The udev override in `/etc/udev/rules.d` keeps the package's rule but drops its two
-`RUN` lines, so udev no longer starts or stops `usbmuxd`. `usbmuxd`'s log is
+`RUN` lines, so udev no longer starts or stops `usbmuxd`. It also drops the rule's reset of
+the phone's USB configuration to 0 on every add. That reset is for a `usbmuxd` started by
+udev after it. A `usbmuxd` that is already running has configured the phone by the time
+the rule runs, so the reset unconfigured it again about 10 ms later. `usbmuxd` logged
+`Removed device` and never saw the phone come back. For the same reason the watchdog
+only kills `usbmuxd` and never replays udev events: replaying them reset the
+configuration again. `usbmuxd`'s log is
 `/var/log/usbmuxd.log`; the watchdog logs to syslog as `usbmuxd-watchdog`.
 
 ## Install

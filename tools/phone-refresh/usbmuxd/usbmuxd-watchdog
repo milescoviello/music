@@ -1,8 +1,7 @@
 #!/bin/sh
 # An iPhone on USB that usbmuxd does not list for 30 seconds means usbmuxd is stuck: restart
-# it and replay the Apple devices' udev events. At most three restarts per plug-in, so a
-# phone waiting at "Trust This Computer?" is not interrupted forever; unplugging and
-# plugging back in starts the count again.
+# it. At most three restarts per plug-in, so a phone waiting at "Trust This Computer?" is
+# not interrupted forever; unplugging and plugging back in starts the count again.
 
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -21,10 +20,10 @@ while :; do
 			logger -t usbmuxd-watchdog "iPhone on USB but not listed for 30 s; restarting usbmuxd ($restarts of 3 this plug-in)"
 			# Killed rather than `rc-service usbmuxd restart`: its supervisor starts a fresh
 			# one two seconds later, and a restart through OpenRC would stop this watchdog
-			# along with it, half way through.
+			# along with it, half way through. A fresh usbmuxd finds the phone by itself.
+			# No `udevadm trigger`: replaying the add event is what used to unconfigure the
+			# phone straight after usbmuxd had configured it.
 			pkill -9 -f '^/usr/sbin/usbmuxd --foreground' >/dev/null 2>&1
-			sleep 3
-			udevadm trigger --action=add --subsystem-match=usb --attr-match=idVendor=05ac
 			sleep 30
 		fi
 	else
