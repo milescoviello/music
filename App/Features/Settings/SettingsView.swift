@@ -9,6 +9,7 @@ struct SettingsView: View {
     @Environment(DownloadCenter.self) private var downloads
     @Environment(MusicRequestService.self) private var requests
     @Environment(PlaylistSync.self) private var playlistSync
+    @Environment(RemotePlayers.self) private var remotePlayers
 
     @State private var testResult: String?
     @State private var isTesting = false
@@ -84,6 +85,9 @@ struct SettingsView: View {
                         value: requests.isConfigured ? "Connected" : "Not set up"
                     )
                 }
+                NavigationLink(value: Destination.remoteControl) {
+                    LabeledContent("Remote Players", value: remoteSummary)
+                }
             }
 
             Section {
@@ -125,6 +129,12 @@ struct SettingsView: View {
         guard let status = sonic.status else { return "Not connected" }
         if status.analysed < status.tracks { return "\(status.analysed) of \(status.tracks)" }
         return "Ready"
+    }
+
+    private var remoteSummary: String {
+        if let session = remotePlayers.session { return session.computer.name }
+        let paired = remotePlayers.computers.filter(\.isPaired).count
+        return paired == 0 ? "None" : paired == 1 ? "1 computer" : "\(paired) computers"
     }
 
     private var offlineSummary: String {

@@ -25,6 +25,7 @@ enum Destination: Hashable {
     case requestMusic(String)
     case requestSettings
     case offlineSettings
+    case remoteControl
     case diagnostics
     case stats
     /// By id rather than by value: the mix itself lives in `DailyMixes`, which is
@@ -98,6 +99,8 @@ extension View {
                 MusicRequestSettingsView()
             case .offlineSettings:
                 OfflineSettingsView()
+            case .remoteControl:
+                RemotePlayersSettingsView()
             case .diagnostics:
                 DiagnosticsView()
             case .stats:

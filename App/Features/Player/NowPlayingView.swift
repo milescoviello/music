@@ -8,6 +8,7 @@ enum PlayerMode: String, CaseIterable {
 struct NowPlayingView: View {
     @Environment(AppState.self) private var appState
     @Environment(PlayerSettings.self) private var playerSettings
+    @Environment(RemotePlayers.self) private var remotes
     /// Called instead of `dismiss()`: this is no longer a modal, it is a layer drawn
     /// above the library, so closing it is the presenter's business.
     var onDismiss: () -> Void = {}
@@ -483,12 +484,19 @@ struct NowPlayingView: View {
     }
 
     /// The system slider, flanked by the usual two icons so it reads as volume rather
-    /// than a second progress bar.
+    /// than a second progress bar. While a computer is being played to, that computer's
+    /// volume instead, and where the music is.
     private var volumeRow: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "speaker.fill")
-            SystemVolumeSlider()
-            Image(systemName: "speaker.wave.3.fill")
+        Group {
+            if let session = remotes.session {
+                RemoteVolumeRow(session: session)
+            } else {
+                HStack(spacing: 10) {
+                    Image(systemName: "speaker.fill")
+                    SystemVolumeSlider()
+                    Image(systemName: "speaker.wave.3.fill")
+                }
+            }
         }
         .font(.caption2)
         .foregroundStyle(.white.opacity(0.5))
@@ -505,6 +513,8 @@ struct NowPlayingView: View {
             modeButton(.visualizer, "waveform")
             Spacer()
             modeButton(.queue, "list.bullet")
+            Spacer()
+            RemotePlayerButton()
             Spacer()
             // Fixed, not a minimum: this is a fixed-size glyph rather than text, and a
             // minimum let it grow to fill the row. Centred in a touch-target-sized box.

@@ -3,6 +3,7 @@ import SwiftUI
 /// The bar above the tab bar. The whole thing is the tap target.
 struct MiniPlayerBar: View {
     @Environment(AppState.self) private var appState
+    @Environment(RemotePlayers.self) private var remotes
     @Binding var showsPlayer: Bool
     /// True when hosted in the tab bar's accessory slot, which draws its own
     /// background and separator -- drawing a second one there looks like a seam.
@@ -30,6 +31,14 @@ struct MiniPlayerBar: View {
                     Text(song.title)
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
+
+                    // Playing on a computer, not here.
+                    if let session = remotes.session {
+                        Image(systemName: "desktopcomputer")
+                            .font(.caption)
+                            .foregroundStyle(Color.appTint)
+                            .accessibilityLabel("Playing on \(session.computer.name)")
+                    }
 
                     Spacer(minLength: 8)
 
