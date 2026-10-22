@@ -51,6 +51,12 @@ final class PlaybackController {
     /// Whether Add to Up Next is on offer: something added is still to come.
     private(set) var canAddToUpNext = false
 
+    /// Another device this one is playing to: Plexamp's remote player. While there is one,
+    /// the commands below go to it rather than to this device's output, and the state above
+    /// is what it reports (`mirror`), so every screen that shows or drives playback shows
+    /// and drives it unchanged. This device's own queue waits on disk meanwhile.
+    private(set) var remote: (any RemotePlayerLink)?
+
     private func queueDidChange() {
         let current = queue.current
         if current != currentSong { currentSong = current }
@@ -131,7 +137,7 @@ final class PlaybackController {
 
         // A mix that is playing keeps growing, so the queue never runs out mid-listen.
         appState.mixes.onExtended = { [weak self] mix, added in
-            guard let self, queue.sourceDescription == mix.title, !added.isEmpty else { return }
+            guard let self, remote == nil, queue.sourceDescription == mix.title, !added.isEmpty else { return }
             append(added)
         }
 
@@ -288,7 +294,7 @@ final class PlaybackController {
     /// it costs its bytes twice — nothing at home, real money on cellular — and buys a
     /// measured fade out of it and a copy for next time.
     private func planCache() {
-        guard let appState else { return }
+        guard let appState, remote == nil else { return }
         let network = appState.reachability.network
         let policy = appState.streaming.policy
         let cache = appState.streamCache
@@ -361,6 +367,10 @@ final class PlaybackController {
     func adopt(songs: [Song], currentID: String?, positionSeconds: Double, source: String) {
         guard !songs.isEmpty else { return }
         let index = currentID.flatMap { id in songs.firstIndex { $0.id == id } } ?? 0
+        if let remote {
+            remote.send(.playSongs(songs, from: index, source: source, startAt: positionSeconds, paused: true))
+            return
+        }
 
         queue = .make(
             tracks: songs,
@@ -389,6 +399,7 @@ final class PlaybackController {
     /// re-asked — and the beats it needs fetched, if it now needs them. The EQ and leveling
     /// need nothing here: the tap of whatever is playing reads them live.
     func transitionSettingsChanged() {
+        guard remote == nil else { return }
         requestRhythms(currentWindow)
         output.refreshTransitions()
     }
@@ -407,6 +418,12 @@ final class PlaybackController {
         station: Station? = nil
     ) {
         guard !songs.isEmpty else { return }
+        if let remote {
+            remote.send(.playSongs(songs, from: index, source: source, shuffled: shuffled, startAt: seconds, station: station))
+            recordStart(of: songs, source: source, station: station)
+            showPlayerIfAsked()
+            return
+        }
 
         queue = .make(
             tracks: songs,
@@ -417,11 +434,7 @@ final class PlaybackController {
             station: station
         )
         appState?.guestDJ.queueReplaced()
-        if let appState {
-            appState.recentPlays.record(PlayOrigin.infer(
-                songs: songs, source: source, station: station, playlists: appState.playlistStore.playlists
-            ))
-        }
+        recordStart(of: songs, source: source, station: station)
 
         // A saved position only applies when the caller did not ask for one, and only to
         // tracks long enough for it to matter -- `ResumeStore` decides both.
@@ -435,7 +448,17 @@ final class PlaybackController {
         }
 
         rebuildOutput(startPlaying: true, seekTo: startSeconds)
+        showPlayerIfAsked()
+    }
 
+    private func recordStart(of songs: [Song], source: String, station: Station?) {
+        guard let appState else { return }
+        appState.recentPlays.record(PlayOrigin.infer(
+            songs: songs, source: source, station: station, playlists: appState.playlistStore.playlists
+        ))
+    }
+
+    private func showPlayerIfAsked() {
         if appState?.playerSettings.opensPlayerOnPlay == true {
             appState?.navigator.showsPlayer = true
         }
@@ -443,6 +466,7 @@ final class PlaybackController {
 
     /// Discards the resume position and starts the current track again.
     func startOver() {
+        if let remote { remote.send(RemoteCommand(.startOver)); return }
         if let song = queue.current { appState?.resume.clear(songID: song.id) }
         resumeNotice = nil
         seek(to: 0)
@@ -450,6 +474,7 @@ final class PlaybackController {
 
     func playNext(_ songs: [Song]) {
         guard !songs.isEmpty else { return }
+        if let remote { remote.send(.songs(.playNext, songs)); return }
         if queue.isEmpty {
             play(songs: songs, startingAt: 0, source: "Queue")
             return
@@ -462,6 +487,7 @@ final class PlaybackController {
     /// Plexamp's Add to Queue: the very end.
     func append(_ songs: [Song]) {
         guard !songs.isEmpty else { return }
+        if let remote { remote.send(.songs(.append, songs)); return }
         if queue.isEmpty {
             play(songs: songs, startingAt: 0, source: "Queue")
             return
@@ -475,6 +501,7 @@ final class PlaybackController {
     /// order they were made. Offered only once something has been added.
     func addToUpNext(_ songs: [Song]) {
         guard !songs.isEmpty else { return }
+        if let remote { remote.send(.songs(.addToUpNext, songs)); return }
         if queue.isEmpty {
             play(songs: songs, startingAt: 0, source: "Queue")
             return
@@ -486,6 +513,7 @@ final class PlaybackController {
 
     /// Plexamp's Clear Play Queue: everything but the track playing, which plays on.
     func clearQueue() {
+        if let remote { remote.send(RemoteCommand(.clearQueue)); return }
         queue.clearAllButCurrent()
         refillWindow()
         persist()
@@ -494,6 +522,7 @@ final class PlaybackController {
     // MARK: - Transport
 
     func play() {
+        if let remote { remote.send(RemoteCommand(.play)); return }
         guard hasQueue else { return }
         session.activate()
         output.play()
@@ -504,6 +533,7 @@ final class PlaybackController {
     }
 
     func pause() {
+        if let remote { remote.send(RemoteCommand(.pause)); return }
         output.pause()
         isPlaying = false
         tracker.interrupted(at: elapsed)
@@ -531,6 +561,11 @@ final class PlaybackController {
     /// play is not silent -- the single most likely bug in a fade implementation.
     func fadeOutAndPause(over duration: Double = 6) {
         guard isPlaying else { return }
+        // The other device's volume is its own; it simply pauses.
+        if remote != nil {
+            pause()
+            return
+        }
 
         Task { [weak self] in
             let steps = 30
@@ -546,6 +581,7 @@ final class PlaybackController {
     }
 
     func next() {
+        if let remote { remote.send(RemoteCommand(.next)); return }
         guard queue.advance() else {
             pause()
             return
@@ -555,6 +591,7 @@ final class PlaybackController {
 
     /// Rewinds first, the way every native player does, and only then goes back.
     func previous() {
+        if let remote { remote.send(RemoteCommand(.previous)); return }
         if elapsed > 3 {
             seek(to: 0)
             return
@@ -573,6 +610,7 @@ final class PlaybackController {
     static let speedRange: ClosedRange<Float> = 0.5...2
 
     func setSpeed(_ value: Float) {
+        if let remote { remote.send(.speed(value)); return }
         let stepped = (min(max(value, Self.speedRange.lowerBound), Self.speedRange.upperBound) * 10).rounded() / 10
         speed = stepped
         output.rate = stepped
@@ -581,6 +619,7 @@ final class PlaybackController {
 
     /// Plexamp's quick skip: a relative seek within the track, clamped to it.
     func skip(by seconds: Double) {
+        if let remote { remote.send(.skip(by: seconds)); return }
         let target = elapsed + seconds
         if duration > 0, target >= duration - 1 {
             next()
@@ -590,6 +629,7 @@ final class PlaybackController {
     }
 
     func seek(to seconds: Double) {
+        if let remote { remote.send(.seek(to: seconds)); return }
         output.seek(to: seconds)
         elapsed = seconds
         tracker.interrupted(at: seconds)
@@ -597,11 +637,13 @@ final class PlaybackController {
     }
 
     func jump(toOrderIndex index: Int) {
+        if let remote { remote.send(.at(.jump, index)); return }
         queue.jump(toOrderIndex: index)
         rebuildOutput(startPlaying: true, seekTo: 0)
     }
 
     func removeFromQueue(orderIndex index: Int) {
+        if let remote { remote.send(.at(.remove, index)); return }
         let wasCurrent = index == queue.position
         queue.remove(atOrderIndex: index)
 
@@ -614,12 +656,14 @@ final class PlaybackController {
     }
 
     func moveInQueue(from source: Int, to destination: Int) {
+        if let remote { remote.send(.at(.move, source, to: destination)); return }
         queue.move(fromOrderIndex: source, toOrderIndex: destination)
         refillWindow()
         persist()
     }
 
     func toggleShuffle() {
+        if let remote { remote.send(.shuffle(!queue.isShuffled)); return }
         if queue.isShuffled {
             queue.unshuffle()
         } else {
@@ -630,10 +674,65 @@ final class PlaybackController {
     }
 
     func cycleRepeat() {
+        if let remote { remote.send(.repeat(queue.repeatMode.next)); return }
         queue.repeatMode = queue.repeatMode.next
         // Repeat-one changes the window itself -- see `currentWindow`.
         refillWindow()
         persist()
+    }
+
+    // MARK: - Remote player
+
+    /// Plays to `link` from now on. Whatever was playing here is paused and saved, to come
+    /// back to with `controlLocally`.
+    func control(_ link: any RemotePlayerLink) {
+        if remote == nil {
+            if isPlaying { pause() }
+            persistNow()
+            output.stop()
+            appState?.streamCache.pause()
+            nowPlaying.clear()
+        }
+        remote = link
+        resumeNotice = nil
+        queue = PlaybackQueue()
+        isPlaying = false
+        isBuffering = false
+        elapsed = 0
+        duration = 0
+    }
+
+    /// Plays here again, from this device's own queue as it was saved, paused.
+    func controlLocally() async {
+        guard remote != nil else { return }
+        remote = nil
+        queue = PlaybackQueue()
+        isPlaying = false
+        isBuffering = false
+        elapsed = 0
+        duration = 0
+        await restore()
+    }
+
+    /// Shows what the remote player reports as if it were playing here. Each value is
+    /// assigned only when it differs: this runs four times a second for the elapsed time,
+    /// and a property assigned its own value still redraws whatever reads it.
+    func mirror(_ mirror: RemoteMirror, at time: Date = .now) {
+        guard remote != nil else { return }
+        let incoming = mirror.queue
+        if queue.listID != incoming.listID || queue.position != incoming.position
+            || queue.repeatMode != incoming.repeatMode {
+            queue = incoming
+        }
+        let state = mirror.state
+        if canAddToUpNext != state.canAddToUpNext { canAddToUpNext = state.canAddToUpNext }
+        if isPlaying != state.isPlaying { isPlaying = state.isPlaying }
+        if isBuffering != state.isBuffering { isBuffering = state.isBuffering }
+        let length = state.duration > 0 ? state.duration : Double(state.song?.duration ?? 0)
+        if duration != length { duration = length }
+        if speed != Float(state.speed) { speed = Float(state.speed) }
+        let position = mirror.elapsed(at: time)
+        if elapsed != position { elapsed = position }
     }
 
     // MARK: - Scrobbling
@@ -763,14 +862,14 @@ final class PlaybackController {
 
     /// A Guest DJ's picks, where it says. Not additions for Add to Up Next.
     func insertPicks(_ songs: [Song], afterOrderIndex index: Int) {
-        guard !songs.isEmpty else { return }
+        guard !songs.isEmpty, remote == nil else { return }
         queue.insertPicks(songs, afterOrderIndex: index)
         refillWindow()
         persist()
     }
 
     func removeUpcoming(ids: Set<String>) {
-        guard !ids.isEmpty else { return }
+        guard !ids.isEmpty, remote == nil else { return }
         queue.removeUpcoming(ids: ids)
         refillWindow()
         persist()
@@ -797,6 +896,7 @@ final class PlaybackController {
     // MARK: - Time and transitions
 
     private func tick(elapsed newElapsed: Double, isMoving: Bool) {
+        guard remote == nil else { return }
         elapsed = newElapsed
         // Only when it changes: this runs four times a second, and an observed property
         // assigned its own value can still count as a change to whatever reads it.
@@ -852,6 +952,7 @@ final class PlaybackController {
 
     /// The output moved on by itself, so follow it in the logical queue.
     private func handleAdvanced(to songID: String?) {
+        guard remote == nil else { return }
         guard let songID,
               let orderIndex = queue.order.firstIndex(where: { queue.tracks[$0].id == songID })
         else {
@@ -941,6 +1042,8 @@ final class PlaybackController {
     /// kill the app while audio plays; the real risks are termination while paused
     /// and crashes.
     private func persist() {
+        // The queue on screen is the other device's; this one's is already on disk.
+        guard remote == nil else { return }
         saveTask?.cancel()
         let snapshot = QueueSnapshot(queue: queue, positionSeconds: elapsed, savedAt: .now)
         lastSavedAt = snapshot.savedAt
@@ -954,6 +1057,7 @@ final class PlaybackController {
     }
 
     func persistNow() {
+        guard remote == nil else { return }
         let snapshot = QueueSnapshot(queue: queue, positionSeconds: elapsed, savedAt: .now)
         lastSavedAt = snapshot.savedAt
         Task { [store] in await store.save(snapshot) }
