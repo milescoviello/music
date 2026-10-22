@@ -65,12 +65,52 @@ For development, `swift build` and `swift run music` work as usual. Linux
 only adds the `#if os(Linux)` targets in `Package.swift`; the iOS logic tests
 still build and run the same way on macOS.
 
+## Playing on the computer from the phone
+
+The phone can play to the Linux app the way one Plexamp plays to another. In
+the phone's player, the computer button beside AirPlay opens **Play On**, which
+lists this iPhone and every computer on the Wi-Fi with Music open. Choose one
+and the whole app drives it: albums and playlists started on the phone play
+there, and the player, the queue, lyrics and the mini player show what it is
+playing. The volume row moves the computer's volume, and says where the music
+is. Choosing it while music plays on the phone asks whether to move that music
+over, at the same second. Choosing This iPhone again asks whether to bring the
+music back. The phone always starts out playing to itself after a launch.
+
+The first time, the computer shows a six-digit code, in its window and as a
+notification, to type in on the phone. After that the phone keeps the token in
+its Keychain. On the computer, **Settings → Remote Control** turns this on or
+off (it starts on), renames the computer as phones see it, shows its address,
+and lists the paired phones with Forget.
+
+Both apps must be signed in to the same Navidrome server, since the phone sends
+songs by their ids. The computer advertises itself over mDNS through Avahi as
+`_music-remote._tcp` and listens on TCP port 47823 (any free port if that one is
+taken). It answers only loopback, private and link-local addresses. Where mDNS
+doesn't cross the network, or Avahi isn't running, use **Add by Address** on
+the phone with the address the computer's settings show. A firewall that blocks
+incoming connections needs 47823/tcp opened, plus mDNS (5353/udp) for the
+computer to be found. Traffic is plain HTTP on the LAN, like the server's own.
+
+The protocol is written down at the top of `App/Core/RemoteControl.swift`. It
+is plain enough to drive from a terminal, which pairs the way the phone does:
+
+```sh
+curl -X POST -d '{"device": "Terminal"}' http://desktop:47823/v1/pair/request
+curl -X POST -d '{"device": "Terminal", "code": "123456"}' http://desktop:47823/v1/pair/confirm
+TOKEN=...   # from the reply
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+     -d '{"action": "seek", "seconds": 42}' http://desktop:47823/v1/command
+curl -N -H "Authorization: Bearer $TOKEN" http://desktop:47823/v1/events
+```
+
 ## Layout
 
 ```
 App/Core        Subsonic client, models, session, Keychain
 App/Features    One directory per screen
-Linux/Sources   The Linux app: GTK bindings, audio engine, desktop services, screens
+Linux/Sources   The Linux app: GTK bindings, audio engine, desktop services, screens,
+                and the remote-player server (Linux/Sources/MusicLogic/Remote)
 Linux/Modules   C module maps for GTK, epoxy, FFmpeg, PulseAudio, Rubber Band
 ```
 
