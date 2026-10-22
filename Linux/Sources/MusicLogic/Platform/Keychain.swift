@@ -15,6 +15,7 @@ import Foundation
 enum Keychain {
     private static let account = "server-credentials"
     private static let requestAccount = "music-request-webhook"
+    private static let remoteAccount = "remote-devices"
     static let lastServerKey = "signIn.server"
     static let lastUsernameKey = "signIn.username"
 
@@ -48,6 +49,19 @@ enum Keychain {
 
     static func clearMusicRequestConfiguration() {
         delete(account: requestAccount)
+    }
+
+    // MARK: - Remote players
+
+    /// The phones paired to control this computer, with their tokens.
+    static func saveRemoteDevices(_ devices: [RemoteControlServer.Device]) {
+        guard let data = try? JSONEncoder().encode(devices) else { return }
+        write(data, account: remoteAccount)
+    }
+
+    static func loadRemoteDevices() -> [RemoteControlServer.Device] {
+        guard let data = read(account: remoteAccount) else { return [] }
+        return (try? JSONDecoder().decode([RemoteControlServer.Device].self, from: data)) ?? []
     }
 
     // MARK: - Files

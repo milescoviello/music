@@ -80,6 +80,7 @@ enum SettingsPages {
             }
             link("Offline & Library", .offlineSettings) { app.playlistSync.isEnabled ? "Playlists kept offline" : "Manual" }
             link("Music Requests", .requestSettings) { app.requests.isConfigured ? "Connected" : "Not set up" }
+            link("Remote Control", .remoteControl) { RemoteControlPage.summary }
         })
         page.add(PreferencesGroup {
             ActionRow("Diagnostics") { env.open(.diagnostics) }.chevron()

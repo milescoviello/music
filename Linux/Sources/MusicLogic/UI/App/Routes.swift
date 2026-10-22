@@ -22,6 +22,7 @@ enum Destination: Hashable {
     case requestMusic(String)
     case requestSettings
     case offlineSettings
+    case remoteControl
     case diagnostics
     case stats
     /// By id: the mix itself lives in `DailyMixes`, which is rebuilt daily.

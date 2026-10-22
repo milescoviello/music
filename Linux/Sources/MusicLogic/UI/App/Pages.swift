@@ -80,6 +80,8 @@ enum Pages {
             return SettingsPages.sonic(env)
         case .offlineSettings:
             return SettingsPages.offline(env)
+        case .remoteControl:
+            return RemoteControlPage.make(env)
         case .diagnostics:
             return SettingsPages.diagnostics(env)
         case let .requestMusic(text):

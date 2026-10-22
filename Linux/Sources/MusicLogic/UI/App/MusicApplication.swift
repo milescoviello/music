@@ -45,6 +45,9 @@ public enum MusicApplication {
             let shell = Shell(application: OpaquePointer(application), app: state)
             self.shell = shell
             shell.present()
+            // After the window, which a pairing code is shown over.
+            RemotePairingPrompt.install()
+            RemoteControlServer.shared.start(app: state)
         }
         Signal.connect(application, "shutdown") {
             // The phone's backgrounding, which on a desktop is quitting: termination while
