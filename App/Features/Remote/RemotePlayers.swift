@@ -184,7 +184,8 @@ final class RemotePlayers {
                 await beginPairing(computer)
             }
         } catch {
-            problem = "Nothing at \(host) answered. Is Music open there, with Remote Control on?"
+            // The reason too: "nothing answered" covers iOS refusing the connection itself.
+            problem = "Nothing at \(host) answered (\(error.localizedDescription)). Is Music open there, with Remote Control on?"
         }
     }
 

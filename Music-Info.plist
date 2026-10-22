@@ -66,11 +66,39 @@
 		<string>audio</string>
 	</array>
 	<!-- The server is a plain-HTTP host on the LAN. Allow that specifically
-	     rather than disabling App Transport Security wholesale. -->
+	     rather than disabling App Transport Security wholesale.
+	     Tailscale too, for the computer the phone plays to on a network that keeps
+	     devices apart: since iOS 17, URLSession refuses plain HTTP to an IP address
+	     unless its range is listed here, and the local-networking key does not cover
+	     Tailscale's 100.64.0.0/10. Its IPv6 range and its MagicDNS names likewise. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>100.64.0.0/10</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+			<key>fd7a:115c:a1e0::/48</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+			<key>ts.net</key>
+			<dict>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+			</dict>
+		</dict>
 	</dict>
 	<!-- iOS 14+ requires a stated reason before an app may reach LAN addresses. -->
 	<key>NSLocalNetworkUsageDescription</key>
