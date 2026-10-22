@@ -77,21 +77,39 @@ enum Style {
 
     /* The full player. */
     .now-playing { background-color: #000000; color: #ffffff; }
-    /* Plexamp's sizes for the title lines, 15 pixels and 20 side by side; the transport
-       a little smaller than its 60. */
-    .now-playing .np-meta button, .now-playing .np-meta label { font-size: 15px; }
-    .now-playing .np-meta.large button, .now-playing .np-meta.large label { font-size: 20px; }
+    /* Plexamp's own sizes at its desktop zoom of 0.8: title lines 15 (20 side by side),
+       the codec line 13, the transport 60 with 20 icons, toolbar icons 28, queue rows 59
+       with 46 covers — each times 0.8. */
+    .now-playing .np-meta button, .now-playing .np-meta label { font-size: 12px; min-height: 0; padding-top: 0; padding-bottom: 0; }
+    .now-playing .np-meta.large button, .now-playing .np-meta.large label { font-size: 16px; }
     .now-playing .np-title { font-weight: 700; }
     .now-playing .np-album { color: alpha(#ffffff, 0.6); }
-    .now-playing .detail-line { font-size: 12px; opacity: 0.55; }
+    .now-playing .np-codec { font-size: 10.5px; font-weight: 300; color: alpha(#ffffff, 0.6); }
+    .now-playing .np-star { font-size: 11px; min-width: 0; min-height: 0; padding: 0 1px; color: alpha(#ffffff, 0.6); }
+    .now-playing .np-star.filled { color: var(--accent-color); }
+    .now-playing .desktop-seekbar .time { font-size: 10px; font-weight: 700; opacity: 1; }
     .np-transport button { color: #ffffff; }
-    .np-transport .np-skip { min-width: 48px; min-height: 48px; padding: 0; border-radius: 24px; -gtk-icon-size: 18px; }
-    .np-transport .np-play { min-width: 52px; min-height: 52px; padding: 0; border-radius: 26px; -gtk-icon-size: 20px;
+    .np-transport .np-skip { min-width: 48px; min-height: 48px; padding: 0; border-radius: 24px; -gtk-icon-size: 16px; }
+    .np-transport.roomy .np-skip { margin-left: 16px; margin-right: 16px; }
+    .np-transport .np-play { min-width: 48px; min-height: 48px; padding: 0; border-radius: 24px; -gtk-icon-size: 18px;
                              background-color: alpha(#ffffff, 0.15); }
     .np-transport .np-play:hover { filter: brightness(1.25); }
-    .now-playing .np-small { min-width: 34px; min-height: 34px; padding: 0; border-radius: 17px; -gtk-icon-size: 16px;
+    .now-playing .np-small { min-width: 30px; min-height: 30px; padding: 0; border-radius: 15px; -gtk-icon-size: 16px;
                              color: alpha(#ffffff, 0.7); }
     .now-playing .np-small.active, .now-playing .np-small.selected { color: var(--accent-color); }
+    .now-playing .np-toolbar menubutton > button { min-width: 30px; min-height: 30px; padding: 0; }
+
+    /* Plexamp's queue: three tabs over the list, the chosen one underlined. */
+    .queue-tabs .queue-tab { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; color: alpha(#ffffff, 0.55);
+                             border-radius: 0; min-height: 28px; box-shadow: inset 0 -1px alpha(#ffffff, 0.12); background: none; }
+    .queue-tabs .queue-tab.selected, .queue-tabs .queue-tab:checked { color: #ffffff; box-shadow: inset 0 -2px #ffffff; background: none; }
+    .queue-pane row { padding: 0; min-height: 0; }
+    .queue-row { min-height: 47px; padding: 0 4px; }
+    .queue-title { font-size: 11.5px; }
+    .queue-artist { font-size: 10px; color: alpha(#ffffff, 0.55); }
+    .queue-stars { font-size: 8.5px; color: alpha(#ffffff, 0.45); }
+    .queue-heading { font-size: 10px; font-weight: 700; color: alpha(#ffffff, 0.55); }
+    .queue-more { min-width: 26px; min-height: 26px; padding: 0; color: alpha(#ffffff, 0.55); }
     .now-playing .source-caption { font-size: 0.75em; font-weight: 700; opacity: 0.5; }
     .now-playing .source-title { font-size: 0.9em; font-weight: 600; opacity: 0.85; }
     .now-playing .time { font-size: 0.85em; opacity: 0.6; font-feature-settings: "tnum"; }

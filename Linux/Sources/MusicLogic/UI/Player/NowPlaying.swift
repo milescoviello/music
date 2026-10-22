@@ -1,37 +1,41 @@
 import CGtk
 import Foundation
 
-/// The full player: Plexamp's now playing screen, laid out the way Plexamp lays it out for
-/// the window it is in.
+/// The full player: Plexamp's desktop player, laid out the way Plexamp lays it out for the
+/// window it is in. Every rule and size here is Plexamp 4.13's own (its `PlayerPortrait`,
+/// `PlayerLandscape`, `PlayerTabletSideBySide`, `PosterSize` and the components they
+/// hold), in Plexamp's units: its desktop app draws at a zoom of 0.8 ("Normal"), so a
+/// Plexamp pixel is 0.8 of a screen pixel, and its breakpoints are in its pixels.
 ///
-/// Plexamp's desktop player has three layouts and picks one from the window's size alone
-/// (its `PlayerPortrait`, `PlayerLandscape` and `PlayerTabletSideBySide`):
+/// - **Portrait** — narrower than tall, or under 500 across: the cover on top, 300 across
+///   at most (the full width under 300), then the seekbar, artist, title and album, the
+///   codec and rating line, the transport, the volume and a toolbar, in a block 700 tall
+///   at most. Up Next — with Back To and Related beside it — fills the window below; in a
+///   shorter window it is a scroll away, as in Plexamp.
+/// - **Landscape** — wider than tall, up to 680 high: the cover on the left as tall as
+///   the window, everything else beside it; the queue below.
+/// - **Side by side** — wider than tall and taller than 680: the player in the left half,
+///   the cover two-fifths of the height, and the queue filling the right half (or, hidden,
+///   the player centred).
 ///
-/// - **Portrait** (narrower than tall, or under 500 wide): the cover on top, at most 300
-///   across, then the seekbar, artist, title and album, the transport and the toolbar.
-/// - **Landscape** (wider than tall, up to 680 high): the cover on the left as tall as the
-///   window allows, everything else beside it.
-/// - **Side by side** (wider than tall and over 680 high): the player in the left half,
-///   the cover two-fifths of the window's height, and Up Next filling the right half.
-///
-/// The thresholds and sizes are Plexamp 4.13's own. The cover's flip side — visualiser or
-/// lyrics — takes the cover's place at the cover's size.
-///
-/// Whatever does not fit goes, least important first, measured rather than guessed: the
-/// volume, the codec line, the toolbar, then the cover shrinks and goes, then the seekbar,
-/// then the title. Previous, play and next are the last thing left.
+/// What Plexamp leaves out as the window shrinks goes here too, and anything that still
+/// does not fit goes after it, measured: the volume, the codec line, the toolbar, then the
+/// cover shrinks, then the seekbar and the title. Previous, play and next are the last
+/// thing left.
 @MainActor
 final class NowPlaying {
     enum Mode: String {
-        case artwork, queue, lyrics, visualizer
+        case artwork, lyrics, visualizer
     }
 
     enum Layout {
         case portrait, landscape, sideBySide
     }
 
-    /// Plexamp's `MARGIN` and `SPACER`.
-    private static let margin: Int32 = 15
+    /// Plexamp's desktop zoom: its pixels to ours.
+    static let zoom = 0.8
+    /// Plexamp's `MARGIN` and `SPACER`, 15 of its pixels.
+    private static let margin = 15.0
     /// Where Up Next beside the player is remembered: Plexamp's `playerShowPlayQueue`.
     private static let showsQueueKey = "player.showsQueue"
 
@@ -46,35 +50,37 @@ final class NowPlaying {
 
     // The pieces, made once and arranged for each layout.
     private let topBar: Widget
-    private let body = Stack(transition: GTK_STACK_TRANSITION_TYPE_CROSSFADE)
-    private let content = Box.horizontal(spacing: 0)
+    private let scroller: ScrolledWindow
+    private let page = Box.vertical(spacing: 0)
+    private let mainRow = Box.horizontal(spacing: 0)
     private let playerBox = Box.vertical(spacing: 0)
+    private let posterColumn = Box.vertical(spacing: 0)
+    private let posterPad = Spacer(horizontal: false)
     private let posterCell: Overlay
     private let poster = Stack(transition: GTK_STACK_TRANSITION_TYPE_CROSSFADE)
-    /// Holds the cover at exactly its size: a picture's natural size is its image's,
-    /// which a size request can raise but not cap.
+    /// Holds the cover at exactly its size: a picture's natural size is its image's, which
+    /// a size request can raise but not cap.
     private let posterFrame: ScrolledWindow
-    private var sourceBlock: Widget?
-    private let sideClamp: Clamp
     private let side = Box.vertical(spacing: 0)
-    private let topSpace = Spacer(horizontal: false)
-    private let middleSpace = Spacer(horizontal: false)
-    private let bottomSpace = Spacer(horizontal: false)
-    private let infoBox = Box.vertical(spacing: 6)
+    private let sideSpacers = (0..<4).map { _ in Spacer(horizontal: false) }
+    private let infoClamp: Clamp
+    private let info = Box.vertical(spacing: 0)
     private let seek: Widget
     private let titleBlock: Box
     private let codec: Widget
     private let controls = Box.vertical(spacing: 0)
+    private let controlsClamp: Clamp
     private let transportRow: Box
     private let inlineShuffle: Button
     private let inlineRepeat: Button
     private let volume: Widget
     private let toolbar: Box
+    private let sideToolbar: Box
     private let toolbarShuffle: Button
     private let toolbarRepeat: Button
     private let queuePane: QueuePane
     private let queueColumn = Bin()
-    private let queuePage = Bin()
+    private let queueDock = Bin()
 
     init(app: AppState, shell: Shell) {
         self.app = app
@@ -85,7 +91,7 @@ final class NowPlaying {
         root = Overlay(backdrop.root)
         root.css("now-playing")
 
-        // The cover and its flip side.
+        // The cover and its flip sides.
         let artwork = ArtworkView(app, size: .full, side: nil, shape: .player)
         poster.add(artwork.root, name: Mode.artwork.rawValue)
         poster.add(LyricsPane(env: env).root, name: Mode.lyrics.rawValue)
@@ -96,53 +102,61 @@ final class NowPlaying {
         posterFrame.propagatesNaturalWidth().propagatesNaturalHeight()
         posterFrame.halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_CENTER)
         posterCell = Overlay(posterFrame)
+        posterColumn.append(posterPad)
+        posterColumn.append(posterCell)
 
-        seek = SeekBar(app: app).root
-        seek.margin(horizontal: Self.margin, vertical: 0)
+        seek = SeekBar(app: app, desktop: true).root
         titleBlock = Self.titleBlock(app)
-        codec = Self.detailLine(app)
+        codec = Self.codecRow(app)
         let resume = Self.resumeStrip(app)
         (transportRow, inlineShuffle, inlineRepeat) = Self.transport(app)
         volume = Self.volumeRow()
         queuePane = QueuePane(env: env)
-        (toolbar, toolbarShuffle, toolbarRepeat) = (Box.horizontal(spacing: 0), Self.shuffleButton(app), Self.repeatButton(app))
+        toolbarShuffle = Self.shuffleButton(app)
+        toolbarRepeat = Self.repeatButton(app)
+        toolbar = Box.horizontal(spacing: 0)
+        sideToolbar = Box.horizontal(spacing: 0)
 
-        infoBox.append(seek)
-        infoBox.append(titleBlock)
-        infoBox.append(codec)
-        infoBox.append(resume)
+        info.append(seek)
+        info.append(titleBlock)
+        info.append(codec)
+        info.append(resume)
+        infoClamp = Clamp(info, maximum: 400, threshold: 300)
         controls.append(transportRow)
         controls.append(volume)
-        for spacer in [topSpace, middleSpace, bottomSpace] { spacer.vexpand() }
-        side.append(topSpace)
-        side.append(infoBox)
-        side.append(middleSpace)
-        side.append(controls)
+        controlsClamp = Clamp(controls, maximum: 440, threshold: 300)
+        for spacer in sideSpacers { spacer.vexpand() }
+        side.append(sideSpacers[0])
+        side.append(infoClamp)
+        side.append(sideSpacers[1])
+        side.append(controlsClamp)
+        side.append(sideSpacers[2])
         side.append(toolbar)
-        side.append(bottomSpace)
-        sideClamp = Clamp(side, maximum: 560, threshold: 400)
-        playerBox.append(posterCell)
-        playerBox.append(sideClamp)
-        content.append(playerBox)
-        content.append(queueColumn.hexpand().vexpand())
-        body.add(content, name: "player")
-        body.add(queuePage, name: "queue")
-        // Sized by the page showing only: Up Next's list must not stretch the player.
-        gtk_stack_set_hhomogeneous(body.widget.cast(), 0)
-        gtk_stack_set_vhomogeneous(body.widget.cast(), 0)
-        body.vexpand()
+        side.append(sideToolbar)
+        side.append(sideSpacers[3])
+        playerBox.append(posterColumn)
+        playerBox.append(side)
+        mainRow.append(playerBox)
+        mainRow.append(queueColumn.hexpand().vexpand())
+        page.append(mainRow)
+        page.append(queueDock)
 
-        let (bar, source) = Self.topBar(app, menu: { modeReference.value?.menu() ?? Menu([]) })
+        // One scroller for the whole player, as Plexamp's: in a short window the queue is
+        // a scroll away under it. It asks nothing of the window's size, so the window can
+        // always be made smaller and the next layout fits what is left.
+        scroller = ScrolledWindow(page, horizontal: GTK_POLICY_EXTERNAL, vertical: GTK_POLICY_AUTOMATIC)
+        scroller.hexpand().vexpand()
+        gtk_scrolled_window_set_overlay_scrolling(scroller.widget.cast(), 1)
+        // Scrolled only by the person: following focus, a click on a button moved the
+        // player out from under the window's edge.
+        if let viewport = gtk_scrolled_window_get_child(scroller.widget.cast()) {
+            gtk_viewport_set_scroll_to_focus(OpaquePointer(viewport), 0)
+        }
+        root.add(scroller)
+
+        let bar = Self.topBar()
         topBar = bar
-        sourceBlock = source
-        // In a scroller that never scrolls: it asks nothing of the window's size, so the
-        // window can always be made smaller, and the next layout fits what is left.
-        let frame = ScrolledWindow(Box.vertical {
-            bar
-            body
-        }, horizontal: GTK_POLICY_EXTERNAL, vertical: GTK_POLICY_EXTERNAL)
-        frame.hexpand().vexpand()
-        root.add(frame)
+        root.add(bar)
         // Draws nothing: there to be told the player's size, which decides the layout.
         let sizer = DrawingArea { _, _, _ in }
         sizer.hexpand().vexpand().canTarget(false)
@@ -150,8 +164,8 @@ final class NowPlaying {
         root.keep(self)
         modeReference.value = self
 
-        buildToolbar()
-        // Plexamp's artwork is the visualiser's other side: a click turns it over, a
+        buildToolbars()
+        // Plexamp's cover is the visualiser's other side: a click turns it over, a
         // right-click picks which one.
         artwork.root.onClick { modeReference.value?.select(.visualizer) }
         artwork.root.onContextClick { _, _ in modeReference.value?.selectVisualizer() }
@@ -175,119 +189,146 @@ final class NowPlaying {
     }
 
     /// Plexamp's choice of layout and every size in it, from the window's size; then
-    /// whatever does not fit, dropped least important first.
+    /// whatever still does not fit, dropped least important first.
     private func arrange() {
-        let (width, height) = (Int(size.width), Int(size.height))
-        guard width > 0 else { return }
-        let w = Double(width)
-        // The bar as tall as it asks to be with this desktop's fonts and buttons, and a
-        // margin at the bottom, clear of the window's rounded corners.
-        let bar = max(measuredHeight(topBar, width: size.width), 40)
-        let available = Double(height) - bar - 12
-        // Plexamp's header floats over the top 30 of its player; this one takes a row of
-        // its own, so Plexamp's heights are measured from below it, plus that 30.
-        let h = available + 30
-        let margin = Double(Self.margin)
+        guard size.width > 0, size.height > 0 else { return }
+        let z = Self.zoom
+        let width = Double(size.width)
+        let height = Double(size.height)
+        // In Plexamp's pixels, where its rules are written.
+        let w = width / z
+        let h = height / z
+        let m = Self.margin
+        let bar = max(measuredHeight(topBar, width: size.width), 28)
 
-        // `landscape` on the desktop: over 500 wide and wider than tall. Side by side
-        // when the window is also over 680 high (and the setting is on, which it is by
-        // default and here always).
-        let landscape = w > 500 && w / h > 1
-        let layout: Layout = landscape ? (w > 500 && h > 680 ? .sideBySide : .landscape) : .portrait
+        // Plexamp's `landscape` on the desktop: over 500 wide and wider than tall. Side by
+        // side when it is also over 680 high (its setting, on by default and here always).
+        let layout: Layout = w > 500 && w / h > 1 ? (h > 680 ? .sideBySide : .landscape) : .portrait
         let changed = layout != self.layout
         self.layout = layout
 
-        // Start with everything the layout shows, then take away what does not fit.
-        for piece in [seek, titleBlock, codec, transportRow, toolbar] { piece.isVisible = true }
-        posterCell.isVisible = true
+        for piece in [seek, titleBlock, codec, transportRow, toolbar, sideToolbar, posterCell] { piece.isVisible = true }
         var posterSize: Double
-        var lyricsWidth: Double
-        var posterGap: Double
-        var sideWidth: Double
+        var wide: Double
+        var block: Double
         switch layout {
         case .portrait:
+            // `PosterSize` on the desktop, and the block it heads.
             let fullBleed = w < 300 || (h > 700 && w < 350)
-            posterSize = fullBleed ? w : min(w - 70, 300)
-            lyricsWidth = w - 2 * margin
-            posterGap = fullBleed ? 0 : 6
-            sideWidth = min(w, 600)
+            posterSize = (fullBleed ? w : min(w - 70, 300)) * z
+            block = min(h, 700) * z
+            var room = h - posterSize / z
+            if w <= 300 { room += 40 }
+            seek.isVisible = room > 220
+            titleBlock.isVisible = room > 135
+            codec.isVisible = room > 245
             volume.isVisible = h >= 675
+            sideToolbar.isVisible = false
+            // The visualiser spans the window at the cover's height; the lyrics, the
+            // window less its margins.
+            wide = mode == .visualizer ? width : mode == .lyrics ? width - 2 * m * z : posterSize
             playerBox.orientation(GTK_ORIENTATION_VERTICAL)
-            playerBox.size(width: -1, height: Int32(min(available, 700)))
-            playerBox.halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_CENTER).hexpand(true)
-            posterCell.halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_START)
-            posterCell.margins(top: Int32(posterGap), bottom: 0, start: 0, end: 0)
-            sideClamp.hexpand(true).vexpand(true).valign(GTK_ALIGN_FILL)
-            adw_clamp_set_maximum_size(sideClamp.widget.cast(), 600)
-            setSpacers(top: true, middle: true, bottom: false)
-            volume.size(width: Int32(min(w * 0.75, 500)), height: -1)
+            playerBox.size(width: -1, height: Int32(block))
+            playerBox.hexpand(true).halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_FILL)
+            posterColumn.halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_START)
+            posterPad.vexpand(false).size(width: -1, height: Int32(posterPadHeight(bar: bar, w: w, h: h, poster: posterSize)))
+            posterCell.halign(GTK_ALIGN_CENTER).margins(top: 0, bottom: 0, start: 0, end: 0)
+            side.vexpand(true).hexpand(true).valign(GTK_ALIGN_FILL)
+            spacers(flexible: [true, true, true, false], fixed: [0, 0, 0, 0])
+            adw_clamp_set_maximum_size(infoClamp.widget.cast(), Int32(500 * z))
+            adw_clamp_set_maximum_size(controlsClamp.widget.cast(), Int32(width))
+            volume.size(width: Int32(min(width * 0.75, 500 * z)), height: -1)
+            volume.margins(top: Int32(m * z), bottom: 0, start: 0, end: 0)
+            toolbar.margins(top: 0, bottom: Int32(10 * z), start: Int32(m * z), end: Int32(m * z))
             reorder(seekFirst: true)
             titleBlock.setCSS("large", false)
         case .landscape:
-            posterSize = h > 100 ? min(w - 250, h - 4 * margin) : h
-            posterSize = min(posterSize, available - 2 * margin)
-            lyricsWidth = posterSize
-            posterGap = 0
-            sideWidth = min(w - posterSize - 3 * margin, 560)
+            let tiny = h <= 100
+            posterSize = (h > 100 ? min(w - 250, h - 4 * m) : h) * z
+            // Clear of the window controls over the top.
+            posterSize = min(posterSize, height - 2 * bar)
+            block = height
+            wide = posterSize
+            seek.isVisible = h > 150
+            codec.isVisible = h > 200
             volume.isVisible = h > 420
+            toolbar.isVisible = h > 325
+            sideToolbar.isVisible = false
             playerBox.orientation(GTK_ORIENTATION_HORIZONTAL)
-            playerBox.size(width: -1, height: -1)
-            playerBox.halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_FILL).hexpand(true)
-            // The cover in a cell its own width plus a margin, against the right edge.
-            posterCell.halign(GTK_ALIGN_END).valign(GTK_ALIGN_CENTER)
-            posterCell.margins(top: 0, bottom: 0, start: Self.margin, end: Self.margin)
-            sideClamp.hexpand(true).vexpand(true).valign(GTK_ALIGN_FILL)
-            adw_clamp_set_maximum_size(sideClamp.widget.cast(), 560)
-            setSpacers(top: true, middle: true, bottom: false)
-            volume.size(width: Int32(max(min(sideWidth - 2 * margin, 500), 120)), height: -1)
+            playerBox.size(width: -1, height: Int32(block))
+            playerBox.hexpand(true).halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_FILL)
+            // The cover in a cell its own width plus a margin, against its right edge.
+            posterColumn.halign(GTK_ALIGN_START).valign(GTK_ALIGN_CENTER)
+            posterPad.vexpand(false).size(width: -1, height: 0)
+            posterCell.halign(GTK_ALIGN_END).margins(top: 0, bottom: 0, start: Int32(m * z), end: tiny ? 0 : Int32(m * z))
+            side.vexpand(true).hexpand(true).valign(GTK_ALIGN_FILL)
+            spacers(flexible: [true, true, true, false], fixed: [0, 0, 0, Int(m * z)])
+            adw_clamp_set_maximum_size(infoClamp.widget.cast(), Int32(500 * z))
+            adw_clamp_set_maximum_size(controlsClamp.widget.cast(), Int32(500 * z))
+            volume.size(width: Int32(max(min(width - posterSize - 5 * m * z, 500 * z), 120)), height: -1)
+            volume.margins(top: Int32(m * z / 2), bottom: 0, start: 0, end: 0)
+            toolbar.margins(top: 0, bottom: Int32(10 * z), start: Int32(m * z), end: Int32(m * z))
             reorder(seekFirst: false)
             titleBlock.setCSS("large", false)
         case .sideBySide:
-            posterSize = (h / 2.5).rounded()
-            lyricsWidth = posterSize
-            posterGap = margin
-            sideWidth = max(w / 2 - 2 * margin, 300)
+            posterSize = (h / 2.5).rounded() * z
+            block = height
+            wide = posterSize
             volume.isVisible = true
+            toolbar.isVisible = false
             playerBox.orientation(GTK_ORIENTATION_VERTICAL)
-            playerBox.size(width: Int32(w / 2), height: -1)
-            playerBox.hexpand(false).valign(GTK_ALIGN_CENTER)
+            playerBox.size(width: Int32(width / 2), height: Int32(block))
+            // Hidden, the queue leaves the player centred in the window.
+            playerBox.hexpand(!showsQueueColumn).valign(GTK_ALIGN_FILL)
             playerBox.halign(showsQueueColumn ? GTK_ALIGN_START : GTK_ALIGN_CENTER)
-            posterCell.halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_START)
-            posterCell.margins(top: 0, bottom: Self.margin, start: 0, end: 0)
-            sideClamp.hexpand(true).vexpand(false).valign(GTK_ALIGN_START)
-            adw_clamp_set_maximum_size(sideClamp.widget.cast(), Int32(sideWidth))
-            setSpacers(top: false, middle: false, bottom: false)
-            volume.size(width: Int32(min(w / 2 - 4 * margin, 500)), height: -1)
+            // Plexamp's three flexible spacers — above the cover, under the volume, under
+            // the toolbar — are set to thirds of what is left once the rest is measured.
+            posterColumn.halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_START)
+            posterPad.vexpand(false).size(width: -1, height: Int32(bar))
+            posterCell.halign(GTK_ALIGN_CENTER).margins(top: 0, bottom: 0, start: 0, end: 0)
+            side.vexpand(false).hexpand(true).valign(GTK_ALIGN_START)
+            spacers(flexible: [false, false, false, false], fixed: [Int(m * z), Int(m * z), 0, 0])
+            adw_clamp_set_maximum_size(infoClamp.widget.cast(), Int32(500 * z))
+            adw_clamp_set_maximum_size(controlsClamp.widget.cast(), Int32(width / 2))
+            volume.size(width: Int32(min(width / 2 - 4 * m * z, 500 * z)), height: -1)
+            volume.margins(top: Int32(m * z), bottom: 0, start: 0, end: 0)
+            sideToolbar.margins(top: 0, bottom: 0, start: 0, end: 0)
             reorder(seekFirst: true)
             titleBlock.setCSS("large", true)
         }
-        // Extra controls beside the transport only side by side; otherwise shuffle and
-        // repeat live in the toolbar, as in Plexamp.
+        // Shuffle and repeat beside the transport only side by side; otherwise they are at
+        // the ends of the toolbar, as in Plexamp — and gone from it under 310 across.
         let extra = layout == .sideBySide
         inlineShuffle.isVisible = extra
         inlineRepeat.isVisible = extra
-        toolbarShuffle.isVisible = !extra
-        toolbarRepeat.isVisible = !extra
+        toolbarShuffle.isVisible = !extra && w >= 310
+        toolbarRepeat.isVisible = !extra && w >= 310
+        transportRow.setCSS("roomy", layout == .portrait)
 
-        // Fit. In the stacked layouts the cover shares the height with everything else;
-        // in landscape it stands beside them, and only needs width.
+        // Fit. In the stacked layouts the cover shares the block's height with the rest;
+        // in landscape it stands beside them and needs only width.
         let stacked = layout != .landscape
-        let minimumPoster = 110.0
-        if !stacked, posterSize < minimumPoster || w - posterSize - 3 * margin < 260 {
+        let sideWidth = Int32(layout == .landscape ? max(width - posterSize - 3 * m * z, 1) : layout == .sideBySide ? width / 2 : width)
+        let posterTop = layout == .portrait ? posterPadHeight(bar: bar, w: w, h: h, poster: posterSize) : layout == .sideBySide ? bar : 0
+        let minimumPoster = 100.0
+        // Below the window controls, which sit over the top of the landscape layout.
+        side.margins(top: layout == .landscape ? Int32(bar) : 0, bottom: 0, start: 0, end: 0)
+        if !stacked, posterSize < minimumPoster || width - posterSize - 3 * m * z < 240 {
             posterCell.isVisible = false
-            sideWidth = min(w, 560)
         }
         func needed() -> Double {
-            let side = measuredHeight(sideClamp, width: Int32(max(sideWidth, 1)))
-            return stacked && posterCell.isVisible ? posterSize + posterGap + side : side
+            let rest = measuredHeight(side, width: sideWidth)
+            return stacked && posterCell.isVisible ? posterTop + posterSize + rest : rest
         }
+        let available = block
         for piece in [volume, codec, toolbar] where needed() > available {
             piece.isVisible = false
         }
-        if stacked, needed() > available, posterCell.isVisible {
-            let room = available - posterGap - measuredHeight(sideClamp, width: Int32(max(sideWidth, 1)))
+        if stacked, posterCell.isVisible, needed() > available {
+            let room = available - posterTop - measuredHeight(side, width: sideWidth)
             if room >= minimumPoster {
                 posterSize = room
+                if mode != .visualizer, mode != .lyrics || layout != .portrait { wide = room }
             } else {
                 posterCell.isVisible = false
             }
@@ -295,19 +336,50 @@ final class NowPlaying {
         for piece in [seek, titleBlock] where needed() > available {
             piece.isVisible = false
         }
+        if layout == .sideBySide {
+            let third = max((available - needed()) / 3, 0)
+            posterPad.size(width: -1, height: Int32(max(third, bar)))
+            sideSpacers[2].size(width: -1, height: Int32(third))
+            sideSpacers[3].size(width: -1, height: Int32(third))
+        }
 
-        let side = Int32(max(posterSize, 40))
-        let wide = mode == .lyrics ? Int32(max(lyricsWidth, Double(side))) : side
-        poster.size(width: wide, height: side)
-        gtk_scrolled_window_set_min_content_width(posterFrame.widget.cast(), wide)
-        gtk_scrolled_window_set_max_content_width(posterFrame.widget.cast(), wide)
-        gtk_scrolled_window_set_min_content_height(posterFrame.widget.cast(), side)
-        gtk_scrolled_window_set_max_content_height(posterFrame.widget.cast(), side)
-        // A tiny window keeps the way down, the menu and its own buttons.
-        sourceBlock?.isVisible = w >= 330
+        let square = Int32(max(posterSize, 40))
+        let across = Int32(max(wide, Double(square)))
+        poster.size(width: across, height: square)
+        gtk_scrolled_window_set_min_content_width(posterFrame.widget.cast(), across)
+        gtk_scrolled_window_set_max_content_width(posterFrame.widget.cast(), across)
+        gtk_scrolled_window_set_min_content_height(posterFrame.widget.cast(), square)
+        gtk_scrolled_window_set_max_content_height(posterFrame.widget.cast(), square)
 
-        if changed { placeQueue() }
+        placeQueue(layout: layout, changed: changed, windowHeight: height, block: block)
+        // A new layout starts at the top: an offset kept from the last one would cut its
+        // top off.
+        if changed {
+            let scroller = scroller
+            DispatchQueue.main.async {
+                gtk_adjustment_set_value(gtk_scrolled_window_get_vadjustment(scroller.widget.cast()), 0)
+            }
+        }
         refreshMode()
+    }
+
+    /// The space above the cover in portrait: Plexamp's 30 — or, when the window is too
+    /// narrow for the cover to clear the window's buttons beside it, their height.
+    private func posterPadHeight(bar: Double, w: Double, h: Double, poster: Double) -> Double {
+        let fullBleed = w < 300 || (h > 700 && w < 350)
+        if fullBleed { return 0 }
+        let clear = (w * Self.zoom - poster) / 2 > Self.windowButtonsWidth
+        return clear ? 30 * Self.zoom : max(30 * Self.zoom, bar)
+    }
+
+    /// Room the window's own buttons take at either end of the top strip.
+    private static let windowButtonsWidth = 130.0
+
+    private func spacers(flexible: [Bool], fixed: [Int]) {
+        for (index, spacer) in sideSpacers.enumerated() {
+            spacer.vexpand(flexible[index])
+            spacer.size(width: -1, height: Int32(fixed[index]))
+        }
     }
 
     /// What a widget asks for in height at a width, as laid out now.
@@ -318,66 +390,57 @@ final class NowPlaying {
         return Double(natural)
     }
 
-    private func setSpacers(top: Bool, middle: Bool, bottom: Bool) {
-        topSpace.isVisible = top
-        middleSpace.isVisible = middle
-        bottomSpace.isVisible = bottom
-        middleSpace.size(width: -1, height: middle ? -1 : 2 * Self.margin)
-    }
-
     /// The seekbar above the title in portrait and side by side, below it in landscape.
     private func reorder(seekFirst: Bool) {
         if seekFirst {
-            gtk_box_reorder_child_after(infoBox.widget.cast(), seek.widget, nil)
+            gtk_box_reorder_child_after(info.widget.cast(), seek.widget, nil)
         } else {
-            gtk_box_reorder_child_after(infoBox.widget.cast(), seek.widget, titleBlock.widget)
+            gtk_box_reorder_child_after(info.widget.cast(), seek.widget, titleBlock.widget)
         }
     }
 
-    /// Up Next has one home per layout: beside the player side by side, otherwise a page
-    /// of its own in place of the player.
-    private func placeQueue() {
+    /// Plexamp's queue has one home per layout: beside the player side by side, otherwise
+    /// under it — filling the window below the player when there is room, a window's
+    /// height of it a scroll away when there is not.
+    private func placeQueue(layout: Layout, changed: Bool, windowHeight: Double, block: Double) {
         let widget = queuePane.root
-        g_object_ref(widget.widget)
-        queueColumn.child = nil
-        queuePage.child = nil
-        if layout == .sideBySide {
-            queueColumn.child = widget
-        } else {
-            queuePage.child = widget
+        if changed {
+            g_object_ref(widget.widget)
+            queueColumn.child = nil
+            queueDock.child = nil
+            if layout == .sideBySide { queueColumn.child = widget } else { queueDock.child = widget }
+            g_object_unref(widget.widget)
         }
-        g_object_unref(widget.widget)
+        queueColumn.isVisible = layout == .sideBySide && showsQueueColumn
+        queueColumn.margins(top: Int32(layout == .sideBySide ? max(measuredHeight(topBar, width: size.width), 28) : 0), bottom: 0, start: Int32(Self.margin * Self.zoom), end: 0)
+        queueDock.isVisible = layout != .sideBySide
+        let below = windowHeight - block
+        let dock = below >= 200 ? below : windowHeight
+        queueDock.size(width: -1, height: Int32(dock))
+        mainRow.size(width: -1, height: Int32(layout == .sideBySide ? windowHeight : block))
     }
 
     // MARK: - Modes
 
     private func select(_ target: Mode) {
-        if target == .queue, layout == .sideBySide {
-            showsQueueColumn.toggle()
-            UserDefaults.standard.set(showsQueueColumn, forKey: Self.showsQueueKey)
-            arrange()
-            return
-        }
         mode = target
         arrange()
     }
 
-    private func refreshMode() {
-        switch mode {
-        case .queue:
-            body.visibleName = layout == .sideBySide ? "player" : "queue"
-        case .artwork, .lyrics, .visualizer:
-            body.visibleName = "player"
-            poster.visibleName = mode.rawValue
-        }
-        queueColumn.isVisible = layout == .sideBySide && showsQueueColumn
-        for (candidate, button) in modeButtons {
-            let selected = candidate == .queue
-                ? (layout == .sideBySide ? showsQueueColumn : mode == .queue)
-                : candidate == mode
-            button.setCSS("selected", selected)
-        }
+    private func toggleQueueColumn() {
+        showsQueueColumn.toggle()
+        UserDefaults.standard.set(showsQueueColumn, forKey: Self.showsQueueKey)
+        arrange()
     }
+
+    private func refreshMode() {
+        poster.visibleName = mode.rawValue
+        for (candidate, button) in modeButtons { button.setCSS("selected", candidate == mode) }
+        for (candidate, button) in sideModeButtons { button.setCSS("selected", candidate == mode) }
+        queueToggle?.setCSS("selected", showsQueueColumn)
+    }
+
+    private var queueToggle: Button?
 
     /// Select Visualizer, which also shows the visualiser it chooses.
     private func selectVisualizer() {
@@ -387,35 +450,19 @@ final class NowPlaying {
 
     // MARK: - Top
 
-    /// "Playing from", the way down, the menu — and, as the player fills the window, the
-    /// window's own buttons, on a bar that drags the window and maximizes it on a double
-    /// click as a header bar does.
-    private static func topBar(_ app: AppState, menu: @escaping @MainActor () -> Menu) -> (Widget, Widget) {
-        let player = app.player
-        let source = Label("", "source-title").xalign(0.5).ellipsize()
-        source.observe {
-            let described = player.queue.sourceDescription
-            source.text = described.isEmpty ? "Queue" : described
-        }
-        let close = Button(icon: "go-down-symbolic", "flat", "circular") { app.navigator.showsPlayer = false }
-        close.tooltip("Close Player").valign(GTK_ALIGN_CENTER)
-        let more = MenuButton(icon: "view-more-symbolic", "flat", "circular") { menu() }
-        more.valign(GTK_ALIGN_CENTER)
-        let block = Box.vertical(spacing: 0) {
-            Label("PLAYING FROM", "source-caption").xalign(0.5).ellipsize()
-            source
-        }
-        block.valign(GTK_ALIGN_CENTER)
+    /// The window's own buttons over the top of the player, on a strip that drags the
+    /// window and maximizes it on a double click as a header bar does. Plexamp's desktop
+    /// window has no title bar either.
+    private static func topBar() -> Widget {
         let bar = Box.horizontal(spacing: 6) {
             Widget(gtk_window_controls_new(GTK_PACK_START)!)
-            close
-            Box.horizontal { block.hexpand() }.hexpand()
-            more
+            Spacer()
             Widget(gtk_window_controls_new(GTK_PACK_END)!)
-        }.margin(horizontal: 6, vertical: 6)
+        }.margin(horizontal: 6, vertical: 4)
         let handle = Widget(gtk_window_handle_new()!)
         gtk_window_handle_set_child(handle.widget.cast(), bar.widget)
-        return (handle, block)
+        handle.valign(GTK_ALIGN_START).hexpand()
+        return handle
     }
 
     // MARK: - Menu
@@ -428,6 +475,23 @@ final class NowPlaying {
         jumps.append(.action("Show Similar Tracks") { [env] in SimilarTracks.present(env, song: song) })
         jumps.append(.action("Sonic Adventure…") { app.navigator.open(.sonicAdventure(song)) })
         sections.append(jumps)
+
+        // What Plexamp's queue menu holds, here with the rest.
+        let player = app.player
+        let env = env
+        sections.append([
+            .action("Save Play Queue as Playlist…", enabled: !player.queue.tracks.isEmpty) {
+                let songs = player.queue.order.compactMap { player.queue.tracks.indices.contains($0) ? player.queue.tracks[$0] : nil }
+                Menus.newPlaylist(env, songs, suggested: player.queue.sourceDescription)
+            },
+            .action("Clear Play Queue", destructive: true, enabled: player.queue.hasUpNext) {
+                Dialogs.alert(
+                    "Clear Play Queue?",
+                    body: "The track playing keeps playing.",
+                    responses: [("cancel", "Cancel", ADW_RESPONSE_DEFAULT), ("clear", "Clear Play Queue", ADW_RESPONSE_DESTRUCTIVE)]
+                ) { if $0 == "clear" { player.clearQueue() } }
+            },
+        ])
 
         let guest = app.guestDJ
         let speed = app.player.speed
@@ -467,10 +531,11 @@ final class NowPlaying {
         return album
     }
 
+
     // MARK: - Title block
 
-    /// Plexamp's three lines, centred: the artist, the title in bold, the album and its
-    /// year dimmer. The artist and album lead to their pages.
+    /// Plexamp's three lines, centred in nine-tenths of the width: the artist, the title in
+    /// bold, the album and its year dimmer. The artist and album lead to their pages.
     private static func titleBlock(_ app: AppState) -> Box {
         let player = app.player
         let artist = Button("", "flat", "link-button", "np-artist")
@@ -490,12 +555,12 @@ final class NowPlaying {
             guard let song = player.currentSong, let id = song.albumId, let name = song.album else { return }
             app.navigator.open(.album(AlbumRef(id: id, name: name, artist: song.artist, coverArt: song.coverArt)))
         }
-        let box = Box.vertical(spacing: 1) {
+        let box = Box.vertical(spacing: 0) {
             artist
             title
             album
         }
-        box.css("np-meta").margin(horizontal: 20, vertical: 0)
+        box.css("np-meta").margin(horizontal: 18, vertical: 4)
         box.observe {
             guard let song = player.currentSong else { return }
             title.text = song.title
@@ -508,29 +573,47 @@ final class NowPlaying {
         return box
     }
 
-    /// What is actually being heard, and where in the queue: every part left out when
-    /// unknown rather than shown as a placeholder.
-    private static func detailLine(_ app: AppState) -> Widget {
-        let label = Label("", "detail-line").ellipsize().xalign(0.5)
-        label.observe {
-            let player = app.player
-            guard let song = player.currentSong else { return }
-            var parts: [String] = []
-            if app.downloads.isDownloaded(song.id) { parts.append("Downloaded") }
-            parts.append(Self.quality(app, song))
-            if let count = song.playCount, count > 0 { parts.append("\(count) \(count == 1 ? "play" : "plays")") }
-            if player.queue.order.count > 1 { parts.append("\(player.queue.position + 1) of \(player.queue.order.count)") }
-            if let dj = app.guestDJ.dj { parts.append("✦ \(dj.name)") }
-            if player.speed != 1 { parts.append(String(format: "%.1f×", player.speed)) }
-            if let timer = app.sleepTimer.label { parts.append("☾ \(timer)") }
-            if app.screenAwake.isEnabled { parts.append("Screen on") }
-            label.text = parts.joined(separator: " · ")
+    /// Plexamp's codec line: the format on the left of the track's stars, the rate and depth
+    /// (or bitrate) on the right. What else is worth knowing — downloaded, the speed, a
+    /// sleep timer, the Guest DJ — follows the rate when it applies.
+    private static func codecRow(_ app: AppState) -> Widget {
+        let player = app.player
+        let format = Label("", "np-codec").xalign(1).hexpand()
+        let detail = Label("", "np-codec").xalign(0).hexpand().ellipsize()
+        let stars = Box.horizontal(spacing: 0)
+        let row = Box.horizontal(spacing: 8) {
+            format
+            stars
+            detail
         }
-        return label
+        row.margin(horizontal: 12, vertical: 4)
+        row.observe {
+            guard let song = player.currentSong else { return }
+            let parts = quality(app, song).components(separatedBy: " · ")
+            format.text = parts.first ?? ""
+            var rest = Array(parts.dropFirst())
+            if app.downloads.isDownloaded(song.id) { rest.append("Downloaded") }
+            if let dj = app.guestDJ.dj { rest.append("✦ \(dj.name)") }
+            if player.speed != 1 { rest.append(String(format: "%.1f×", player.speed)) }
+            if let timer = app.sleepTimer.label { rest.append("☾ \(timer)") }
+            detail.text = rest.joined(separator: " · ")
+
+            let user = app.userState
+            let rating = user.rating(id: song.id, serverValue: song.userRating)
+            stars.removeAll()
+            for value in 1...5 {
+                let star = Button(value <= rating ? "★" : "☆", "flat", "np-star")
+                star.setCSS("filled", value <= rating)
+                star.tooltip("\(value) Star\(value == 1 ? "" : "s")")
+                star.onClicked { user.setRating(id: song.id, to: value, current: rating) }
+                stars.append(star)
+            }
+        }
+        return row
     }
 
-    /// "FLAC · 24/96", "MP3 · 320 kbps": for lossless the depth and rate are the useful
-    /// numbers; for a converted stream, that it was converted.
+    /// "FLAC · 96 / 24", "MP3 · 320 kbps": for lossless the rate and depth, in Plexamp's
+    /// order, are the useful numbers; for a converted stream, that it was converted.
     static func quality(_ app: AppState, _ song: Song) -> String {
         if !app.downloads.isDownloaded(song.id) {
             let variant = app.streaming.policy.variant(for: song, on: app.reachability.network)
@@ -547,7 +630,7 @@ final class NowPlaying {
         }
         if lossless {
             if let depth = song.bitDepth, let rate = song.samplingRate, rate > 0 {
-                parts.append("\(depth)/\(kilohertz(rate))")
+                parts.append("\(kilohertz(rate)) / \(depth)")
             } else if let rate = song.samplingRate, rate > 0 {
                 parts.append("\(kilohertz(rate)) kHz")
             }
@@ -569,7 +652,8 @@ final class NowPlaying {
             label
             Button("Start Over", "flat", "caption-heading") { player.startOver() }
         }.css("resume-strip").halign(GTK_ALIGN_CENTER)
-        let revealer = Revealer(strip, transition: GTK_REVEALER_TRANSITION_TYPE_CROSSFADE)
+        // A slide, not a crossfade: a crossfading revealer keeps its height while hidden.
+        let revealer = Revealer(strip, transition: GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN)
         revealer.observe {
             guard let notice = player.resumeNotice, notice.songID == player.currentSong?.id else {
                 revealer.isRevealed = false
@@ -586,11 +670,12 @@ final class NowPlaying {
     }
 
 
+
     // MARK: - Controls
 
-    /// Plexamp's transport: previous and next, play in a circle tinted with the cover's
-    /// accent, a little smaller than Plexamp's 60; with shuffle and repeat either side when
-    /// side by side. Skip back and forward join it when the setting asks.
+    /// Plexamp's transport: previous and next, and play in a 60-pixel circle tinted with the
+    /// cover's accent, spaced wider in portrait; side by side, shuffle and repeat either
+    /// end. Skip back and forward join it when the setting asks.
     private static func transport(_ app: AppState) -> (Box, Button, Button) {
         let player = app.player
         let settings = app.playerSettings
@@ -617,9 +702,9 @@ final class NowPlaying {
             repeatButton
         }.css("np-transport").halign(GTK_ALIGN_CENTER)
         for button in [shuffle, back, previous, play, next, forward, repeatButton] { button.valign(GTK_ALIGN_CENTER) }
-        play.margin(horizontal: 10, vertical: 0)
-        shuffle.margin(horizontal: margin, vertical: 0)
-        repeatButton.margin(horizontal: margin, vertical: 0)
+        play.margin(horizontal: 8, vertical: 0)
+        shuffle.margin(horizontal: 12, vertical: 0)
+        repeatButton.margin(horizontal: 12, vertical: 0)
         row.observe {
             play.icon = player.isPlaying ? "media-playback-pause-symbolic" : "media-playback-start-symbolic"
             play.tooltip(player.isPlaying ? "Pause" : "Play")
@@ -654,41 +739,94 @@ final class NowPlaying {
         return button
     }
 
+    /// Plexamp's Guest DJ button: the DJs to choose from, the one playing lit.
+    private static func djButton(_ app: AppState) -> Widget {
+        let guest = app.guestDJ
+        let button = MenuButton(icon: "starred-symbolic", "flat", "np-small") {
+            Menu([[
+                .choice(
+                    guest.dj.map { "Guest DJ — \($0.name)" } ?? "Guest DJ",
+                    options: [("off", "Off")] + GuestDJ.allCases.map { ($0.rawValue, $0.name) },
+                    selected: guest.dj?.rawValue ?? "off"
+                ) { id in guest.setDJ(GuestDJ(rawValue: id)) },
+            ]])
+        }
+        button.observe {
+            button.setCSS("active", guest.dj != nil)
+            button.tooltip(guest.dj.map { "Guest DJ — \($0.name)" } ?? "Guest DJ")
+        }
+        return button
+    }
+
     /// The stream's own volume, the same one the desktop's mixer shows for the app.
     private static func volumeRow() -> Widget {
         let volume = OutputVolume.shared
         let scale = Scale(min: 0, max: 1, step: 0.01, value: volume.level)
         scale.hexpand().onUserChange { volume.level = min(max($0, 0), 1) }
         scale.observe { if abs(scale.value - volume.level) > 0.005 { scale.value = volume.level } }
-        return Box.horizontal(spacing: 10) {
-            Icon("audio-volume-low-symbolic", size: 14).opacity(0.5)
+        return Box.horizontal(spacing: 8) {
+            Icon("audio-volume-high-symbolic", size: 14).opacity(0.7)
             scale
-            Icon("audio-volume-high-symbolic", size: 14).opacity(0.5)
-        }.halign(GTK_ALIGN_CENTER).margins(top: margin, bottom: 0, start: 0, end: 0)
+        }.halign(GTK_ALIGN_CENTER)
     }
 
-    /// Plexamp's row along the bottom: shuffle, the cover's flip sides, Up Next, repeat.
-    private func buildToolbar() {
-        toolbar.css("np-toolbar").halign(GTK_ALIGN_CENTER).margins(top: 8, bottom: 6, start: 0, end: 0)
-        toolbar.append(toolbarShuffle)
-        let entries: [(Mode, String, String)] = [
-            (.lyrics, "format-justify-left-symbolic", "Lyrics"),
-            (.visualizer, "music-waveform-symbolic", "Visualizer"),
-            (.queue, "view-list-symbolic", "Up Next"),
-        ]
-        for (target, icon, name) in entries {
-            let button = Button(icon: icon, "flat", "np-small", "mode-button") { [weak self] in
-                guard let self else { return }
-                select(target != .queue && mode == target ? .artwork : (target == .queue && mode == .queue ? .artwork : target))
+    /// Plexamp's two toolbars. Under the player: the menu, the Guest DJ and shuffle on the
+    /// left, the way down in the middle, repeat and the cover's flip sides on the right
+    /// (where Plexamp has its speakers and casting). Side by side, one row under the
+    /// controls: the flip sides, the DJ, the menu, Up Next beside the player, the way down.
+    private func buildToolbars() {
+        let reference = WeakReference(self)
+        func modeButton(_ target: Mode, _ icon: String, _ name: String) -> Button {
+            let button = Button(icon: icon, "flat", "np-small", "mode-button") {
+                guard let player = reference.value else { return }
+                player.select(player.mode == target ? .artwork : target)
             }
             button.tooltip(name)
-            modeButtons[target] = button
-            toolbar.append(button)
+            return button
         }
-        toolbar.append(toolbarRepeat)
-        for child in [toolbarShuffle, toolbarRepeat] { child.margin(horizontal: 8, vertical: 0) }
-        for button in modeButtons.values { button.margin(horizontal: 8, vertical: 0) }
+        func menuButton() -> Widget {
+            MenuButton(icon: "view-more-horizontal-symbolic", "flat", "np-small") { reference.value?.menu() ?? Menu([]) }
+                .tooltip("More")
+        }
+        func closeButton() -> Widget {
+            Button(icon: "go-down-symbolic", "flat", "np-small") { [app] in app.navigator.showsPlayer = false }
+                .tooltip("Close Player")
+        }
+        let app = app
+        let lyrics = modeButton(.lyrics, "format-justify-left-symbolic", "Lyrics")
+        let visualizer = modeButton(.visualizer, "music-waveform-symbolic", "Visualizer")
+        let sideLyrics = modeButton(.lyrics, "format-justify-left-symbolic", "Lyrics")
+        let sideVisualizer = modeButton(.visualizer, "music-waveform-symbolic", "Visualizer")
+        modeButtons = [.lyrics: lyrics, .visualizer: visualizer]
+        sideModeButtons = [.lyrics: sideLyrics, .visualizer: sideVisualizer]
+
+        toolbar.append(Box.horizontal(spacing: 4) {
+            menuButton()
+            Self.djButton(app)
+            toolbarShuffle
+        }.hexpand().halign(GTK_ALIGN_START))
+        toolbar.append(closeButton())
+        toolbar.append(Box.horizontal(spacing: 4) {
+            toolbarRepeat
+            lyrics
+            visualizer
+        }.hexpand().halign(GTK_ALIGN_END))
+        toolbar.css("np-toolbar")
+
+        let queue = Button(icon: "view-list-symbolic", "flat", "np-small") { reference.value?.toggleQueueColumn() }
+        queue.tooltip("Up Next")
+        queueToggle = queue
+        sideToolbar.append(sideLyrics)
+        sideToolbar.append(sideVisualizer)
+        sideToolbar.append(Self.djButton(app))
+        sideToolbar.append(menuButton())
+        sideToolbar.append(queue)
+        sideToolbar.append(closeButton())
+        sideToolbar.css("np-toolbar").halign(GTK_ALIGN_CENTER)
+        for child in [sideLyrics, sideVisualizer, queue] { child.margin(horizontal: 6, vertical: 0) }
     }
+
+    private var sideModeButtons: [Mode: Button] = [:]
 }
 
 /// The cover's colours behind the player, drawn as Plexamp's desktop draws them.

@@ -7,6 +7,10 @@ import Foundation
 ///
 /// Until the track's shape is known it is a flat line that works the same. Its own view,
 /// as on the phone, because it reads `elapsed`, which ticks four times a second.
+///
+/// `desktop` is Plexamp's desktop seekbar instead: the time played and the track's length
+/// either side of a short band — the loudness mirrored about a thin line that fills in as
+/// the track plays.
 @MainActor
 final class SeekBar {
     let root: Box
@@ -17,24 +21,39 @@ final class SeekBar {
     private var scrub: Double?
     private var heights: [Float] = []
     private var trackID: String?
+    private let desktop: Bool
 
     private static let points = 128
     private static let barHeight = Double(SeekbarShape.maximumHeight)
     private static let slop = 8.0
+    /// Plexamp's desktop bar: 35 tall at its zoom of 0.8.
+    static let desktopHeight = 28.0
 
-    init(app: AppState) {
+    init(app: AppState, desktop: Bool = false) {
         self.app = app
+        self.desktop = desktop
         let reference = WeakReference<SeekBar>.placeholder
-        canvas = DrawingArea(height: Int32(Self.barHeight + 2 * Self.slop)) { cairo, width, height in
+        let height = desktop ? Self.desktopHeight : Self.barHeight + 2 * Self.slop
+        canvas = DrawingArea(height: Int32(height)) { cairo, width, height in
             reference.value?.draw(cairo, width: width, height: height)
         }
         canvas.hexpand()
-        root = Box.vertical(spacing: 2) {}
-        root.append(canvas)
-        root.append(Box.horizontal {
-            elapsedLabel.hexpand()
-            remainingLabel
-        })
+        if desktop {
+            elapsedLabel.xalign(1).size(width: 36, height: -1)
+            remainingLabel.xalign(0).size(width: 36, height: -1)
+            root = Box.horizontal(spacing: 6) {}
+            root.append(elapsedLabel.valign(GTK_ALIGN_CENTER))
+            root.append(canvas)
+            root.append(remainingLabel.valign(GTK_ALIGN_CENTER))
+            root.css("desktop-seekbar")
+        } else {
+            root = Box.vertical(spacing: 2) {}
+            root.append(canvas)
+            root.append(Box.horizontal {
+                elapsedLabel.hexpand()
+                remainingLabel
+            })
+        }
         reference.value = self
         root.keep(self)
 
@@ -110,6 +129,12 @@ final class SeekBar {
 
     private func refreshTimes() {
         elapsedLabel.text = Int(position).asDuration
+        if desktop {
+            // Plexamp's desktop bar shows the length, not what is left.
+            remainingLabel.text = duration > 0 ? Int(duration).asDuration : "--:--"
+            canvas.opacity(duration > 0 ? 1 : 0.35)
+            return
+        }
         // Rather than "0:00", which reads as a bug — and was one.
         remainingLabel.text = duration > 0 ? "-" + Int(max(duration - position, 0)).asDuration : "--:--"
         canvas.opacity(duration > 0 ? 1 : 0.35)
@@ -117,6 +142,10 @@ final class SeekBar {
 
     private func draw(_ cairo: Cairo, width: Double, height: Double) {
         let progress = duration > 0 ? min(1, max(0, position / duration)) : 0
+        if desktop {
+            drawDesktop(cairo, width: width, height: height, progress: progress)
+            return
+        }
         let top = Self.slop
         let barHeight = Self.barHeight
         let style = app.playerSettings.seekbarStyle
@@ -175,6 +204,50 @@ final class SeekBar {
         let thickness = scrub == nil ? 2.0 : 3.0
         cairo.color(red: 1, green: 1, blue: 1)
         cairo.roundedRectangle(min(max(width * progress - thickness / 2, 0), width - thickness), top - 2, thickness, barHeight + 4, radius: thickness / 2)
+        cairo.fill()
+    }
+
+    /// The loudness mirrored about the middle, a cardinal curve through the points as
+    /// Plexamp's chart draws it, with the line along the middle red up to where it has
+    /// played.
+    private func drawDesktop(_ cairo: Cairo, width: Double, height: Double, progress: Double) {
+        let middle = height / 2
+        let half = middle - 1
+        if !heights.isEmpty {
+            let count = max(2, min(heights.count, Int(width / 3)))
+            let values = resampled(count).map { min($0 / Self.barHeight, 1) * half }
+            let step = width / Double(count - 1)
+            func trace(_ sign: Double) {
+                // Catmull-Rom through the points, as cubics: d3's curveCardinal at tension 0.
+                let points = values.enumerated().map { (Double($0.offset) * step, middle - sign * $0.element) }
+                cairo.line(points[0].0, points[0].1)
+                for index in 0..<(points.count - 1) {
+                    let p0 = points[max(index - 1, 0)], p1 = points[index]
+                    let p2 = points[index + 1], p3 = points[min(index + 2, points.count - 1)]
+                    cairo.curve(
+                        p1.0 + (p2.0 - p0.0) / 6, p1.1 + (p2.1 - p0.1) / 6,
+                        p2.0 - (p3.0 - p1.0) / 6, p2.1 - (p3.1 - p1.1) / 6,
+                        p2.0, p2.1
+                    )
+                }
+            }
+            cairo.move(0, middle)
+            trace(1)
+            cairo.line(width, middle)
+            cairo.close()
+            cairo.move(0, middle)
+            trace(-1)
+            cairo.line(width, middle)
+            cairo.close()
+            cairo.color(red: 1, green: 1, blue: 1, alpha: 0.16)
+            cairo.fill()
+        }
+        let line = scrub == nil ? 2.0 : 3.0
+        cairo.color(red: 1, green: 1, blue: 1, alpha: 0.35)
+        cairo.rectangle(0, middle - line / 2, width, line)
+        cairo.fill()
+        cairo.color(Style.tint)
+        cairo.rectangle(0, middle - line / 2, width * progress, line)
         cairo.fill()
     }
 
