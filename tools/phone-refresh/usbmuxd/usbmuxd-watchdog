@@ -1,14 +1,27 @@
 #!/bin/sh
 # An iPhone on USB that usbmuxd does not list for 30 seconds means usbmuxd is stuck: restart
-# it. At most three restarts per plug-in, so a phone waiting at "Trust This Computer?" is
-# not interrupted forever; unplugging and plugging back in starts the count again.
+# it. At most three restarts in a row, so a phone waiting at "Trust This Computer?" is not
+# interrupted forever. The count starts again when the phone comes back as a new USB device
+# (unplugged, or re-enumerated, which an iPhone does by itself) and after ten quiet minutes,
+# so a phone left plugged in for hours is still looked after.
 
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
 restarts=0
 missing=0
+device=""
+last_restart=0
 while :; do
-	if lsusb -d 05ac: 2>/dev/null | grep -q " 05ac:12"; then
+	# "Bus 003 Device 018: ID 05ac:12a8 ...": the bus and device number change whenever the
+	# phone is plugged in again or re-enumerates.
+	seen=$(lsusb -d 05ac: 2>/dev/null | grep " 05ac:12" | head -n 1 | cut -d: -f1)
+	if [ -n "$seen" ]; then
+		now=$(date +%s)
+		if [ "$seen" != "$device" ] || [ $((now - last_restart)) -ge 600 ]; then
+			[ "$seen" != "$device" ] && missing=0
+			device=$seen
+			restarts=0
+		fi
 		if [ -n "$(idevice_id -l 2>/dev/null)" ]; then
 			missing=0
 		else
@@ -17,7 +30,8 @@ while :; do
 		if [ "$missing" -ge 3 ] && [ "$restarts" -lt 3 ]; then
 			restarts=$((restarts + 1))
 			missing=0
-			logger -t usbmuxd-watchdog "iPhone on USB but not listed for 30 s; restarting usbmuxd ($restarts of 3 this plug-in)"
+			last_restart=$now
+			logger -t usbmuxd-watchdog "iPhone ($seen) on USB but not listed for 30 s; restarting usbmuxd ($restarts of 3)"
 			# Killed rather than `rc-service usbmuxd restart`: its supervisor starts a fresh
 			# one two seconds later, and a restart through OpenRC would stop this watchdog
 			# along with it, half way through. A fresh usbmuxd finds the phone by itself.
@@ -27,6 +41,7 @@ while :; do
 			sleep 30
 		fi
 	else
+		device=""
 		restarts=0
 		missing=0
 	fi

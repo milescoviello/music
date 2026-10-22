@@ -28,8 +28,9 @@ device`, then `lockdown error -8`).
 So `usbmuxd` runs as an OpenRC service instead, with hotplug on, under `supervise-daemon`,
 and follows every re-enumeration itself. A watchdog under it kills a `usbmuxd` that has
 not listed a plugged-in iPhone for 30 seconds, and the supervisor starts a fresh one. It
-does this at most three times per plug-in, so a phone sitting at *Trust This Computer?*
-is not interrupted forever.
+does this at most three times in a row, so a phone sitting at *Trust This Computer?* is
+not interrupted forever. The count starts again when the phone shows up as a new USB
+device (plugged in again, or re-enumerated) and after ten quiet minutes.
 
 ```sh
 sudo install -m755 tools/phone-refresh/usbmuxd/usbmuxd.initd /etc/init.d/usbmuxd
