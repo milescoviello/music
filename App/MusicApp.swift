@@ -5,7 +5,14 @@ struct MusicApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
 
-    @State private var appState = AppState()
+    @State private var appState: AppState
+    @State private var remotePlayers: RemotePlayers
+
+    init() {
+        let appState = AppState()
+        _appState = State(initialValue: appState)
+        _remotePlayers = State(initialValue: RemotePlayers(appState: appState))
+    }
 
     var body: some Scene {
         WindowGroup {
@@ -33,6 +40,7 @@ struct MusicApp: App {
                 .environment(appState.recentPlays)
                 .environment(appState.sonic)
                 .environment(appState.streamCache)
+                .environment(remotePlayers)
                 .preferredColorScheme(.dark)
                 .tint(.appTint)
                 .onChange(of: scenePhase) { _, phase in
@@ -42,6 +50,7 @@ struct MusicApp: App {
                         // session, so `.ended` never arrives and coming back here is the
                         // only signal that the interruption is over.
                         appState.player.appBecameActive()
+                        remotePlayers.appBecameActive()
                         // iOS clears the idle-timer flag when the app leaves the
                         // foreground, so it has to be set again on the way back.
                         appState.screenAwake.apply()

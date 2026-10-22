@@ -10,6 +10,7 @@ enum Keychain {
     private static let service = "com.milescoviello.music"
     private static let account = "server-credentials"
     private static let requestAccount = "music-request-webhook"
+    private static let remoteAccount = "remote-players"
 
     static func save(_ credentials: SubsonicClient.Credentials) {
         guard let data = try? JSONEncoder().encode(credentials) else { return }
@@ -70,6 +71,19 @@ enum Keychain {
 
     static func clearMusicRequestConfiguration() {
         delete(account: requestAccount)
+    }
+
+    // MARK: - Remote players
+    //
+    // The computers this phone has paired with, each with the token it was given. As
+    // they are, encoded by `RemotePlayers`, which owns their shape.
+
+    static func saveRemotePlayers(_ data: Data) {
+        write(data, account: remoteAccount)
+    }
+
+    static func loadRemotePlayers() -> Data? {
+        read(account: remoteAccount)
     }
 
     // MARK: - Plumbing

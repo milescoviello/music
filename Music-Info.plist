@@ -74,6 +74,12 @@
 	</dict>
 	<!-- iOS 14+ requires a stated reason before an app may reach LAN addresses. -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Music needs your local network to reach your music server.</string>
+	<string>Music needs your local network to reach your music server, and to find and control the computers it can play on.</string>
+	<!-- The Bonjour type the Linux app advertises for remote players. iOS refuses to
+	     browse for any type not listed here. -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_music-remote._tcp</string>
+	</array>
 </dict>
 </plist>
