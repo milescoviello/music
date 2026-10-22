@@ -1,0 +1,541 @@
+#!/usr/bin/env python3
+"""Replays plug-ins against music-phone-refresh, with fake tools first on PATH.
+
+    tools/phone-refresh/test-music-phone-refresh [-v] [--watcher FILE] [SCENARIO...]
+
+Each scenario is a timeline, most of them from the watcher's own log of a failure: when
+the phone is on USB and as which USB device, when usbmuxd lists it, and what gh and xtool
+answer. The watcher runs in this process on a virtual clock that only its own sleeps, and
+a fake install's duration, move on, so half an hour plugged in takes a few seconds. The
+fakes are this script under the names lsusb, idevice_id, xtool, gh, pgrep, udevadm and
+notify-send, so nothing reaches the phone, usbmuxd, udev or the desktop.
+
+-v prints each scenario's log and notifications. --watcher runs another copy of the
+watcher (an older one from git, say) against the same scenarios.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+UDID = "00008150-001C39810140401C"
+FAKES = ("lsusb", "idevice_id", "xtool", "gh", "pgrep", "udevadm", "notify-send")
+# A phone left plugged in.
+END = 10**9
+RELEASES = [[0, "149", "3a6e2c1", "2026-10-22T06:00:00Z"]]
+
+
+def within(intervals: list, t: float) -> list | None:
+    return next((i for i in intervals if i[0] <= t < i[1]), None)
+
+
+def nth(answers: list, n: int) -> dict:
+    """The nth answer, from 0; past the end, the last one again."""
+    return answers[min(n, len(answers) - 1)] if answers else {}
+
+
+def fake(name: str, args: list[str]) -> int:
+    """One run of a fake tool, at the scenario's virtual time."""
+    root = Path(os.environ["FAKE_PHONE_DIR"])
+    clock = root / "clock"
+    t = float(clock.read_text())
+    spec = json.loads((root / "scenario.json").read_text())
+
+    def record(**fields) -> None:
+        with (root / "calls.jsonl").open("a") as calls:
+            calls.write(json.dumps({"t": t, "tool": name, "args": args, **fields}) + "\n")
+
+    def count(what: str) -> int:
+        path = root / f"count-{what}"
+        n = int(path.read_text()) if path.exists() else 0
+        path.write_text(str(n + 1))
+        return n
+
+    if name == "lsusb":
+        record()
+        usb = within(spec["usb"], t)
+        print("Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub")
+        print("Bus 003 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub")
+        if usb:
+            print(f"Bus 003 Device {usb[2]:03d}: ID 05ac:12a8 Apple, Inc. iPhone 5/5C/5S/6/SE/7/8/X/XR")
+        return 0
+
+    if name == "idevice_id":
+        record()
+        if args != ["-l"]:
+            return 2
+        if within(spec["listed"], t):
+            print(UDID)
+        return 0
+
+    if name == "pgrep":
+        record()
+        if within(spec.get("other_install", []), t):
+            print("4242")
+            return 0
+        return 1
+
+    if name == "gh":
+        if args[:3] == ["release", "view", "latest"]:
+            record()
+            _, build, commit, published = [r for r in spec.get("releases", RELEASES) if r[0] <= t][-1]
+            print(json.dumps({"body": f"Build {build} · commit {commit}\n\nfake", "publishedAt": published}))
+            return 0
+        if args[:3] == ["release", "download", "latest"]:
+            answer = {"exit": 0} | nth(spec.get("download", []), count("download"))
+            record(result=answer["exit"])
+            if answer["exit"]:
+                print(answer.get("stderr", "gh: download failed"), file=sys.stderr)
+                return answer["exit"]
+            folder = Path(args[args.index("-D") + 1])
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "Music.ipa").write_bytes(b"not really an ipa")
+            return 0
+        record(result=2)
+        return 2
+
+    if name == "xtool":
+        if args[:4] != ["install", "--usb", "--udid", UDID] or len(args) != 5 or not Path(args[4]).is_file():
+            record(result=64)
+            print(f"fake xtool: unexpected arguments {args}", file=sys.stderr)
+            return 64
+        answer = {"seconds": 20, "exit": 0, "output": "[Installed] Music"} | nth(spec.get("xtool", []), count("xtool"))
+        end = t + answer["seconds"]
+        listed = within(spec["listed"], t)
+        if not listed:
+            answer, end = {"exit": 1, "output": "Error: Device not found"}, t + 1
+        elif listed[1] < end:
+            # usbmuxd losing the phone part way through (a re-enumeration, say) cuts it off.
+            answer, end = {"exit": 1, "output": "Error: LockdownClient.Error.muxError"}, listed[1] + 1
+        clock.write_text(repr(end))
+        record(result=answer["exit"], until=end)
+        print(answer["output"])
+        return answer["exit"]
+
+    # notify-send, and udevadm, which nothing here should run.
+    record()
+    return 0
+
+
+if __name__ == "__main__" and Path(sys.argv[0]).name in FAKES:
+    sys.exit(fake(Path(sys.argv[0]).name, sys.argv[1:]))
+
+
+# The test run, from here on.
+
+import argparse  # noqa: E402
+import contextlib  # noqa: E402
+import importlib.machinery  # noqa: E402
+import importlib.util  # noqa: E402
+import io  # noqa: E402
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+import time  # noqa: E402
+import traceback  # noqa: E402
+from dataclasses import dataclass, field  # noqa: E402
+from datetime import datetime  # noqa: E402
+from typing import Callable  # noqa: E402
+
+HERE = Path(__file__).resolve().parent
+# Virtual time 0, as the watcher sees it.
+EPOCH = datetime(2026, 10, 22, 0, 0, 0).timestamp()
+
+
+class Over(Exception):
+    """The scenario's time is up."""
+
+
+class Clock:
+    """Stands in for the watcher's `time` and `datetime`. The time is in a file, so the fake
+    xtool can move it on by however long its install takes."""
+
+    def __init__(self, path: Path, end: float):
+        self.path = path
+        self.end = end
+
+    def elapsed(self) -> float:
+        return float(self.path.read_text())
+
+    def time(self) -> float:
+        return EPOCH + self.elapsed()
+
+    def sleep(self, seconds: float) -> None:
+        t = self.elapsed() + seconds
+        if t > self.end:
+            raise Over
+        self.path.write_text(repr(t))
+
+    def now(self) -> datetime:
+        return datetime.fromtimestamp(self.time())
+
+
+@dataclass
+class Run:
+    calls: list[dict]
+    log: list[tuple[float, str]]
+    timeouts: list[list[str]]
+
+    @property
+    def installs(self) -> list[dict]:
+        return [c for c in self.calls if c["tool"] == "xtool"]
+
+    @property
+    def installed(self) -> list[dict]:
+        return [c for c in self.installs if c["result"] == 0]
+
+    @property
+    def notes(self) -> list[tuple[float, str, str]]:
+        return [(c["t"], c["args"][-2], c["args"][-1]) for c in self.calls if c["tool"] == "notify-send"]
+
+    def titled(self, text: str) -> list[tuple[float, str, str]]:
+        return [n for n in self.notes if text in n[1]]
+
+    def logged(self, text: str) -> list[float]:
+        return [t for t, message in self.log if text in message]
+
+    @property
+    def plugins(self) -> list[float]:
+        return [t for t, message in self.log if message.startswith("phone plugged in")]
+
+
+@dataclass
+class Scenario:
+    key: str
+    story: str
+    spec: dict
+    end: float
+    check: Callable[[Run], list[str]]
+    problems: list[str] = field(default_factory=list)
+
+
+def one_install(run: Run, not_before: float) -> list[str]:
+    """What a good plug-in looks like: one install, after the phone has settled, that
+    works, announced once and confirmed once."""
+    problems = []
+    if len(run.installs) != 1 or len(run.installed) != 1:
+        problems.append(f"{len(run.installs)} xtool installs, {len(run.installed)} of them worked; want exactly 1")
+    if run.installs and run.installs[0]["t"] < not_before:
+        problems.append(f"first install at t+{run.installs[0]['t']:.0f}s, before t+{not_before:.0f}s")
+    if len(run.titled("installing")) != 1 or len(run.titled(" installed")) != 1:
+        problems.append(f"{len(run.titled('installing'))} 'installing' and {len(run.titled(' installed'))} 'installed' notifications; want 1 each")
+    return problems
+
+
+def scenarios() -> list[Scenario]:
+    # On USB as device 10, re-enumerating at 20 s (off USB for 4 s) as device 11, listed by
+    # usbmuxd 2 s after each: a normal plug-in.
+    usb = [[0, 20, 10], [24, END, 11]]
+    listed = [[2, 20], [26, END]]
+
+    def reenumerate(r: Run) -> list[str]:
+        return one_install(r, not_before=26) + (["counted the re-enumeration as an unplug"] if r.logged("unplugged") else [])
+
+    def late_reenumerate(r: Run) -> list[str]:
+        problems = one_install(r, not_before=36)
+        if not r.logged("re-enumerated"):
+            problems.append("did not notice the new USB device number")
+        return problems
+
+    def usbmuxd_drops(r: Run) -> list[str]:
+        problems = one_install(r, not_before=26)
+        if r.logged("unplugged") or len(r.plugins) != 1:
+            problems.append("counted usbmuxd losing the phone as an unplug and a new plug-in")
+        if len(r.titled("not visible")) != 1:
+            problems.append(f"{len(r.titled('not visible'))} 'not visible' notifications; want 1")
+        return problems
+
+    def unlisted_at_plug(r: Run) -> list[str]:
+        problems = one_install(r, not_before=300)
+        warned = r.titled("not visible")
+        if len(warned) != 1 or not 60 <= warned[0][0] <= 120:
+            problems.append(f"'not visible' notifications at {[round(n[0]) for n in warned]}; want 1, a minute in")
+        return problems
+
+    def download_fails(r: Run) -> list[str]:
+        problems = one_install(r, not_before=26)
+        failed = [c for c in r.calls if c["tool"] == "gh" and c.get("result")]
+        if failed and r.installs and r.installs[0]["t"] - failed[0]["t"] > 60:
+            problems.append(f"retried {r.installs[0]['t'] - failed[0]['t']:.0f} s after the failed download; want within a minute")
+        if len(r.titled("couldn't download")) != 1:
+            problems.append("no 'couldn't download' notification")
+        return problems
+
+    def locked(r: Run) -> list[str]:
+        problems = []
+        if len(r.installed) != 1:
+            problems.append(f"{len(r.installed)} installs worked; want 1 once the phone is unlocked")
+        if len(r.titled("unlock the phone and tap Trust")) != 1:
+            problems.append(f"{len(r.titled('unlock the phone'))} 'unlock the phone and tap Trust' notifications; want 1")
+        if r.titled("install failed"):
+            problems.append("a generic 'install failed' for a locked phone")
+        if r.installed and r.installed[0]["t"] - r.installs[0]["t"] > 150:
+            problems.append(f"installed {r.installed[0]['t'] - r.installs[0]['t']:.0f} s after the first try; want within 150 s")
+        return problems
+
+    def dont_trust(r: Run) -> list[str]:
+        problems = []
+        denied = len(r.titled("Don't Trust"))
+        if denied != 1:
+            problems.append(f"{denied} 'Don't Trust' notifications; want 1")
+        gaps = [b["t"] - a["t"] for a, b in zip(r.installs, r.installs[1:])]
+        if len(gaps) < 2 or gaps != sorted(gaps):
+            problems.append(f"retry gaps {[round(g) for g in gaps]}; want them to grow")
+        return problems
+
+    def replug(r: Run) -> list[str]:
+        problems = []
+        if len(r.installed) != 2 or len(r.installs) != 2:
+            problems.append(f"{len(r.installs)} installs, {len(r.installed)} worked; want 2, one per plug-in")
+        if len(r.logged("unplugged")) != 1 or len(r.plugins) != 2:
+            problems.append("want one unplug and two plug-ins in the log")
+        return problems
+
+    def other_install(r: Run) -> list[str]:
+        problems = one_install(r, not_before=130)
+        if not r.logged("waiting for another xtool install"):
+            problems.append("did not say it was waiting for the other install")
+        return problems
+
+    def new_build(r: Run) -> list[str]:
+        problems = []
+        if len(r.installed) != 2:
+            problems.append(f"{len(r.installed)} installs worked; want 2 (the plug-in, then build 150)")
+        if not r.logged("build 150 is out"):
+            problems.append("did not install build 150")
+        return problems
+
+    def cut_off(r: Run) -> list[str]:
+        problems = []
+        if len(r.installs) != 2 or len(r.installed) != 1:
+            problems.append(f"{len(r.installs)} installs, {len(r.installed)} worked; want 2 tries, the second working")
+        elif r.installs[1]["t"] - r.installs[0]["until"] > 60:
+            problems.append(f"retried {r.installs[1]['t'] - r.installs[0]['until']:.0f} s after the cut-off install; want within a minute")
+        return problems
+
+    return [
+        Scenario("reenumerate", "Plugged in; re-enumerates 20 s later, off USB for 4 s.",
+                 {"usb": usb, "listed": listed}, 300, reenumerate),
+        Scenario("late-reenumerate", "Re-enumerates 31 s in, off USB for 3 s, between two polls.",
+                 {"usb": [[0, 31, 10], [34, END, 11]], "listed": [[2, 31], [36, END]]}, 300, late_reenumerate),
+        Scenario("no-reenumerate", "Never re-enumerates: installs a minute in.",
+                 {"usb": [[0, END, 10]], "listed": [[2, END]]}, 300, lambda r: one_install(r, not_before=60)),
+        Scenario("usbmuxd-drops", "Installed, then usbmuxd loses the phone for two minutes while it stays on USB "
+                 "(the log at Oct 21 22:49:21).",
+                 {"usb": usb, "listed": [[2, 20], [26, 300], [420, END]]}, 900, usbmuxd_drops),
+        Scenario("unlisted-at-plug", "On USB but not listed by usbmuxd for five minutes, until usbmuxd is "
+                 "restarted (Oct 22 00:07:49 to 00:12:48).",
+                 {"usb": usb, "listed": [[300, END]]}, 600, unlisted_at_plug),
+        Scenario("download-fails", "The download fails once: no network to api.github.com (Oct 18 13:01:35).",
+                 {"usb": usb, "listed": listed, "download": [
+                     {"exit": 1, "stderr": "error connecting to api.github.com\ncheck your internet connection or https://githubstatus.com"},
+                     {"exit": 0}]}, 300, download_fails),
+        Scenario("locked", "Listed, but at Trust This Computer and then locked; unlocked two minutes in.",
+                 {"usb": usb, "listed": listed, "xtool": [
+                     {"seconds": 3, "exit": 1, "output": "Error: LockdownClient.Error.pairingDialogResponsePending"},
+                     {"seconds": 3, "exit": 1, "output": "Error: LockdownClient.Error.passwordProtected"},
+                     {}]}, 400, locked),
+        Scenario("dont-trust", "Don't Trust was tapped: every install fails at lockdown.",
+                 {"usb": usb, "listed": listed, "xtool": [
+                     {"seconds": 2, "exit": 1, "output": "Error: LockdownClient.Error.userDeniedPairing"}]}, 600, dont_trust),
+        Scenario("replug", "Unplugged for a minute, then plugged back in.",
+                 {"usb": [[0, 20, 10], [24, 200, 11], [260, 280, 12], [284, END, 13]],
+                  "listed": [[2, 20], [26, 200], [262, 280], [286, END]]}, 600, replug),
+        Scenario("other-install", "The JellyMC watcher's xtool install is running for the first two minutes.",
+                 {"usb": usb, "listed": listed, "other_install": [[0, 130]]}, 400, other_install),
+        Scenario("new-build", "Build 150 is published five minutes after plugging in.",
+                 {"usb": usb, "listed": listed, "releases": RELEASES + [[300, "150", "5b7d9e0", "2026-10-22T06:05:00Z"]]},
+                 1200, new_build),
+        Scenario("cut-off", "A second re-enumeration, 70 s in, cuts off an install that takes 40 s.",
+                 {"usb": [[0, 20, 10], [24, 70, 11], [74, END, 12]], "listed": [[2, 20], [26, 70], [76, END]],
+                  "xtool": [{"seconds": 40}, {"seconds": 20}]}, 400, cut_off),
+    ]
+
+
+def load_watcher(path: Path):
+    loader = importlib.machinery.SourceFileLoader("music_phone_refresh", str(path))
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    # Where dataclasses look up the module's annotations.
+    sys.modules[loader.name] = module
+    # No __pycache__ beside the watcher.
+    sys.dont_write_bytecode = True
+    loader.exec_module(module)
+    return module
+
+
+@contextlib.contextmanager
+def fake_world(spec: dict, keep: bool):
+    """A scratch HOME, the fakes first on PATH, and the virtual clock at 0."""
+    root = Path(tempfile.mkdtemp(prefix="music-phone-refresh-test."))
+    saved = {name: os.environ.get(name) for name in ("PATH", "HOME", "FAKE_PHONE_DIR")}
+    try:
+        (root / "bin").mkdir()
+        for name in FAKES:
+            (root / "bin" / name).symlink_to(Path(__file__).resolve())
+        (root / "home").mkdir()
+        (root / "clock").write_text("0")
+        (root / "scenario.json").write_text(json.dumps(spec))
+        (root / "calls.jsonl").touch()
+        os.environ["PATH"] = f"{root / 'bin'}:{saved['PATH']}"
+        os.environ["HOME"] = str(root / "home")
+        os.environ["FAKE_PHONE_DIR"] = str(root)
+        for name in FAKES:
+            # Never the real ones: a real notify-send pops up on the desktop.
+            if shutil.which(name) != str(root / "bin" / name):
+                raise SystemExit(f"{name} resolves to {shutil.which(name)}, not the fake")
+        yield root
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+        if keep:
+            print(f"    kept {root}")
+        else:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+def run_scenario(scenario: Scenario, watcher_path: Path, keep: bool) -> Run:
+    with fake_world(scenario.spec, keep) as root:
+        watcher = load_watcher(watcher_path)
+        clock = Clock(root / "clock", scenario.end)
+        watcher.time = clock
+        watcher.datetime = clock
+        timeouts: list[list[str]] = []
+        real_run = subprocess.run
+
+        def run(command, *args, **kwargs):
+            if command[0] == "xtool" and kwargs.get("timeout") is not None:
+                timeouts.append(command)
+            return real_run(command, *args, **kwargs)
+
+        subprocess.run = run
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                watcher.main()
+        except Over:
+            pass
+        finally:
+            subprocess.run = real_run
+
+        calls = [json.loads(line) for line in (root / "calls.jsonl").read_text().splitlines()]
+        log_file = root / "home" / ".local" / "state" / "music-phone-refresh" / "log.txt"
+        log = []
+        for line in log_file.read_text().splitlines() if log_file.exists() else []:
+            stamp, _, message = line.partition(" ")
+            try:
+                log.append((datetime.fromisoformat(stamp).timestamp() - EPOCH, message))
+            except ValueError:
+                log.append((log[-1][0] if log else 0, line))
+        return Run(calls, log, timeouts)
+
+
+def everywhere(run: Run) -> list[str]:
+    """Rules no scenario may break."""
+    problems = []
+    if any(c["tool"] == "udevadm" for c in run.calls):
+        problems.append("ran udevadm")
+    if run.timeouts:
+        problems.append("gave xtool install a timeout")
+    if any(c["tool"] == "xtool" and c["result"] == 64 for c in run.calls):
+        problems.append("ran xtool with the wrong arguments, or before the download")
+    return problems
+
+
+def one_instance(watcher_path: Path, keep: bool) -> list[str]:
+    """A second watcher, started while one runs, leaves at once (real time, a few seconds)."""
+    with fake_world({"usb": [], "listed": []}, keep) as root:
+        log_file = root / "home" / ".local" / "state" / "music-phone-refresh" / "log.txt"
+        first = subprocess.Popen([sys.executable, str(watcher_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(50):
+                if log_file.exists() and "watching" in log_file.read_text():
+                    break
+                time.sleep(0.1)
+            second = subprocess.run([sys.executable, str(watcher_path)], capture_output=True, timeout=20)
+            problems = []
+            if second.returncode != 0:
+                problems.append(f"the second watcher exited {second.returncode}")
+            if first.poll() is not None:
+                problems.append("the first watcher stopped")
+            if log_file.exists() and log_file.read_text().count("watching for the iPhone") != 1:
+                problems.append("both watchers started watching")
+            return problems
+        except subprocess.TimeoutExpired:
+            return ["the second watcher kept running alongside the first"]
+        finally:
+            first.kill()
+            first.wait()
+
+
+def show(run: Run) -> None:
+    lines = [(t, message) for t, message in run.log]
+    lines += [(t, f"notify: {title} — {body}") for t, title, body in run.notes]
+    for t, message in sorted(lines, key=lambda line: line[0]):
+        print(f"      t+{t:4.0f}s  {message}")
+
+
+def report(scenario: Scenario, watcher: Path, verbose: bool, keep: bool) -> bool:
+    """Runs one scenario and prints how it went. True if it passed."""
+    try:
+        run = run_scenario(scenario, watcher, keep)
+        problems = scenario.check(run) + everywhere(run)
+    except Exception:  # noqa: BLE001 — a watcher that crashes fails the scenario
+        run, problems = None, [traceback.format_exc()]
+    installs = ", ".join(f"t+{c['t']:.0f}s" + ("" if c["result"] == 0 else " failed") for c in run.installs) if run else ""
+    print(f"{'FAIL' if problems else 'PASS'}  {scenario.key}: {scenario.story}")
+    print(f"      {len(run.plugins) if run else 0} plug-in(s); xtool install at {installs or 'never'}; "
+          f"{len(run.installed) if run else 0} installed")
+    for problem in problems:
+        print(f"      ✗ {problem}")
+    if run and (verbose or problems):
+        show(run)
+    return not problems
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("names", nargs="*", metavar="SCENARIO", help="run only these (default: all)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="print each scenario's log and notifications")
+    parser.add_argument("--watcher", type=Path, default=HERE / "music-phone-refresh", help="the watcher to test")
+    parser.add_argument("--keep", action="store_true", help="keep each scenario's scratch directory")
+    parser.add_argument("--one", help=argparse.SUPPRESS)
+    options = parser.parse_args()
+    watcher = options.watcher.resolve()
+    every = scenarios()
+
+    if options.one:
+        return 0 if report(next(s for s in every if s.key == options.one), watcher, options.verbose, options.keep) else 1
+
+    unknown = set(options.names) - {s.key for s in every} - {"one-instance"}
+    if unknown:
+        parser.error(f"no scenario {', '.join(sorted(unknown))}; there are {', '.join(s.key for s in every)}, one-instance")
+    # A process each, all at once: each has its own PATH, HOME and clock.
+    flags = ["--watcher", str(watcher)] + ["--verbose"] * options.verbose + ["--keep"] * options.keep
+    children = [
+        subprocess.Popen([sys.executable, str(Path(__file__).resolve()), "--one", s.key, *flags],
+                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        for s in every if not options.names or s.key in options.names
+    ]
+    failed = 0
+    if not options.names or "one-instance" in options.names:
+        problems = one_instance(watcher, options.keep)
+        failed += bool(problems)
+    for child in children:
+        print(child.communicate()[0], end="")
+        failed += child.returncode != 0
+    if not options.names or "one-instance" in options.names:
+        print(f"{'FAIL' if problems else 'PASS'}  one-instance: A second watcher, started while one runs, leaves at once.")
+        for problem in problems:
+            print(f"      ✗ {problem}")
+
+    print("all passed" if not failed else f"{failed} failed")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
