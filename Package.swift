@@ -120,6 +120,7 @@ func logicPackage() -> Package {
                     "Romanizer.swift",
                     "LyricsLanguage.swift",
                     "LyricTranslationStore.swift",
+                    "RemoteControl.swift",
                 ]
             ),
             .testTarget(
