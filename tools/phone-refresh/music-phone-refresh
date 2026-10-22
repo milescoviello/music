@@ -6,7 +6,7 @@ publishes a new build to the repo's rolling `latest` release. This watches for t
 on USB and, every time it is plugged in, installs `latest` — whatever the phone already
 has, so plugging in is always a fresh signature and the newest build. While the phone
 stays plugged in it also installs any build published since, and retries a failed
-install every ten minutes.
+install, soon at first and then every ten minutes.
 
 Plugged in means on USB (lsusb), not listed by usbmuxd: usbmuxd can lose sight of a phone
 that never left, and seeing it again is not a new plug-in. The install waits for the
@@ -57,8 +57,17 @@ SETTLE_SECONDS = 15
 UNLISTED_WARN_SECONDS = 60
 # While plugged in, how often to look for a newer build.
 RELEASE_CHECK_SECONDS = 15 * 60
-# After a failed install, before trying again while still plugged in.
-RETRY_SECONDS = 10 * 60
+# After the first, second, ... failed install in a row, before trying again while still
+# plugged in. Most failures pass (the network, Apple registering the phone, a locked
+# phone), so the first retries come soon.
+RETRY_SECONDS = (30, 60, 2 * 60, 5 * 60, 10 * 60)
+
+# xtool's names for lockdown's errors from a phone that is locked, or has not trusted this
+# computer yet. usbmuxd lists such a phone, but nothing installs on it until it is unlocked.
+UNTRUSTED = (
+    "passwordProtected", "pairingDialogResponsePending", "escrowLocked",
+    "invalidHostID", "missingPairRecord", "invalidPairRecord",
+)
 
 
 def log(message: str) -> None:
@@ -148,7 +157,9 @@ def newer_build(state: dict, udid: str, release: dict | None) -> str | None:
     return None
 
 
-def install(udid: str, release: dict | None) -> bool:
+def install(udid: str, release: dict | None, announce: bool) -> tuple[str, str, str] | None:
+    """Installs `latest` on the phone. None once it is installed, else (kind, title, body)
+    for the notification; a retry that fails the same way has the same kind."""
     CACHE.mkdir(parents=True, exist_ok=True)
     download = subprocess.run(
         ["gh", "release", "download", "latest", "--repo", REPO, "-p", "Music.ipa", "-D", str(CACHE), "--clobber"],
@@ -156,11 +167,11 @@ def install(udid: str, release: dict | None) -> bool:
     )
     if download.returncode != 0:
         log(f"download failed: {download.stderr.strip()[-300:]}")
-        notify("Music: couldn't download the build", download.stderr.strip()[-200:] or "gh release download failed")
-        return False
+        return "download", "Music: couldn't download the build", download.stderr.strip()[-200:] or "gh release download failed"
 
     build = release.get("build") if release else "?"
-    notify("Music: installing build " + str(build), "Keep the phone plugged in. If it sits at Verifying, stop playback in Music.")
+    if announce:
+        notify("Music: installing build " + str(build), "Keep the phone plugged in. If it sits at Verifying, stop playback in Music.")
     log(f"installing build {build} on {udid}")
 
     # No timeout, deliberately — see the module docstring.
@@ -172,15 +183,19 @@ def install(udid: str, release: dict | None) -> bool:
     if process.returncode == 0:
         log(f"installed build {build}")
         notify("Music: build " + str(build) + " installed", "Signed for the next seven days.")
-        return True
+        return None
 
     last = output.splitlines()[-1] if output else "xtool install failed"
     log(f"install failed: {last[-500:]}")
+    if any(name in output for name in UNTRUSTED):
+        return "untrusted", "Music: unlock the phone and tap Trust", \
+            "It is plugged in, but locked or waiting at Trust This Computer, so nothing can install on it."
+    if "userDeniedPairing" in output:
+        return "denied", "Music: the phone said Don't Trust", "Unplug it, plug it back in, and tap Trust."
     hint = ""
     if "no current IOS devices" in output:
         hint = " Apple hasn't registered the phone on the team yet — it usually works on the next try."
-    notify("Music: install failed", last[-200:] + hint, urgent=True)
-    return False
+    return last, "Music: install failed", last[-200:] + hint
 
 
 @dataclass
@@ -195,7 +210,9 @@ class Plug:
     listed_since: float | None = None  # by usbmuxd, as this USB device
     unlisted_since: float | None = None
     warned_unlisted: bool = False
-    next_try: float = 0.0  # after a failed install
+    failures: int = 0  # failed installs in a row
+    next_try: float = 0.0
+    problem: str | None = None  # the kind of the last failure, already notified
 
 
 def main() -> None:
@@ -271,18 +288,32 @@ def main() -> None:
         reason = "phone plugged in" if plug.owed else newer_build(state, udid, release)
         if not reason:
             continue
-        log(f"install due: {reason}")
-        if not install(udid, release):
-            plug.next_try = time.time() + RETRY_SECONDS
+        log(f"install due: {reason}" + (f" (try {plug.failures + 1})" if plug.failures else ""))
+        # Announced once: again only if the last try never got as far as xtool.
+        problem = install(udid, release, announce=plug.problem in (None, "download"))
+        if problem is None:
+            plug.owed = False
+            plug.failures = 0
+            plug.problem = None
+            state.setdefault("installed", {})[udid] = {
+                "build": release.get("build") if release else None,
+                "commit": release.get("commit") if release else None,
+                "published": release.get("published") if release else None,
+                "at": time.time(),
+            }
+            save_state(state)
             continue
-        plug.owed = False
-        state.setdefault("installed", {})[udid] = {
-            "build": release.get("build") if release else None,
-            "commit": release.get("commit") if release else None,
-            "published": release.get("published") if release else None,
-            "at": time.time(),
-        }
-        save_state(state)
+
+        kind, title, body = problem
+        plug.failures += 1
+        delay = RETRY_SECONDS[min(plug.failures, len(RETRY_SECONDS)) - 1]
+        plug.next_try = time.time() + delay
+        log(f"trying again in {delay} s")
+        # A retry that fails the same way stays quiet; the log has every attempt.
+        if kind != plug.problem:
+            again = f"{delay} seconds" if delay < 60 else f"{delay // 60} minute" + ("s" if delay >= 120 else "")
+            notify(title, f"{body.rstrip('.')}. Trying again in {again}.", urgent=True)
+        plug.problem = kind
 
 
 if __name__ == "__main__":
