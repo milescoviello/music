@@ -157,6 +157,16 @@ def newer_build(state: dict, udid: str, release: dict | None) -> str | None:
     return None
 
 
+def other_install_running() -> bool:
+    """Another app's `xtool install` (the JellyMC app's watcher, or one by hand). Matched at
+    the start of the command line, as xtool's AppImage keeps it, not in a shell's."""
+    try:
+        result = subprocess.run(["pgrep", "-f", "^([^ ]*/)?xtool install"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return result.returncode == 0
+
+
 def install(udid: str, release: dict | None, announce: bool) -> tuple[str, str, str] | None:
     """Installs `latest` on the phone. None once it is installed, else (kind, title, body)
     for the notification; a retry that fails the same way has the same kind."""
@@ -168,6 +178,13 @@ def install(udid: str, release: dict | None, announce: bool) -> tuple[str, str, 
     if download.returncode != 0:
         log(f"download failed: {download.stderr.strip()[-300:]}")
         return "download", "Music: couldn't download the build", download.stderr.strip()[-200:] or "gh release download failed"
+
+    # Another app's install runs to completion first, as the JellyMC watcher lets this one's:
+    # two at once on the phone could collide like an interrupted one.
+    if other_install_running():
+        log("waiting for another xtool install to finish")
+        while other_install_running():
+            time.sleep(POLL_SECONDS)
 
     build = release.get("build") if release else "?"
     if announce:
