@@ -8,9 +8,15 @@ has, so plugging in is always a fresh signature and the newest build. While the 
 stays plugged in it also installs any build published since, and retries a failed
 install every ten minutes.
 
+Plugged in means on USB (lsusb), not listed by usbmuxd: usbmuxd can lose sight of a phone
+that never left, and seeing it again is not a new plug-in. The install waits for the
+re-enumeration an iPhone does by itself 20 to 35 seconds after it is plugged in (or a
+minute, if it does not), and for usbmuxd to have listed it for 15 seconds since.
+
 Runs in the desktop session (KDE autostart), so it can notify and use the logged-in
 `gh` and `xtool`. State is in ~/.local/state/music-phone-refresh/state.json, the log
-beside it.
+beside it. tools/phone-refresh/test-music-phone-refresh replays plug-ins against fake
+tools.
 
 Two things learned the hard way, from the app's own notes:
 - Never time out `xtool install`. A killed install leaves a session that collides with
@@ -27,6 +33,7 @@ import re
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,7 +43,18 @@ CACHE = Path.home() / ".cache" / "music-phone"
 STATE = STATE_DIR / "state.json"
 LOG = STATE_DIR / "log.txt"
 
-POLL_SECONDS = 15
+POLL_SECONDS = 5
+# An iPhone re-enumerates by itself 20 to 35 seconds after it is plugged in: off USB for 3 to
+# 9 seconds, back as a new device. It is unplugged only once it has been off USB this long.
+UNPLUG_SECONDS = 15
+# That re-enumeration cuts off an install started before it, so the first waits for it, or
+# for this long after plugging in if the phone does not.
+REENUMERATE_SECONDS = 60
+# And usbmuxd must have listed the phone this long, as the same USB device.
+SETTLE_SECONDS = 15
+# On USB but not listed by usbmuxd this long, the notification says so. The usbmuxd
+# watchdog restarts usbmuxd after 30 s of that, which is usually enough.
+UNLISTED_WARN_SECONDS = 60
 # While plugged in, how often to look for a newer build.
 RELEASE_CHECK_SECONDS = 15 * 60
 # After a failed install, before trying again while still plugged in.
@@ -81,8 +99,8 @@ def save_state(state: dict) -> None:
 
 
 def attached_phone() -> str | None:
-    """The UDID of a phone on USB, or None. A wedged usbmuxd answers with an error even
-    with the phone attached; that is reported separately by `usb_sees_iphone`."""
+    """The UDID of the phone usbmuxd lists, or None. A phone on USB that usbmuxd does not
+    list is told apart by `usb_iphone`."""
     try:
         result = subprocess.run(["idevice_id", "-l"], capture_output=True, text=True, timeout=20)
     except (OSError, subprocess.TimeoutExpired):
@@ -91,12 +109,15 @@ def attached_phone() -> str | None:
     return ids[0] if result.returncode == 0 and ids else None
 
 
-def usb_sees_iphone() -> bool:
+def usb_iphone() -> str | None:
+    """Where an iPhone is on USB ("Bus 003 Device 012"), or None. The device number is new
+    each time the phone is plugged in or re-enumerates."""
     try:
         result = subprocess.run(["lsusb"], capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired):
-        return False
-    return "05ac:12" in result.stdout
+        return None
+    match = re.search(r"^(Bus \d+ Device \d+): ID 05ac:12", result.stdout, re.MULTILINE)
+    return match.group(1) if match else None
 
 
 def latest_release() -> dict | None:
@@ -119,12 +140,8 @@ def latest_release() -> dict | None:
     }
 
 
-def due(state: dict, udid: str, release: dict | None, just_plugged: bool, failed: bool) -> str | None:
-    """Why an install is due now, or None. Plugging in always is."""
-    if just_plugged:
-        return "phone plugged in"
-    if failed:
-        return "retrying the last failed install"
+def newer_build(state: dict, udid: str, release: dict | None) -> str | None:
+    """Why a build published since the last install is due, or None."""
     installed = state.get("installed", {}).get(udid)
     if release and release.get("published") and release["published"] != (installed or {}).get("published"):
         return f"build {release.get('build')} is out (phone has {(installed or {}).get('build')})"
@@ -166,67 +183,106 @@ def install(udid: str, release: dict | None) -> bool:
     return False
 
 
+@dataclass
+class Plug:
+    """The phone's time on USB, from plugging in to unplugging. Neither a re-enumeration
+    nor usbmuxd losing sight of the phone ends it."""
+    since: float
+    usb: str  # "Bus 003 Device 012", new when the phone re-enumerates
+    reenumerated: bool = False
+    owed: bool = True  # plugging in always installs, once
+    off_usb_since: float | None = None
+    listed_since: float | None = None  # by usbmuxd, as this USB device
+    unlisted_since: float | None = None
+    warned_unlisted: bool = False
+    next_try: float = 0.0  # after a failed install
+
+
 def main() -> None:
     log("watching for the iPhone")
-    present_since: float | None = None
-    last_attempt = 0.0
+    plug: Plug | None = None
     last_release_check = 0.0
     release: dict | None = None
-    warned_usbmuxd = False
-    # Whether the last attempt during this plug failed, so it is retried.
-    failed = False
 
     while True:
-        udid = attached_phone()
+        time.sleep(POLL_SECONDS)
         now = time.time()
+        usb = usb_iphone()
+        udid = attached_phone()
+        if usb is None and udid is not None:
+            # idevice_id lists only phones on USB, so lsusb missed it.
+            usb = plug.usb if plug else "listed by usbmuxd"
 
-        if udid is None:
-            if present_since is not None:
-                log("phone unplugged")
-            present_since = None
-            # The phone is on USB but nothing above usbmuxd can see it: usbmuxd is wedged,
-            # which only root can fix. Say so once per plug.
-            if usb_sees_iphone() and not warned_usbmuxd:
-                warned_usbmuxd = True
-                log("iPhone on USB but usbmuxd does not list it")
-                notify(
-                    "Music: phone connected but not visible",
-                    "usbmuxd is not listing it. The usbmuxd watchdog restarts it within a minute; "
-                    "if not: sudo rc-service usbmuxd restart",
-                    urgent=True,
-                )
-            elif not usb_sees_iphone():
-                warned_usbmuxd = False
-            time.sleep(POLL_SECONDS)
+        if usb is None:
+            if plug is not None:
+                if plug.off_usb_since is None:
+                    plug.off_usb_since = now
+                if now - plug.off_usb_since >= UNPLUG_SECONDS:
+                    log("phone unplugged")
+                    plug = None
             continue
 
-        warned_usbmuxd = False
-        just_plugged = present_since is None
-        if just_plugged:
-            present_since = now
-            failed = False
-            log(f"phone plugged in: {udid}")
+        if plug is None:
+            plug = Plug(now, usb)
+            log(f"phone plugged in ({usb})")
+        plug.off_usb_since = None
+        if usb != plug.usb:
+            log(f"phone re-enumerated ({usb})")
+            plug.usb = usb
+            plug.reenumerated = True
+            plug.listed_since = None
 
-        if just_plugged or now - last_release_check > RELEASE_CHECK_SECONDS:
+        if udid is None:
+            # On USB, but usbmuxd does not list it: wedged, or the phone is not letting it in.
+            # Only root can restart usbmuxd; say so once, after the watchdog has had its go.
+            plug.listed_since = None
+            if plug.unlisted_since is None:
+                plug.unlisted_since = now
+            if now - plug.unlisted_since >= UNLISTED_WARN_SECONDS and not plug.warned_unlisted:
+                plug.warned_unlisted = True
+                log("iPhone on USB but usbmuxd has not listed it for a minute")
+                notify(
+                    "Music: phone connected but not visible",
+                    "usbmuxd has not listed it for a minute. If the phone is locked, unlock it. usbmuxd's "
+                    "watchdog restarts it, three times and again ten minutes later; to restart it now: "
+                    "sudo rc-service usbmuxd restart",
+                    urgent=True,
+                )
+            continue
+
+        if plug.warned_unlisted:
+            log("usbmuxd lists the phone now")
+        plug.unlisted_since = None
+        plug.warned_unlisted = False
+        if plug.listed_since is None:
+            plug.listed_since = now
+            log(f"usbmuxd lists it: {udid}")
+        if now - plug.listed_since < SETTLE_SECONDS or now < plug.next_try:
+            continue
+        if not plug.reenumerated and now - plug.since < REENUMERATE_SECONDS:
+            continue
+
+        # Fresh for an install owed to the plug-in, so the log names the build it installs.
+        if plug.owed or now - last_release_check > RELEASE_CHECK_SECONDS:
             release = latest_release() or release
             last_release_check = now
 
         state = load_state()
-        reason = due(state, udid, release, just_plugged, failed)
-        if reason and (just_plugged or now - last_attempt > RETRY_SECONDS):
-            last_attempt = now
-            log(f"install due: {reason}")
-            failed = not install(udid, release)
-            if not failed:
-                state.setdefault("installed", {})[udid] = {
-                    "build": release.get("build") if release else None,
-                    "commit": release.get("commit") if release else None,
-                    "published": release.get("published") if release else None,
-                    "at": time.time(),
-                }
-                save_state(state)
-
-        time.sleep(POLL_SECONDS)
+        reason = "phone plugged in" if plug.owed else newer_build(state, udid, release)
+        if not reason:
+            continue
+        log(f"install due: {reason}")
+        if not install(udid, release):
+            plug.next_try = time.time() + RETRY_SECONDS
+            continue
+        plug.owed = False
+        state.setdefault("installed", {})[udid] = {
+            "build": release.get("build") if release else None,
+            "commit": release.get("commit") if release else None,
+            "published": release.get("published") if release else None,
+            "at": time.time(),
+        }
+        save_state(state)
 
 
 if __name__ == "__main__":
