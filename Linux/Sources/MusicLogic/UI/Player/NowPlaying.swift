@@ -38,6 +38,9 @@ final class NowPlaying {
     private static let margin = 15.0
     /// Where Up Next beside the player is remembered: Plexamp's `playerShowPlayQueue`.
     private static let showsQueueKey = "player.showsQueue"
+    /// Whether the visualiser was up: Plexamp's `ui:visualizerenabled`, so it comes back
+    /// where it was left.
+    private static let visualizerKey = "player.visualizerEnabled"
 
     let root: Overlay
     private let app: AppState
@@ -177,7 +180,7 @@ final class NowPlaying {
             }
         }
         root.observe { artwork.show(app.player.currentSong?.coverArt, fallback: app.player.currentSong?.album) }
-        select(.artwork)
+        select(UserDefaults.standard.bool(forKey: Self.visualizerKey) ? .visualizer : .artwork)
     }
 
     // MARK: - Layout
@@ -424,6 +427,8 @@ final class NowPlaying {
 
     private func select(_ target: Mode) {
         mode = target
+        // Lyrics are for the track at hand; only the visualiser is remembered.
+        if target != .lyrics { UserDefaults.standard.set(target == .visualizer, forKey: Self.visualizerKey) }
         arrange()
     }
 

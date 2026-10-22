@@ -60,26 +60,6 @@ static inline void cgl_texture_update(GLsizei width, GLsizei height, GLenum form
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, format, type, pixels);
 }
 
-static inline GLuint cgl_framebuffer(void) {
-    GLuint framebuffer = 0;
-    glGenFramebuffers(1, &framebuffer);
-    return framebuffer;
-}
-static inline void cgl_delete_framebuffer(GLuint framebuffer) { glDeleteFramebuffers(1, &framebuffer); }
-static inline void cgl_bind_framebuffer(GLenum target, GLuint framebuffer) { glBindFramebuffer(target, framebuffer); }
-static inline void cgl_framebuffer_texture(GLuint texture) {
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
-}
-static inline GLenum cgl_framebuffer_status(void) { return glCheckFramebufferStatus(GL_FRAMEBUFFER); }
-static inline GLint cgl_bound_framebuffer(void) {
-    GLint framebuffer = 0;
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &framebuffer);
-    return framebuffer;
-}
-static inline void cgl_blit(GLint width, GLint height, GLint toWidth, GLint toHeight) {
-    glBlitFramebuffer(0, 0, width, height, 0, 0, toWidth, toHeight, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-}
-
 static inline void cgl_viewport_size(GLint *width, GLint *height) {
     GLint viewport[4] = {0, 0, 0, 0};
     glGetIntegerv(GL_VIEWPORT, viewport);
