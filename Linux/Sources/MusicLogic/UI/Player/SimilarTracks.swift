@@ -6,10 +6,19 @@ import Foundation
 /// in sound, by other artists, unplayed first. Only the lists that have anything show.
 @MainActor
 enum SimilarTracks {
-    private enum Kind: String, CaseIterable {
+    enum Kind: String, CaseIterable {
         case sonic = "Sonically Similar"
         case related = "Related"
         case comfortZone = "Outside Your Comfort Zone"
+
+        /// What Plexamp's Related tab heads each list with.
+        var heading: String {
+            switch self {
+            case .sonic: return "Sonically Similar Tracks"
+            case .related: return "Related Tracks"
+            case .comfortZone: return "Outside Your Comfort Zone"
+            }
+        }
 
         var short: String {
             switch self {
@@ -28,24 +37,29 @@ enum SimilarTracks {
         }
     }
 
+    /// The lists that have anything in them, in Plexamp's order.
+    static func lists(_ env: Env, song: Song, limit: Int = 50) async -> [(Kind, [Song])] {
+        let client = env.app.client
+        let sonic = env.app.sonic
+        async let sonicList = sonic.similarSongs(to: song, limit: limit)
+        async let distant = sonic.distantSongs(from: song, limit: limit)
+        async let related = try? client.similarSongs(toSongID: song.id, count: limit)
+        let results: [Kind: [Song]] = [
+            .sonic: await sonicList ?? [],
+            .comfortZone: await distant ?? [],
+            .related: (await related ?? []).filter { $0.id != song.id },
+        ]
+        return Kind.allCases.compactMap { kind in
+            guard let songs = results[kind], !songs.isEmpty else { return nil }
+            return (kind, songs)
+        }
+    }
+
     static func present(_ env: Env, song: Song) {
         let loader = Loader()
         Dialogs.sheet("Similar to \(song.title)", content: loader.bin, width: 560, height: 680)
         loader.run({ () -> [(Kind, [Song])]? in
-            let client = env.app.client
-            let sonic = env.app.sonic
-            async let sonicList = sonic.similarSongs(to: song, limit: 50)
-            async let distant = sonic.distantSongs(from: song, limit: 50)
-            async let related = try? client.similarSongs(toSongID: song.id, count: 50)
-            let results: [Kind: [Song]] = [
-                .sonic: await sonicList ?? [],
-                .comfortZone: await distant ?? [],
-                .related: (await related ?? []).filter { $0.id != song.id },
-            ]
-            return Kind.allCases.compactMap { kind in
-                guard let songs = results[kind], !songs.isEmpty else { return nil }
-                return (kind, songs)
-            }
+            await lists(env, song: song)
         }) { lists in
             guard !lists.isEmpty else {
                 return StatusPage(icon: "weather-snow-symbolic", title: "This track is a snowflake", description: "There isn't another like it.")
