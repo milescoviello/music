@@ -28,6 +28,9 @@ final class TrackSource: @unchecked Sendable {
     private var generation = 0
     private var decoderAtEnd = false
     private var failed = false
+    /// Set with `failed` when the server did not answer, rather than the bytes not
+    /// decoding. Such a track is held where it ran dry instead of being skipped.
+    private var unreachable = false
     private var opened = false
     private var started = false
     private var cancelled = false
@@ -170,6 +173,13 @@ final class TrackSource: @unchecked Sendable {
         return failed
     }
 
+    /// Failed because the server did not answer: worth trying again, not skipping.
+    var isUnreachable: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return unreachable
+    }
+
     // MARK: - Decoding thread
 
     private func run() {
@@ -212,17 +222,24 @@ final class TrackSource: @unchecked Sendable {
             lock.unlock()
 
             let chunk: AudioDecoder.Chunk?
+            var lostServer = false
             do {
                 chunk = try decoder.next()
             } catch {
                 record("read failed part way: \(error)")
                 chunk = nil
+                lostServer = (error as? AudioDecoder.Failure)?.isUnreachable == true
             }
 
             lock.lock()
             guard current == generation else {
                 lock.unlock()
                 continue
+            }
+            if lostServer, !cancelled {
+                // What was decoded still plays; the track then waits where it ran dry.
+                failed = true
+                unreachable = true
             }
             guard let chunk else {
                 decoderAtEnd = true
@@ -248,6 +265,7 @@ final class TrackSource: @unchecked Sendable {
         } catch {
             lock.lock()
             failed = true
+            unreachable = (error as? AudioDecoder.Failure)?.isUnreachable == true
             decoderAtEnd = true
             let wasCancelled = cancelled
             lock.broadcast()

@@ -165,6 +165,13 @@ final class Mixer: @unchecked Sendable {
             let got = source.pull(voiceLeft + produced, voiceRight + produced, count: count - produced, tempo: tempo * speed)
             produced += got
             if source.isExhausted {
+                // A track whose server stopped answering is held where it ran dry, not
+                // joined past: the next one would fail the same way, and the controller
+                // tries this one again.
+                if source.isUnreachable {
+                    stalled = true
+                    break
+                }
                 // The gapless join: the next track carries on in this same buffer.
                 released.append(voice.sources.removeFirst())
                 continue

@@ -14,8 +14,17 @@ import Synchronization
 final class AudioDecoder: @unchecked Sendable {
     enum Failure: Error {
         case open(String)
+        /// A stream that failed for want of a server — no answer, a refused or dropped
+        /// connection, a 5xx — rather than for what it holds. Worth trying again; not
+        /// worth skipping, since every other stream from that server fails the same way.
+        case unreachable(String)
         case noAudio
         case codec
+
+        var isUnreachable: Bool {
+            if case .unreachable = self { return true }
+            return false
+        }
     }
 
     /// The decoded frames of one call, valid until the next.
@@ -115,7 +124,7 @@ final class AudioDecoder: @unchecked Sendable {
         let opened = avformat_open_input(&context, location, nil, &options)
         av_dict_free(&options)
         guard opened >= 0, let context else {
-            throw Failure.open(Self.describe(opened))
+            throw failure(opened)
         }
         format = context
 
@@ -205,7 +214,7 @@ final class AudioDecoder: @unchecked Sendable {
                     avcodec_send_packet(codec, nil)
                     continue
                 }
-                throw Failure.open(Self.describe(read))
+                throw failure(read)
             }
             defer { av_packet_unref(packet) }
             guard packet.pointee.stream_index == streamIndex else { continue }
@@ -289,6 +298,15 @@ final class AudioDecoder: @unchecked Sendable {
     /// from wherever the decoder is now.
     func skipForward(to seconds: Double) {
         discardUntil = seconds
+    }
+
+    /// The error for a failed open or read: `unreachable` when it was the network and this
+    /// is a stream, so the player can hold the track instead of skipping down a queue that
+    /// would all fail the same way. A file on disk is never unreachable.
+    private func failure(_ code: Int32) -> Failure {
+        let network = [ETIMEDOUT, ECONNREFUSED, ECONNRESET, EHOSTUNREACH, ENETUNREACH, ENETDOWN, EPIPE, EIO]
+        let isNetwork = network.contains { cffmpeg_averror($0) == code } || code == cffmpeg_error_http_server()
+        return !url.isFileURL && isNetwork ? .unreachable(Self.describe(code)) : .open(Self.describe(code))
     }
 
     private static func describe(_ code: Int32) -> String {

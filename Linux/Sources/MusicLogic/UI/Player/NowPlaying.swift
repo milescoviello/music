@@ -112,6 +112,7 @@ final class NowPlaying {
         titleBlock = Self.titleBlock(app)
         codec = Self.codecRow(app)
         let resume = Self.resumeStrip(app)
+        let unreachable = Self.unreachableStrip(app)
         (transportRow, inlineShuffle, inlineRepeat) = Self.transport(app)
         volume = Self.volumeRow()
         queuePane = QueuePane(env: env)
@@ -124,6 +125,7 @@ final class NowPlaying {
         info.append(titleBlock)
         info.append(codec)
         info.append(resume)
+        info.append(unreachable)
         infoClamp = Clamp(info, maximum: 400, threshold: 300)
         controls.append(transportRow)
         controls.append(volume)
@@ -670,6 +672,31 @@ final class NowPlaying {
                 try? await Task.sleep(for: .seconds(8))
                 if player.resumeNotice == notice { player.resumeNotice = nil }
             }
+        }
+        return revealer
+    }
+
+    /// Shown while the track playing could not be fetched because the server did not
+    /// answer: why it stopped, and the way to try again.
+    private static func unreachableStrip(_ app: AppState) -> Widget {
+        let player = app.player
+        let label = Label("", "caption")
+        let retry = Button("Try Again", "flat", "caption-heading") { player.play() }
+        let strip = Box.horizontal(spacing: 10) {
+            Icon("network-offline-symbolic", size: 14)
+            label
+            retry
+        }.css("resume-strip").halign(GTK_ALIGN_CENTER)
+        let revealer = Revealer(strip, transition: GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN)
+        revealer.observe {
+            guard let songID = player.unreachableSongID, songID == player.currentSong?.id else {
+                revealer.isRevealed = false
+                return
+            }
+            // Playing here means a try is under way.
+            label.text = player.isPlaying ? "Trying the server again…" : "Can't reach the server"
+            retry.isVisible = !player.isPlaying
+            revealer.isRevealed = true
         }
         return revealer
     }

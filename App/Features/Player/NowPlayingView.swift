@@ -86,6 +86,7 @@ struct NowPlayingView: View {
                 }
 
                 resumeStrip
+                unreachableStrip
                 PlayerSeekBar()
                 transport
                 volumeRow
@@ -438,6 +439,34 @@ struct NowPlayingView: View {
                     appState.player.resumeNotice = nil
                 }
             }
+        }
+    }
+
+    /// Shown while the track playing could not be fetched because the server did not
+    /// answer: why it stopped, and the way to try again.
+    @ViewBuilder
+    private var unreachableStrip: some View {
+        let player = appState.player
+        if let songID = player.unreachableSongID, songID == player.currentSong?.id {
+            HStack(spacing: 10) {
+                Image(systemName: "wifi.exclamationmark")
+                    .font(.caption)
+                // Playing here means a try is under way.
+                Text(player.isPlaying ? "Trying the server again…" : "Can't reach the server")
+                    .font(.caption)
+                if !player.isPlaying {
+                    Button("Try Again") {
+                        player.play()
+                    }
+                    .font(.caption.weight(.semibold))
+                }
+            }
+            .foregroundStyle(.white.opacity(0.85))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+            .padding(.top, 8)
+            .transition(.opacity)
         }
     }
 

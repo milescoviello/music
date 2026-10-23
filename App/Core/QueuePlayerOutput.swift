@@ -44,6 +44,9 @@ final class QueuePlayerOutput: AudioOutput {
     }
 
     var onAdvanced: ((String?) -> Void)?
+    /// Not raised here yet: a failed item is still left to `AVQueuePlayer`. The Linux
+    /// output, which decodes its own streams, holds an unreachable track and raises it.
+    var onUnreachable: ((String) -> Void)?
     var onTick: ((Double, Bool) -> Void)?
     var locate: ((Song) -> MediaLocation?)?
     var makeChain: ((Song) -> DSPChain)?
@@ -120,6 +123,11 @@ final class QueuePlayerOutput: AudioOutput {
             player.actionAtItemEnd = .advance
         }
         addTimeObservers()
+    }
+
+    var holdsCurrent: Bool {
+        guard let item = players[active].currentItem else { return false }
+        return item.status != .failed
     }
 
     /// Feeds the visualiser from every item made after this, which in practice is every

@@ -37,6 +37,9 @@ final class PlaybackController {
         let songID: String
         let seconds: Double
     }
+    /// The track that could not be fetched because the server did not answer, until it
+    /// plays. Drives the "Can't reach the server · Try Again" strip.
+    private(set) var unreachableSongID: String?
     private(set) var duration: Double = 0
 
     // What most views want from the queue, each kept apart from it and assigned only
@@ -90,6 +93,13 @@ final class PlaybackController {
     /// gapless; inserting a 292-track playlist would be a connection stampede.
     private let windowSize = 3
 
+    /// The next try at a track the server did not answer for, and how many have been made.
+    private var retryTask: Task<Void, Never>?
+    private var retryAttempt = 0
+    /// Seconds before each try: a blip — a server restarting, Wi-Fi rejoining — is ridden
+    /// out in a few minutes; an outage is left paused rather than resumed an hour later.
+    private static let retryDelays: [Double] = [5, 15, 30, 60, 120]
+
     init() {
         session.configure()
 
@@ -115,6 +125,9 @@ final class PlaybackController {
 
         output.onAdvanced = { [weak self] songID in
             self?.handleAdvanced(to: songID)
+        }
+        output.onUnreachable = { [weak self] songID in
+            self?.handleUnreachable(songID: songID)
         }
         output.onTick = { [weak self] elapsed, isMoving in
             self?.tick(elapsed: elapsed, isMoving: isMoving)
@@ -357,6 +370,10 @@ final class PlaybackController {
     /// built play on as they are.
     func networkChanged() {
         planCache()
+        // Back online with a try pending: now, not when its timer says.
+        if retryTask != nil, appState?.reachability.network != .offline {
+            play()
+        }
     }
 
     func streamingSettingsChanged() {
@@ -524,6 +541,21 @@ final class PlaybackController {
     func play() {
         if let remote { remote.send(RemoteCommand(.play)); return }
         guard hasQueue else { return }
+        retryTask?.cancel()
+        retryTask = nil
+        // A track that failed to load leaves the output with nothing to resume while the
+        // queue still says it is current, and resuming that played silence for as long as
+        // it was left. Pressing play is asking for it, so it is loaded again.
+        if !output.holdsCurrent {
+            reloadCurrent()
+        }
+        startOutput()
+    }
+
+    /// Plays whatever the output holds. `play()` without the reload, for a rebuild that
+    /// has just loaded the track: a second load of one that could not be found would
+    /// report it run off the end twice, and skip two tracks.
+    private func startOutput() {
         session.activate()
         output.play()
         isPlaying = true
@@ -534,6 +566,8 @@ final class PlaybackController {
 
     func pause() {
         if let remote { remote.send(RemoteCommand(.pause)); return }
+        retryTask?.cancel()
+        retryTask = nil
         output.pause()
         isPlaying = false
         tracker.interrupted(at: elapsed)
@@ -808,12 +842,25 @@ final class PlaybackController {
         elapsed = seconds
         tracker.trackChanged(to: current, duration: duration)
         tracker.interrupted(at: seconds)
+        // A new track or a new start: any try pending for the old one is moot.
+        retryTask?.cancel()
+        retryTask = nil
 
         if startPlaying {
-            play()
+            startOutput()
         } else {
             publishNowPlaying(force: true)
         }
+    }
+
+    /// Loads the current track into the output again, where it stopped unless that was
+    /// its end. Only the output: the queue and the play tracker have not moved.
+    private func reloadCurrent() {
+        let window = currentWindow
+        guard !window.isEmpty else { return }
+        let start = elapsed > 0 && (duration <= 0 || elapsed < duration - 1) ? elapsed : 0
+        output.load(window: window, startAt: start)
+        elapsed = start
     }
 
     /// Asks the mix that is playing for more tracks before the queue runs out.
@@ -941,6 +988,12 @@ final class PlaybackController {
             Task { await autoplay.extend() }
         }
 
+        // Sound again: whatever the server's trouble was, it is over.
+        if isPlaying, isMoving, unreachableSongID != nil {
+            unreachableSongID = nil
+            retryAttempt = 0
+        }
+
         // A stalled stream still ticks, so listening time is only credited while the
         // audio is genuinely moving.
         if isPlaying, isMoving {
@@ -995,6 +1048,41 @@ final class PlaybackController {
         refillWindow()
         publishNowPlaying(force: true)
         persist()
+    }
+
+    /// The output could not fetch the current track: the server did not answer.
+    ///
+    /// Moving on would fail the same way down the queue. A server outage once worked
+    /// through four tracks a minute apart and then sat on "Playing" in silence. So it
+    /// pauses on this track, says why, and tries it again a few times before leaving it
+    /// to the play button.
+    private func handleUnreachable(songID: String) {
+        guard remote == nil, let current = queue.current, current.id == songID else { return }
+        if unreachableSongID != songID { retryAttempt = 0 }
+        unreachableSongID = songID
+        let title = current.title
+        Task { await Diagnostics.shared.record("playback", "\(title): server unreachable, holding it") }
+
+        // Loaded paused — a restore at launch — so nothing was asked for yet.
+        guard isPlaying else { return }
+        output.pause()
+        isPlaying = false
+        tracker.interrupted(at: elapsed)
+        session.noteIsPlaying(false)
+        publishNowPlaying(force: true)
+        persist()
+
+        guard retryAttempt < Self.retryDelays.count else { return }
+        let delay = Self.retryDelays[retryAttempt]
+        retryAttempt += 1
+        retryTask?.cancel()
+        retryTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard let self, !Task.isCancelled, remote == nil,
+                  unreachableSongID == songID, queue.current?.id == songID
+            else { return }
+            play()
+        }
     }
 
     // MARK: - Now Playing

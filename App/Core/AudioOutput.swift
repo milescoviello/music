@@ -25,6 +25,10 @@ protocol AudioOutput: AnyObject {
     /// Seconds, or 0 when not yet known.
     var duration: Double { get }
     var isBuffering: Bool { get }
+    /// Whether there is a current track to resume. False when nothing is loaded or the
+    /// current track failed to load; resuming then is silence, so the controller loads
+    /// it again instead.
+    var holdsCurrent: Bool { get }
     /// For the sleep-timer fade. Multiplies with any crossfade ramp, never replaces it.
     var volume: Float { get set }
     /// Playback speed, pitch preserved. 1 is normal.
@@ -47,6 +51,9 @@ protocol AudioOutput: AnyObject {
     /// The output moved on by itself. The id is the song now playing, or nil when it
     /// ran off the end of the window and the controller has to decide what is next.
     var onAdvanced: ((String?) -> Void)? { get set }
+    /// The current track could not be fetched: the server did not answer. The output
+    /// holds the track rather than moving on, and the controller decides when to retry.
+    var onUnreachable: ((String) -> Void)? { get set }
     /// Roughly 4 Hz. `isMoving` is false while stalled, so the play tracker does not
     /// credit listening time to a buffering track.
     var onTick: ((_ elapsed: Double, _ isMoving: Bool) -> Void)? { get set }

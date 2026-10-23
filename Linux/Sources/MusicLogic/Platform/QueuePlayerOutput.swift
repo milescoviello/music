@@ -32,6 +32,7 @@ final class QueuePlayerOutput: AudioOutput {
     }
 
     var onAdvanced: ((String?) -> Void)?
+    var onUnreachable: ((String) -> Void)?
     var onTick: ((Double, Bool) -> Void)?
     var locate: ((Song) -> MediaLocation?)?
     var makeChain: ((Song) -> DSPChain)?
@@ -47,6 +48,9 @@ final class QueuePlayerOutput: AudioOutput {
     private var wantsToPlay = false
     /// The track last reported as heard, so a change is reported once.
     private var heardSongID: String?
+    /// The held source last reported unreachable, so it is reported once. Weak rather than
+    /// an `ObjectIdentifier`: the source made to retry it can reuse the old one's address.
+    private weak var reportedUnreachable: TrackSource?
     private var ticker: Task<Void, Never>?
 
     /// How far ahead of needing it a track's decoder is started: enough to open a stream
@@ -69,6 +73,10 @@ final class QueuePlayerOutput: AudioOutput {
     func setSpectrumSink(_ buffer: AudioSampleBuffer?) {
         guard let buffer else { return }
         withMixer { $0.spectrum = buffer }
+    }
+
+    var holdsCurrent: Bool {
+        withMixer { mixer in mixer.active?.sources.first.map { !$0.didFail } ?? false }
     }
 
     private func withMixer<T>(_ body: (Mixer) -> T) -> T {
@@ -378,7 +386,11 @@ final class QueuePlayerOutput: AudioOutput {
             return
         }
 
-        guard heard.songID != nil else { return }
+        guard heard.songID != nil else {
+            // Nothing loaded is not buffering, whatever was asked for.
+            isBuffering = false
+            return
+        }
         let moved = abs(heard.position - elapsed) > 0.0001
         elapsed = heard.position
         if let current, current.song.id == heard.songID {
@@ -388,6 +400,14 @@ final class QueuePlayerOutput: AudioOutput {
         isBuffering = wantsToPlay && !heard.isMoving
         if wantsToPlay || moved {
             onTick?(elapsed, wantsToPlay && heard.isMoving)
+        }
+
+        // Reported once what is heard has reached the held track, so the controller is
+        // never told about a track it has not yet been told is playing.
+        if let current, current.song.id == heard.songID, current.isUnreachable,
+           reportedUnreachable !== current {
+            reportedUnreachable = current
+            onUnreachable?(current.song.id)
         }
     }
 }

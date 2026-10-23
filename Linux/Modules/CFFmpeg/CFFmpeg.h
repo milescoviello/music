@@ -11,5 +11,7 @@
 static inline int cffmpeg_error_again(void) { return AVERROR(EAGAIN); }
 static inline int cffmpeg_error_eof(void) { return AVERROR_EOF; }
 static inline int cffmpeg_error_exit(void) { return AVERROR_EXIT; }
+static inline int cffmpeg_averror(int code) { return AVERROR(code); }
+static inline int cffmpeg_error_http_server(void) { return AVERROR_HTTP_SERVER_ERROR; }
 static inline int64_t cffmpeg_nopts(void) { return AV_NOPTS_VALUE; }
 static inline AVRational cffmpeg_time_base_q(void) { return AV_TIME_BASE_Q; }
