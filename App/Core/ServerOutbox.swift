@@ -81,6 +81,8 @@ actor ServerOutbox {
     }
 
     private let directory: URL
+    /// A flush is under way; see `flush`.
+    private var isFlushing = false
     /// Given up on. 30 days of retries is generous, and a permanently-rejected id — a
     /// track deleted from the server — must not be retried forever.
     private let maximumAttempts = 40
@@ -144,6 +146,13 @@ actor ServerOutbox {
     /// is no point hammering a server that is not reachable, and order is worth
     /// preserving in the history.
     func flush(using client: SubsonicClient) async -> Int {
+        // An actor runs another call while this one awaits the network, so two flushes
+        // started together -- launch and the network coming back -- each read the same
+        // files and sent them both: every owed play counted twice.
+        guard !isFlushing else { return 0 }
+        isFlushing = true
+        defer { isFlushing = false }
+
         var sent = 0
 
         for file in files() {
@@ -166,6 +175,10 @@ actor ServerOutbox {
                 } else if let updated = try? JSONEncoder().encode(pending) {
                     try? updated.write(to: file, options: .atomic)
                 }
+                // Refused rather than unreachable -- a scrobble for a track since deleted.
+                // It must not hold up everything behind it, which it did for up to 40
+                // flushes: the server is there, so carry on.
+                if case SubsonicClient.ClientError.rejected = error { continue }
                 break
             }
         }

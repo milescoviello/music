@@ -104,12 +104,17 @@ actor SubsonicClient {
     enum ClientError: LocalizedError {
         case notConfigured
         case server(String)
+        /// The server answered, with a Subsonic error: this request was refused -- an id
+        /// it no longer has, say -- not the network or the server being down. Kept apart
+        /// from `server`, which also covers a reply that is not the server's at all (a
+        /// captive portal's page), so the outbox can tell one bad item from no server.
+        case rejected(String)
         case transport(String)
 
         var errorDescription: String? {
             switch self {
             case .notConfigured: return "No server configured."
-            case let .server(message): return message
+            case let .server(message), let .rejected(message): return message
             case let .transport(message): return message
             }
         }
@@ -267,7 +272,7 @@ actor SubsonicClient {
         }
 
         if let error = envelope.subsonicResponse.error {
-            throw ClientError.server(error.message)
+            throw ClientError.rejected(error.message)
         }
         guard let payload = envelope.subsonicResponse.payload else {
             throw ClientError.server("Server returned no data.")
@@ -287,7 +292,7 @@ actor SubsonicClient {
             throw ClientError.server("Unexpected response from server.")
         }
         if let error = decoded.subsonicResponse.error {
-            throw ClientError.server(error.message)
+            throw ClientError.rejected(error.message)
         }
         guard decoded.subsonicResponse.status == "ok" else {
             throw ClientError.server("Server rejected the request.")
@@ -695,7 +700,7 @@ actor SubsonicClient {
             throw ClientError.server("Unexpected response from server.")
         }
         if let error = decoded.subsonicResponse.error {
-            throw ClientError.server(error.message)
+            throw ClientError.rejected(error.message)
         }
     }
 
