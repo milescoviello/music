@@ -39,6 +39,36 @@ struct PlayTrackerTests {
         #expect(announced == 1)
     }
 
+    /// The same song again -- repeat-one going round, or played again once finished --
+    /// is a second play. It used to read as "no change" and never count twice.
+    @Test func theSameSongPlayedAgainCountsAgain() {
+        let tracker = PlayTracker()
+        var counted = 0
+        tracker.onPlayCounted = { _ in counted += 1 }
+
+        tracker.trackChanged(to: song(100), duration: 100)
+        listen(tracker, seconds: 60)
+        #expect(counted == 1)
+
+        tracker.trackChanged(to: song(100), duration: 100, isNewPlay: true)
+        tracker.interrupted(at: 0)
+        listen(tracker, seconds: 60)
+        #expect(counted == 2)
+    }
+
+    /// A duration that is only now known is the same play, not a new one.
+    @Test func aLateDurationIsNotANewPlay() {
+        let tracker = PlayTracker()
+        var counted = 0
+        tracker.onPlayCounted = { _ in counted += 1 }
+
+        tracker.trackChanged(to: song(100), duration: 100)
+        listen(tracker, seconds: 60)
+        tracker.trackChanged(to: song(100), duration: 100)
+        listen(tracker, seconds: 30, from: 60)
+        #expect(counted == 1)
+    }
+
     @Test func countsAPlayAtHalfTheTrack() {
         let tracker = PlayTracker()
         var counted: [String] = []

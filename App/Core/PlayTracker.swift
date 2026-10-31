@@ -44,8 +44,13 @@ final class PlayTracker {
     /// Call when a different track becomes current. Flushes nothing: if the previous
     /// track had earned its play it was already submitted at the threshold, which is
     /// also what makes a force-quit mid-track lose nothing that was owed.
-    func trackChanged(to song: Song?, duration: Double) {
-        guard song?.id != songID else {
+    ///
+    /// `isNewPlay` for a track starting again, even the same one: repeat-one going round,
+    /// a finished song played again, the same song twice in a row. Without it the same id
+    /// read as "no change", the count from the last play stood, and every later play of
+    /// that song went unscrobbled. Left false for a duration that is only now known.
+    func trackChanged(to song: Song?, duration: Double, isNewPlay: Bool = false) {
+        guard isNewPlay || song?.id != songID else {
             // Same track, but its duration may only now be known.
             if self.duration == 0 { self.duration = duration }
             return

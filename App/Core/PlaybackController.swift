@@ -846,7 +846,7 @@ final class PlaybackController {
 
         duration = Double(current.duration ?? 0)
         elapsed = seconds
-        tracker.trackChanged(to: current, duration: duration)
+        tracker.trackChanged(to: current, duration: duration, isNewPlay: true)
         tracker.interrupted(at: seconds)
         // A new track or a new start: any try pending for the old one is moot.
         retryTask?.cancel()
@@ -1048,7 +1048,7 @@ final class PlaybackController {
         queue.position = orderIndex
         duration = output.duration > 0 ? output.duration : Double(queue.current?.duration ?? 0)
         elapsed = 0
-        tracker.trackChanged(to: queue.current, duration: duration)
+        tracker.trackChanged(to: queue.current, duration: duration, isNewPlay: true)
         refillWindow()
         publishNowPlaying(force: true)
         persist()
