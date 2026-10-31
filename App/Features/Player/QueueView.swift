@@ -95,15 +95,11 @@ struct QueueView: View {
                     .moveDisabled(true)
             }
 
+            // Removing is in the row's long-press menu, not a swipe: this list is always
+            // in edit mode, for the drag handles, and iOS turns swipe actions off while a
+            // list is editing.
             ForEach(upNextWithIndices, id: \.orderIndex) { entry in
                 row(entry)
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
-                            player.removeFromQueue(orderIndex: entry.orderIndex)
-                        } label: {
-                            Label("Remove", systemImage: "minus.circle")
-                        }
-                    }
             }
             // Reordering is local, so it is free here -- unlike a server playlist,
             // where the API has no move operation at all.
@@ -179,10 +175,26 @@ struct QueueView: View {
         .buttonStyle(.plain)
         .listRowBackground(Color.clear)
         .contextMenu {
+            Button("Remove from Queue", systemImage: "minus.circle", role: .destructive) {
+                remove(entry)
+            }
+            Divider()
             SongMenu(song: entry.song, showsNavigation: false)
             Divider()
             SongJumpItems(song: entry.song)
         }
+    }
+
+    /// The menu was built for one row. If the queue shifted while it was open -- a DJ
+    /// pick or a station top-up landing ahead of it -- that index is now some other
+    /// song, so it is only acted on while it still holds this one.
+    private func remove(_ entry: (orderIndex: Int, song: Song)) {
+        let queue = player.queue
+        guard queue.order.indices.contains(entry.orderIndex),
+              queue.tracks.indices.contains(queue.order[entry.orderIndex]),
+              queue.tracks[queue.order[entry.orderIndex]].id == entry.song.id
+        else { return }
+        player.removeFromQueue(orderIndex: entry.orderIndex)
     }
 
     private func placeholder(_ text: String) -> some View {

@@ -171,7 +171,10 @@ final class QueuePane {
         let earlier = max(0, end - Self.limit)..<max(0, end)
         for orderIndex in earlier.reversed() {
             let song = queue.tracks[queue.order[orderIndex]]
-            let actions: [Menu.Item] = [.action("Play Now") { player.jump(toOrderIndex: orderIndex) }]
+            let actions: [Menu.Item] = [
+                .action("Play Now") { player.jump(toOrderIndex: orderIndex) },
+                .action("Remove from Queue", destructive: true) { player.removeFromQueue(orderIndex: orderIndex) },
+            ]
             backList.append(row(song, actions: actions, marked: false)) { player.jump(toOrderIndex: orderIndex) }
         }
         backEmpty.isVisible = earlier.isEmpty
