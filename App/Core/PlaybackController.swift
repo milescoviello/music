@@ -604,7 +604,13 @@ final class PlaybackController {
         Task { [weak self] in
             let steps = 30
             for step in 1...steps {
-                guard let self, isPlaying else { return }
+                guard let self else { return }
+                guard isPlaying else {
+                    // Paused by hand part way down. Without this the volume stayed
+                    // where the fade had got to, and the next play was that quiet.
+                    output.volume = 1
+                    return
+                }
                 output.volume = Float(1 - Double(step) / Double(steps))
                 try? await Task.sleep(for: .seconds(duration / Double(steps)))
             }
