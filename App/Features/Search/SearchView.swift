@@ -33,6 +33,12 @@ struct SearchView: View {
                     } description: {
                         Text("Search needs the server. Downloads are in Library.")
                     }
+                } else if let outcome, outcome.isOffline, outcome.isEmpty, !isSearching {
+                    ContentUnavailableView {
+                        Label("Can’t Reach the Server", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text("Nothing downloaded matches “\(query)”.")
+                    }
                 } else if let outcome, outcome.isEmpty, !isSearching {
                     // The one moment a request button is genuinely useful: you have just
                     // established that the library does not have this.
@@ -183,6 +189,13 @@ struct SearchView: View {
 
     private var resultsList: some View {
         List {
+            if let outcome, outcome.isOffline {
+                Label("Offline · showing what is downloaded", systemImage: "wifi.slash")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .listRowSeparator(.hidden)
+            }
+
             if let outcome, let correction = outcome.correction {
                 // Said, so a result that is not what was typed is not a mystery.
                 Text(outcome.isCorrectionOnly

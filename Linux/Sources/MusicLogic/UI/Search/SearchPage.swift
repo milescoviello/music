@@ -114,6 +114,13 @@ enum SearchPage {
             )
         }
         let results = outcome.results
+        if outcome.isOffline, outcome.isEmpty {
+            return StatusPage(
+                icon: "network-offline-symbolic",
+                title: "Can’t Reach the Server",
+                description: "Nothing downloaded matches “\(query)”."
+            )
+        }
         guard !outcome.isEmpty else {
             return StatusPage(
                 icon: "system-search-symbolic",
@@ -126,6 +133,9 @@ enum SearchPage {
             )
         }
 
+        if outcome.isOffline {
+            body.append(Label("Offline · showing what is downloaded", "caption", "dim").xalign(0))
+        }
         if let correction = outcome.correction {
             // Said, so a result that is not what was typed is not a mystery.
             body.append(Label(outcome.isCorrectionOnly

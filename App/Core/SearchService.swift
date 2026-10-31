@@ -20,6 +20,8 @@ final class SearchService {
         let isCorrectionOnly: Bool
         /// Songs with a line of lyrics like the query, from the sonic service.
         let lyrics: [SonicService.LyricMatch]
+        /// No server answered, so these are the downloads on this device that match.
+        var isOffline = false
 
         var isEmpty: Bool { results.isEmpty && lyrics.isEmpty }
 
@@ -112,11 +114,14 @@ final class SearchService {
         return names
     }
 
-    /// Nil when neither search reached the server, so a screen can tell offline from
-    /// nothing found.
+    /// With no server, the songs downloaded here that match, marked `isOffline`. Nil only
+    /// before the app is set up.
     func search(_ text: String, scope: LibraryScope) async -> Outcome? {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty, let appState else { return nil }
+        // Known to be offline: straight to the downloads, rather than waiting for two
+        // requests to time out first.
+        if appState.reachability.network == .offline { return downloaded(matching: query) }
         prepare()
 
         let client = appState.client
@@ -136,7 +141,7 @@ final class SearchService {
         let isPhrase = query.split(whereSeparator: \.isWhitespace).count >= 2
         async let phraseMatches = isPhrase ? sonic.lyricMatches(for: query) : nil
         let (typedResults, correctedResults, lyricsForPhrase) = await (typed, corrected, phraseMatches)
-        guard typedResults != nil || correctedResults != nil else { return nil }
+        guard typedResults != nil || correctedResults != nil else { return downloaded(matching: query) }
 
         let found = typedResults ?? SearchResult3()
         let foundByCorrection = correctedResults.map { !$0.isEmpty } ?? false
@@ -153,6 +158,25 @@ final class SearchService {
             correction: foundByCorrection ? correction : nil,
             isCorrectionOnly: isCorrectionOnly,
             lyrics: lyrics
+        )
+    }
+
+    /// Offline, the songs on this device: every word somewhere in the title, artist or
+    /// album, as the Downloads screen's own search does. Songs only, because a downloaded
+    /// song always plays here, while an album's page may need the server to open.
+    private func downloaded(matching query: String) -> Outcome? {
+        guard let appState else { return nil }
+        let store = appState.downloadFolders
+        store.activate()
+        var results = SearchResult3()
+        results.song = store.folders.search(query).songs
+        return Outcome(
+            query: query,
+            results: SearchRanking.arranged(results, for: query),
+            correction: nil,
+            isCorrectionOnly: false,
+            lyrics: [],
+            isOffline: true
         )
     }
 
