@@ -185,9 +185,19 @@ actor SubsonicClient {
         } catch {
             // Recorded rather than only thrown: most callers use `try?` so the screen
             // can fall back to cache, which means the reason would otherwise vanish.
-            await Diagnostics.shared.record(endpoint, error.localizedDescription)
+            if !Self.isCancellation(error) {
+                await Diagnostics.shared.record(endpoint, error.localizedDescription)
+            }
             throw ClientError.transport(error.localizedDescription)
         }
+    }
+
+    /// A request its caller gave up on: a queue upload replaced by a newer one, a screen
+    /// closed mid-load. Not a failure, so not logged as one -- every queue edit made
+    /// within a few seconds of the last was showing up in Diagnostics as
+    /// "savePlayQueue.view: cancelled", burying the failures that matter.
+    static func isCancellation(_ error: any Error) -> Bool {
+        error is CancellationError || (error as NSError).code == NSURLErrorCancelled
     }
 
     /// Same parameters, moved into a form body.
@@ -234,7 +244,9 @@ actor SubsonicClient {
             let (data, _) = try await session.data(for: request)
             return data
         } catch {
-            await Diagnostics.shared.record(endpoint, error.localizedDescription)
+            if !Self.isCancellation(error) {
+                await Diagnostics.shared.record(endpoint, error.localizedDescription)
+            }
             throw ClientError.transport(error.localizedDescription)
         }
     }
