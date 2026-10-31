@@ -111,6 +111,7 @@ func logicPackage() -> Package {
                     "Charts.swift",
                     "HomeLayout.swift",
                     "SearchRanking.swift",
+                    "SearchVocabulary.swift",
                     "RecentPlays.swift",
                     "SonicClient.swift",
                     "BeatMatch.swift",

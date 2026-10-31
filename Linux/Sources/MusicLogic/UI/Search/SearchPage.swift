@@ -22,20 +22,23 @@ enum SearchPage {
             let trimmed = text.trimmingCharacters(in: .whitespaces)
             generation += 1
             let current = generation
-            guard trimmed.count >= 2 else {
+            // One letter too: "k" is a whole title ("K.", Cigarettes After Sex).
+            guard !trimmed.isEmpty else {
                 stack.visibleName = "idle"
                 return
             }
             stack.visibleName = "searching"
             let alive = stack.liveness
             Task { @MainActor in
-                let found = try? await app.client.search(query: trimmed, scope: app.scope.scope)
+                let found = await app.search.search(trimmed, scope: app.scope.scope)
                 guard alive.isAlive, current == generation else { return }
-                results.child = resultsView(env, query: trimmed, results: found)
+                results.child = resultsView(env, query: trimmed, outcome: found)
                 stack.visibleName = "results"
             }
         }
         entry.onSearch { search($0) }
+        // The words that put a misspelled search right, if they are missing or a day old.
+        app.search.prepare()
         entry.onActivate { app.recentSearches.record(entry.text) }
 
         idle.observe {
@@ -98,12 +101,20 @@ enum SearchPage {
         return body
     }
 
-    private static func resultsView(_ env: Env, query: String, results: SearchResult3?) -> Widget {
+    private static func resultsView(_ env: Env, query: String, outcome: SearchService.Outcome?) -> Widget {
         let app = env.app
         let body = Box.vertical(spacing: 18)
         let record = { app.recentSearches.record(query) }
 
-        guard let results, !results.isEmpty else {
+        guard let outcome else {
+            return StatusPage(
+                icon: "network-offline-symbolic",
+                title: "Can’t Reach the Server",
+                description: "Search needs the server. Downloads are in Library."
+            )
+        }
+        let results = outcome.results
+        guard !results.isEmpty else {
             return StatusPage(
                 icon: "system-search-symbolic",
                 title: "No Results",
@@ -115,7 +126,20 @@ enum SearchPage {
             )
         }
 
-        if let top = SearchRanking.topResult(for: query, in: results) {
+        if let correction = outcome.correction {
+            // Said, so a result that is not what was typed is not a mystery.
+            body.append(Label(outcome.isCorrectionOnly
+                ? "Showing results for “\(correction)”"
+                : "Including results for “\(correction)”", "caption", "dim").xalign(0))
+        }
+        if outcome.isCorrectionOnly {
+            // Nothing matched what was typed, so these are the library's nearest words --
+            // for an artist not in the library ("clairo"), something else entirely. Asking
+            // for it stays a click away, as it is under No Results.
+            body.append(Button("Ask Hermes to Find “\(query)”", "pill") { env.open(.requestMusic(query)) }.halign(GTK_ALIGN_START))
+        }
+
+        if let top = SearchRanking.topResult(for: outcome.rankedFor, in: results) {
             let group = PreferencesGroup("Top Result")
             switch top {
             case let .artist(artist):

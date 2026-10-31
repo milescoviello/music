@@ -21,6 +21,8 @@ struct PlayableSongRow: View {
     var trailing: String?
     /// When selecting, a tap ticks the row instead of starting playback.
     var selection: SongSelection?
+    /// After a tap has started playback: how search notices that a result was the one.
+    var onPlay: (() -> Void)?
 
     private var song: Song { songs[index] }
 
@@ -58,6 +60,7 @@ struct PlayableSongRow: View {
     private var playableRow: some View {
         Button {
             appState.player.play(songs: songs, startingAt: index, source: source)
+            onPlay?()
         } label: {
             SongRow(
                 song: song,

@@ -20,7 +20,7 @@ final class RecentSearches {
 
     func record(_ term: String) {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 2 else { return }
+        guard !trimmed.isEmpty else { return }
 
         // Case-insensitive de-dupe, most recent first: searching the same thing twice
         // should move it up, not appear twice.

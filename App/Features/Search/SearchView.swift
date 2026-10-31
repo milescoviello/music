@@ -5,9 +5,17 @@ struct SearchView: View {
     @Environment(LibraryScopeStore.self) private var scope
 
     @State private var query = ""
-    @State private var results: SearchResult3?
+    @State private var outcome: SearchService.Outcome?
     @State private var isSearching = false
+    /// The last search reached neither the query nor its correction: offline, or the
+    /// server is down. Said so, rather than shown as an empty list.
+    @State private var failed = false
     @State private var genres: [Genre] = []
+    /// Bound so that opening a result can be noticed: that is when a search is worth
+    /// keeping in Recent.
+    @State private var path = NavigationPath()
+
+    private var results: SearchResult3? { outcome?.results }
 
     private let genreColumns = [
         GridItem(.flexible(), spacing: Metrics.itemSpacing),
@@ -15,10 +23,16 @@ struct SearchView: View {
     ]
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if query.isEmpty {
                     idleState
+                } else if failed, !isSearching {
+                    ContentUnavailableView {
+                        Label("Can’t Reach the Server", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text("Search needs the server. Downloads are in Library.")
+                    }
                 } else if let results, results.isEmpty, !isSearching {
                     // The one moment a request button is genuinely useful: you have just
                     // established that the library does not have this.
@@ -67,6 +81,12 @@ struct SearchView: View {
             .scrollDismissesKeyboard(.immediately)
             .task(id: SearchKey(query: query, scope: scope.generation)) {
                 await search()
+            }
+            // Fetches the words that put a misspelled search right, if this phone does not
+            // have them yet or they are a day old.
+            .task { appState.search.prepare() }
+            .onChange(of: path.count) { old, new in
+                if old == 0, new > 0 { appState.recentSearches.record(query) }
             }
             .task(id: scope.generation) {
                 genres = ((try? await appState.client.genres(scope: scope.scope)) ?? [])
@@ -163,7 +183,26 @@ struct SearchView: View {
 
     private var resultsList: some View {
         List {
-            if let results, let top = SearchRanking.topResult(for: query, in: results) {
+            if let outcome, let correction = outcome.correction {
+                // Said, so a result that is not what was typed is not a mystery.
+                Text(outcome.isCorrectionOnly
+                    ? "Showing results for “\(correction)”"
+                    : "Including results for “\(correction)”")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .listRowSeparator(.hidden)
+            }
+
+            if let outcome, outcome.isCorrectionOnly {
+                // Nothing matched what was typed, so these are the library's nearest words
+                // -- which for an artist not in the library ("clairo") is something else
+                // entirely. Asking for it has to stay a tap away, as it is under No Results.
+                NavigationLink(value: Destination.requestMusic(outcome.query)) {
+                    Label("Ask Hermes to find “\(outcome.query)”", systemImage: "arrow.down.heart")
+                }
+            }
+
+            if let outcome, let top = SearchRanking.topResult(for: outcome.rankedFor, in: outcome.results) {
                 Section("Top Result") {
                     topResultRow(top)
                 }
@@ -240,7 +279,7 @@ struct SearchView: View {
                 let visible = Array(songs.prefix(20))
                 Section("Songs") {
                     ForEach(Array(visible.enumerated()), id: \.element.id) { index, _ in
-                        PlayableSongRow(songs: visible, index: index, source: "Search")
+                        PlayableSongRow(songs: visible, index: index, source: "Search", onPlay: recordQuery)
                     }
                 }
             }
@@ -255,11 +294,10 @@ struct SearchView: View {
             }
         }
         .listStyle(.plain)
-        // Tapping a result is the strongest signal the search was the right one, and it
-        // costs nothing to notice. Simultaneous, so it never swallows the row's own tap.
-        .simultaneousGesture(
-            TapGesture().onEnded { appState.recentSearches.record(query) }
-        )
+        // Opening or playing a result is what records the search, in `onChange(of:
+        // path.count)` and the song rows' `onPlay`. A tap gesture over the whole list did
+        // it before, and it stopped album and artist rows opening at all: in a List those
+        // open by row selection, which a tap gesture laid over the list takes first.
         .overlay {
             if isSearching, results == nil { ProgressView() }
         }
@@ -310,8 +348,12 @@ struct SearchView: View {
             }
             .albumFavorite(album)
         case let .song(song):
-            PlayableSongRow(songs: [song], index: 0, source: "Search")
+            PlayableSongRow(songs: [song], index: 0, source: "Search", onPlay: recordQuery)
         }
+    }
+
+    private func recordQuery() {
+        appState.recentSearches.record(query)
     }
 
     private struct SearchKey: Equatable {
@@ -321,11 +363,16 @@ struct SearchView: View {
 
     /// The debounce is the `.task(id:)` itself: a keystroke cancels the previous
     /// task, so sleeping at the top is all that is needed. No Combine, no timers.
+    ///
+    /// One letter is searched too: "k" is a whole song title ("K.", Cigarettes After Sex),
+    /// and the two-letter minimum this had meant it could never be found.
     private func search() async {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
 
-        guard trimmed.count >= 2 else {
-            results = nil
+        guard !trimmed.isEmpty else {
+            outcome = nil
+            failed = false
+            isSearching = false
             return
         }
 
@@ -333,7 +380,11 @@ struct SearchView: View {
         guard !Task.isCancelled else { return }
 
         isSearching = true
-        results = try? await appState.client.search(query: trimmed, scope: scope.scope)
+        let found = await appState.search.search(trimmed, scope: scope.scope)
+        // A newer keystroke has started its own search; this one's answer is stale.
+        guard !Task.isCancelled else { return }
+        outcome = found
+        failed = found == nil
         isSearching = false
     }
 }

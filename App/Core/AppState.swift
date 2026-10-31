@@ -35,6 +35,7 @@ final class AppState {
     let mixes = DailyMixes()
     let hermes = HermesAsk()
     let recentSearches = RecentSearches()
+    let search = SearchService()
     let navigator = Navigator()
     let screenAwake = ScreenAwake()
     let resume = ResumeStore()
@@ -81,6 +82,7 @@ final class AppState {
         guestDJ.configure(appState: self)
         stations.configure(appState: self)
         libraryIndex.configure(appState: self)
+        search.configure(appState: self)
         sonic.configure(appState: self)
         // The seekbar's fallback, for a track the sonic service has not analysed.
         seekbarLevels.measured = { [shapes] in shapes.loadedShape(for: $0)?.levels }
