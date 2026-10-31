@@ -61,6 +61,8 @@ def make_handler(service):
         (re.compile(r"^/v1/tags$"), lambda match, q: {"tags": TAGS}),
         (re.compile(r"^/v1/tags/([^/]+)/tracks$"),
          lambda match, q: _items(service.index.tagged(match[1], _int(q, "limit", 50, 1, 500)))),
+        (re.compile(r"^/v1/lyrics/search$"),
+         lambda match, q: _items(service.lyrics.search(q.get("q", [""])[0], _int(q, "limit", 20, 1, 100)))),
         (re.compile(r"^/healthz$"), lambda match, q: {"ok": True}),
     ]
 

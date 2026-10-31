@@ -15,6 +15,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import lyrics
 from .config import Config
 
 
@@ -40,6 +41,11 @@ def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
 
 
 def read(config: Config) -> list[LibraryTrack]:
+    return read_with_lyrics(config)[0]
+
+
+def read_with_lyrics(config: Config) -> tuple[list[LibraryTrack], list[lyrics.LyricTrack]]:
+    """The tracks and their lyrics, from one copy of the database."""
     with tempfile.TemporaryDirectory() as scratch:
         source = config.navidrome_db
         for suffix in ("", "-wal", "-shm"):
@@ -48,7 +54,7 @@ def read(config: Config) -> list[LibraryTrack]:
                 shutil.copy2(candidate, Path(scratch) / (source.name + suffix))
         connection = sqlite3.connect(f"file:{Path(scratch) / source.name}?mode=ro", uri=True)
         try:
-            return _read(connection, config)
+            return _read(connection, config), lyrics.read(connection)
         finally:
             connection.close()
 

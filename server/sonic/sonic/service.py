@@ -15,6 +15,7 @@ from . import library
 from .analyse import analyse, init_worker
 from .config import ANALYSIS_VERSION, MODEL_NAME, MODEL_URL, Config
 from .index import Index, bucket_levels
+from .lyrics import LyricIndex
 from .store import Store
 
 log = logging.getLogger("sonic")
@@ -25,6 +26,8 @@ class Service:
         self.config = config
         self.store = Store(config.database)
         self.index = Index(self.store.rows())
+        # Filled by the first sync, a few seconds after start.
+        self.lyrics = LyricIndex([])
         self.analysing = False
         self.library_tracks = 0
         self.last_sync: float | None = None
@@ -90,7 +93,9 @@ class Service:
         self._wake.set()
 
     def sync(self) -> None:
-        tracks = library.read(self.config)
+        tracks, lyric_tracks = library.read_with_lyrics(self.config)
+        self.lyrics = LyricIndex(lyric_tracks)
+        log.info("lyrics: %d tracks", len(self.lyrics))
         added, changed, removed = self.store.sync(tracks)
         self.library_tracks = len(tracks)
         self.last_sync = time.time()
