@@ -75,6 +75,22 @@ struct SonicClient: Sendable {
         let items: [Neighbour]
     }
 
+    /// A song with a line of lyrics matching a search, and that line.
+    struct LyricHit: Decodable, Equatable, Sendable {
+        let id: String
+        let title: String
+        let artist: String
+        let line: String
+        /// 4 the phrase in one line, 3 across two, 2 every word in one, 1 in the song.
+        let score: Int
+        /// Milliseconds into the track the line starts, when the lyrics are synced.
+        let at: Int?
+    }
+
+    private struct LyricHits: Decodable {
+        let items: [LyricHit]
+    }
+
     var configuration: Configuration
     var session: URLSession = .shared
 
@@ -136,6 +152,13 @@ struct SonicClient: Sendable {
     /// "party"…), at most two per artist.
     func tagged(_ tag: String, limit: Int = 100) async throws -> [Neighbour] {
         try await items("v1/tags/\(tag)/tracks", ["limit": String(limit)])
+    }
+
+    /// Songs whose stored lyrics have a line like `query`, best first: the service reads
+    /// them from Navidrome's database, so this is one request rather than one per track.
+    /// Empty from a service too old to have the endpoint, which answers 404.
+    func lyricSearch(_ query: String, limit: Int = 20) async throws -> [LyricHit] {
+        try await getIfPresent("v1/lyrics/search", ["q": query, "limit": String(limit)], as: LyricHits.self)?.items ?? []
     }
 
     // MARK: - Plumbing

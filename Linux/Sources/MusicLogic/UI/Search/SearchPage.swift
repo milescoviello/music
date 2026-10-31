@@ -114,7 +114,7 @@ enum SearchPage {
             )
         }
         let results = outcome.results
-        guard !results.isEmpty else {
+        guard !outcome.isEmpty else {
             return StatusPage(
                 icon: "system-search-symbolic",
                 title: "No Results",
@@ -196,6 +196,21 @@ enum SearchPage {
         if !results.songs.isEmpty {
             body.append(Label("Songs", "shelf-title"))
             body.append(SongList.make(env, Array(results.songs.prefix(20)), source: "Search"))
+        }
+        if !outcome.lyrics.isEmpty {
+            // The song, and the line that matched, so it is plain why it is here.
+            let group = PreferencesGroup("Lyrics")
+            for match in outcome.lyrics {
+                let artwork = ArtworkView(app, size: .thumb, side: 40, shape: .thumb)
+                artwork.show(match.song.coverArt, fallback: match.song.album ?? match.song.title)
+                let row = ActionRow(match.song.title, subtitle: "“\(match.line)” · \(match.song.artist ?? "")") {
+                    record()
+                    app.player.play(songs: [match.song], startingAt: 0, source: "Search")
+                }
+                row.prefix(artwork.root)
+                group.add(row)
+            }
+            body.append(group)
         }
         body.append(Button("Search lyrics for “\(query)”", icon: "edit-find-symbolic", "flat") {
             env.open(.lyricSearch(query))

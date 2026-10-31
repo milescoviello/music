@@ -18,6 +18,10 @@ final class SearchService {
         let correction: String?
         /// The query found nothing by itself, so everything shown is the correction's.
         let isCorrectionOnly: Bool
+        /// Songs with a line of lyrics like the query, from the sonic service.
+        let lyrics: [SonicService.LyricMatch]
+
+        var isEmpty: Bool { results.isEmpty && lyrics.isEmpty }
 
         /// What the results are ranked against, and the top result chosen for.
         var rankedFor: String { isCorrectionOnly ? correction ?? query : query }
@@ -123,7 +127,11 @@ final class SearchService {
         let sent = query.count == 1 ? "\"\(query)\"" : query
         async let typed = Self.fetch(client, sent, scope)
         async let corrected = Self.fetch(client, correction, scope)
-        let (typedResults, correctedResults) = await (typed, corrected)
+        // Lyrics too, from the sonic service: instant, and only from the lyrics stored with
+        // the files (about 8% of this library).
+        let sonic = appState.sonic
+        async let lyricMatches = query.count >= 3 ? sonic.lyricMatches(for: query) : nil
+        let (typedResults, correctedResults, lyricResults) = await (typed, corrected, lyricMatches)
         guard typedResults != nil || correctedResults != nil else { return nil }
 
         let found = typedResults ?? SearchResult3()
@@ -131,11 +139,17 @@ final class SearchService {
         let isCorrectionOnly = found.isEmpty && foundByCorrection
         let merged = correctedResults.map { found.adding($0) } ?? found
         let rankedFor = isCorrectionOnly ? correction ?? query : query
+        // One word ("hello") is in the lyrics of hundreds of songs and would bury what the
+        // search was for, so lyric matches are shown for a phrase, or when nothing else
+        // matched at all.
+        let isPhrase = query.split(whereSeparator: \.isWhitespace).count >= 2
+        let showsLyrics = isPhrase || (found.isEmpty && !foundByCorrection)
         return Outcome(
             query: query,
             results: SearchRanking.arranged(merged, for: rankedFor),
             correction: foundByCorrection ? correction : nil,
-            isCorrectionOnly: isCorrectionOnly
+            isCorrectionOnly: isCorrectionOnly,
+            lyrics: showsLyrics ? lyricResults ?? [] : []
         )
     }
 

@@ -144,6 +144,19 @@ struct LyricSearchView: View {
         matches = []
         songs = [:]
 
+        // The sonic service first: the same lyrics from the same database, answered in
+        // milliseconds, where Hermes has to start an agent run to make one query. Hermes
+        // stays for when the service is not there.
+        if let hits = await appState.sonic.lyricHits(for: trimmed) {
+            let found = hits.map {
+                LyricMatch(songID: $0.id, title: $0.title, artist: $0.artist, line: $0.line, atMs: $0.at)
+            }
+            matches = found
+            state = .done
+            await resolve(found)
+            return
+        }
+
         let outcome = await appState.hermes.ask(
             route: "music-lyrics",
             fields: ["query": trimmed],

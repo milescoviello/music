@@ -107,6 +107,31 @@ final class SonicService {
         return await hydrate(hits.map(\.id))
     }
 
+    // MARK: - Lyrics
+
+    struct LyricMatch: Sendable, Identifiable {
+        let song: Song
+        /// The line that matched, as the lyrics write it.
+        let line: String
+        var id: String { song.id }
+    }
+
+    /// Songs with a line of lyrics like `query`, as songs that can be played. Nil when the
+    /// service cannot answer, which a caller treats as no lyric matches.
+    func lyricMatches(for query: String, limit: Int = 5) async -> [LyricMatch]? {
+        guard let hits = await lyricHits(for: query, limit: limit) else { return nil }
+        guard !hits.isEmpty else { return [] }
+        let songs = await hydrate(hits.map(\.id)) ?? []
+        let byID = Dictionary(songs.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return hits.compactMap { hit in byID[hit.id].map { LyricMatch(song: $0, line: hit.line) } }
+    }
+
+    /// The service's answers as they are, for a screen that resolves its own songs.
+    func lyricHits(for query: String, limit: Int = 25) async -> [SonicClient.LyricHit]? {
+        guard isAvailable else { return nil }
+        return try? await client.lyricSearch(query, limit: limit)
+    }
+
     // MARK: - Albums and artists
 
     func similarAlbums(to albumID: String, limit: Int = 12) async -> [Album]? {

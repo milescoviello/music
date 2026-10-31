@@ -33,7 +33,7 @@ struct SearchView: View {
                     } description: {
                         Text("Search needs the server. Downloads are in Library.")
                     }
-                } else if let results, results.isEmpty, !isSearching {
+                } else if let outcome, outcome.isEmpty, !isSearching {
                     // The one moment a request button is genuinely useful: you have just
                     // established that the library does not have this.
                     ContentUnavailableView {
@@ -284,6 +284,14 @@ struct SearchView: View {
                 }
             }
 
+            if let lyrics = outcome?.lyrics, !lyrics.isEmpty {
+                Section("Lyrics") {
+                    ForEach(lyrics) { match in
+                        lyricRow(match)
+                    }
+                }
+            }
+
             // A trailing row rather than a second search field: metadata results and
             // lyric results answer different questions, and the second one costs an
             // agent run, so it stays opt-in.
@@ -354,6 +362,31 @@ struct SearchView: View {
 
     private func recordQuery() {
         appState.recentSearches.record(query)
+    }
+
+    /// The song, and under it the line that matched, so it is plain why it is here.
+    private func lyricRow(_ match: SonicService.LyricMatch) -> some View {
+        Button {
+            appState.player.play(songs: [match.song], startingAt: 0, source: "Search")
+            recordQuery()
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                SongRow(
+                    song: match.song,
+                    style: .withArtwork,
+                    isCurrent: appState.player.currentSong?.id == match.song.id,
+                    trailing: nil
+                )
+                Text("“\(match.line)”")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            SongMenu(song: match.song)
+        }
     }
 
     private struct SearchKey: Equatable {

@@ -194,6 +194,16 @@ enum HermesPages {
             }
             let alive = results.liveness
             Task { @MainActor in
+                // The sonic service first: the same lyrics from the same database, in
+                // milliseconds, where Hermes starts an agent run to make one query.
+                if let hits = await app.sonic.lyricHits(for: trimmed) {
+                    asking = false
+                    guard alive.isAlive else { return }
+                    await show(hits.map {
+                        LyricMatch(songID: $0.id, title: $0.title, artist: $0.artist, line: $0.line, atMs: $0.at)
+                    })
+                    return
+                }
                 let outcome = await app.hermes.ask(route: "music-lyrics", fields: ["query": trimmed], as: LyricSearchResult.self, timeout: 120)
                 asking = false
                 guard alive.isAlive else { return }
