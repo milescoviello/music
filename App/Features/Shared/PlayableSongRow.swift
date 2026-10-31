@@ -23,6 +23,10 @@ struct PlayableSongRow: View {
     var selection: SongSelection?
     /// After a tap has started playback: how search notices that a result was the one.
     var onPlay: (() -> Void)?
+    /// Makes the trailing swipe Remove instead of Queue, where removing is what the list
+    /// is for -- a playlist. It has to be this row's own swipe: a second `.swipeActions`
+    /// for the same edge, put on from outside, leaves which one iOS shows undefined.
+    var onRemove: (() -> Void)?
 
     private var song: Song { songs[index] }
 
@@ -83,12 +87,18 @@ struct PlayableSongRow: View {
             .tint(.appTint)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button {
-                appState.player.append([song])
-            } label: {
-                Label("Queue", systemImage: "text.append")
+            if let onRemove {
+                Button(role: .destructive, action: onRemove) {
+                    Label("Remove", systemImage: "minus.circle")
+                }
+            } else {
+                Button {
+                    appState.player.append([song])
+                } label: {
+                    Label("Queue", systemImage: "text.append")
+                }
+                .tint(.gray)
             }
-            .tint(.gray)
         }
     }
 }
