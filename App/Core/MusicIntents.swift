@@ -67,9 +67,15 @@ struct PlayPlaylistIntent: AppIntent {
             return .result(dialog: "I couldn't find a playlist called \(playlist).")
         }
 
-        guard let detail = try? await appState.client.playlistDetail(id: target.id),
-              !detail.songs.isEmpty
-        else {
+        // Through the cache, as the playlist screen does, so a playlist kept on the phone
+        // plays offline too -- straight from the server, offline answered "is empty".
+        let client = appState.client
+        guard let detail: PlaylistDetail = await appState.cached(CacheKey.playlist(target.id), {
+            try await client.playlistDetail(id: target.id)
+        }) else {
+            return .result(dialog: "I couldn't reach your library for \(target.name).")
+        }
+        guard !detail.songs.isEmpty else {
             return .result(dialog: "\(target.name) is empty.")
         }
 
@@ -115,8 +121,16 @@ struct PlayFavouritesIntent: AppIntent {
             return .result(dialog: "Music isn't signed in yet.")
         }
 
-        let starred = try? await appState.client.starred()
-        let songs = starred?.songs ?? []
+        // Through the cache Home fills, so it works offline -- and a failure is said as
+        // one, where it used to come out as "you haven't starred anything".
+        let client = appState.client
+        let scope = appState.scope.scope
+        guard let starred: Starred2 = await appState.cached(CacheKey.starred(scope.cacheKey), {
+            try await client.starred(scope: scope)
+        }) else {
+            return .result(dialog: "I couldn't reach your library.")
+        }
+        let songs = starred.songs
         guard !songs.isEmpty else {
             return .result(dialog: "You haven't starred anything yet.")
         }
