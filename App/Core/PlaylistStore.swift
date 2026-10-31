@@ -75,13 +75,29 @@ final class PlaylistStore {
         return created
     }
 
+    /// Songs already on the playlist are left out, and the message says so. Adding a
+    /// song from a long-press menu twice -- or an album that shares a track with it --
+    /// used to put a second copy in, found only when it played twice. If the playlist
+    /// cannot be read first, everything is added, as before.
     func add(_ songs: [Song], to playlist: Playlist) async {
         guard let client, !songs.isEmpty else { return }
-        do {
-            try await client.addToPlaylist(id: playlist.id, songIDs: songs.map(\.id))
+        let present = Set((try? await client.playlistDetail(id: playlist.id))?.songs.map(\.id) ?? [])
+        var seen = present
+        let adding = songs.filter { seen.insert($0.id).inserted }
+        let skipped = songs.count - adding.count
+
+        guard !adding.isEmpty else {
             lastMessage = songs.count == 1
+                ? "Already in “\(playlist.name)”"
+                : "All \(songs.count) songs are already in “\(playlist.name)”"
+            return
+        }
+        do {
+            try await client.addToPlaylist(id: playlist.id, songIDs: adding.map(\.id))
+            let added = adding.count == 1
                 ? "Added to “\(playlist.name)”"
-                : "Added \(songs.count) songs to “\(playlist.name)”"
+                : "Added \(adding.count) songs to “\(playlist.name)”"
+            lastMessage = skipped == 0 ? added : "\(added) · \(skipped) already there"
             await load()
         } catch {
             lastMessage = "Could not add to “\(playlist.name)”"
