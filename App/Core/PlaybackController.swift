@@ -1015,18 +1015,18 @@ final class PlaybackController {
         guard let songID, let orderIndex = queue.orderIndex(following: songID) else {
             // Ran off the end of the window -- the end of the queue, a track that could
             // not be loaded, or repeat-one reaching the end of its only track. The queue
-            // decides, and the output is rebuilt from it.
-            if queue.repeatMode == .one {
-                appState?.sleepTimer.trackDidFinish(next: queue.current)
-            }
+            // decides, and the output is rebuilt from it -- loaded but not played if the
+            // sleep timer was waiting for this track to end.
             if queue.advance() {
-                rebuildOutput(startPlaying: true, seekTo: 0)
+                let stops = appState?.sleepTimer.trackDidFinish(next: queue.current) == true
+                rebuildOutput(startPlaying: !stops, seekTo: 0)
             } else if let autoplay = appState?.autoplay, autoplay.isActive, autoplay.selectedOption != nil {
                 // The end came before Autoplay's tracks did — a short last track, or a
                 // slow server. Wait for them rather than stopping.
                 Task {
                     if await autoplay.extend(), queue.advance() {
-                        rebuildOutput(startPlaying: true, seekTo: 0)
+                        let stops = appState?.sleepTimer.trackDidFinish(next: queue.current) == true
+                        rebuildOutput(startPlaying: !stops, seekTo: 0)
                     } else {
                         appState?.sleepTimer.trackDidFinish(next: nil)
                         pause()
@@ -1039,7 +1039,7 @@ final class PlaybackController {
             return
         }
 
-        appState?.sleepTimer.trackDidFinish(next: queue.tracks[queue.order[orderIndex]])
+        let stops = appState?.sleepTimer.trackDidFinish(next: queue.tracks[queue.order[orderIndex]]) == true
         topUpMixQueue()
         // Played to the end: there is nothing to come back to.
         if let finished = queue.current { appState?.resume.clear(songID: finished.id) }
@@ -1052,6 +1052,13 @@ final class PlaybackController {
         refillWindow()
         publishNowPlaying(force: true)
         persist()
+
+        // End of track or end of album: the next track has just begun, so stop at its
+        // very start, and a later play starts it from the top.
+        if stops {
+            pause()
+            seek(to: 0)
+        }
     }
 
     /// The output could not fetch the current track: the server did not answer.

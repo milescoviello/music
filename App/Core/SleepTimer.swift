@@ -89,16 +89,31 @@ final class SleepTimer {
 
     /// Called by the player when a track finishes, with the one it is moving on to (nil
     /// at the end of the queue), so the two track-bound modes can act on the only event
-    /// that defines them.
-    func trackDidFinish(next: Song?) {
+    /// that defines them. True when one of them is done: the caller then stops at the
+    /// start of `next` itself.
+    ///
+    /// Not through `onFire`, which fades out over six seconds. That is right for a
+    /// deadline in the middle of a song, and wrong at the end of one: by the time a track
+    /// has finished the next one is already playing, so "End of track" played six seconds
+    /// of the next song, fading, and left it paused six seconds in.
+    @discardableResult
+    func trackDidFinish(next: Song?) -> Bool {
         switch mode {
         case .endOfTrack:
-            fire()
+            stop()
+            return true
         case let .endOfAlbum(albumID):
-            if next?.albumId != albumID { fire() }
+            guard next?.albumId != albumID else { return false }
+            stop()
+            return true
         case .off, .at:
-            break
+            return false
         }
+    }
+
+    private func stop() {
+        mode = .off
+        task = nil
     }
 
     private func fire() {
