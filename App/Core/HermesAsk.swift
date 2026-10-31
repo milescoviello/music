@@ -162,10 +162,12 @@ final class HermesAsk {
         guard let configuration else { return }
         let client = HermesClient(configuration: configuration)
 
-        for index in vibes.indices where vibes[index].isWaiting {
-            let vibe = vibes[index]
-
+        for vibe in vibes where vibe.isWaiting {
             let outcome = await client.outcome(for: vibe.requestID, as: VibeResult.self)
+            // Found again by id after the wait, not held as an index: a vibe asked for in
+            // the meantime goes in at the top and shifts every index, and one removed
+            // shortens the list -- an index held across the wait then crashed the app.
+            guard let index = vibes.firstIndex(where: { $0.id == vibe.id }) else { continue }
             switch outcome {
             case let .ok(result):
                 vibes[index].finishedAt = .now

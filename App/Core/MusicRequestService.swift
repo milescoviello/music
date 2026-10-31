@@ -170,11 +170,16 @@ final class MusicRequestService {
     func refresh() async {
         guard client != nil else { return }
 
-        for (index, entry) in history.enumerated() where entry.isWatching {
+        for entry in history where entry.isWatching {
             // A snapshot may be missing because the app was offline when the request
             // went out. Adopt the first successful reading as the baseline rather than
             // treating everything already in the library as an arrival.
             guard let current = await snapshot(for: entry.text) else { continue }
+
+            // Found again by id after the wait, not kept as an index: a request sent while
+            // this one was being checked goes in at the top, every index moves down one,
+            // and the answer was written onto the request next to it.
+            guard let index = history.firstIndex(where: { $0.id == entry.id }) else { continue }
 
             guard let baseline = entry.baseline else {
                 history[index].baseline = current
@@ -185,9 +190,12 @@ final class MusicRequestService {
             let newAlbumIDs = current.albumIDs.filter { !known.contains($0) }
 
             if !newAlbumIDs.isEmpty || current.songCount > baseline.songCount {
+                // Another wait, so the entry is found again after it as well.
+                let names = await albumNames(for: newAlbumIDs)
+                guard let index = history.firstIndex(where: { $0.id == entry.id }) else { continue }
                 history[index].arrival = Arrival(
                     at: .now,
-                    albumNames: await albumNames(for: newAlbumIDs),
+                    albumNames: names,
                     songCount: max(current.songCount - baseline.songCount, 0),
                     firstAlbumID: newAlbumIDs.first
                 )
