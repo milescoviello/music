@@ -128,10 +128,14 @@ final class SearchService {
         async let typed = Self.fetch(client, sent, scope)
         async let corrected = Self.fetch(client, correction, scope)
         // Lyrics too, from the sonic service: instant, and only from the lyrics stored with
-        // the files (about 8% of this library).
+        // the files (about 8% of this library). Alongside the search for a phrase; for one
+        // word only once nothing else has matched, below -- "hello" is in the lyrics of
+        // hundreds of songs and would bury what the search was for, and each answer costs
+        // a request per song to make it playable.
         let sonic = appState.sonic
-        async let lyricMatches = query.count >= 3 ? sonic.lyricMatches(for: query) : nil
-        let (typedResults, correctedResults, lyricResults) = await (typed, corrected, lyricMatches)
+        let isPhrase = query.split(whereSeparator: \.isWhitespace).count >= 2
+        async let phraseMatches = isPhrase ? sonic.lyricMatches(for: query) : nil
+        let (typedResults, correctedResults, lyricsForPhrase) = await (typed, corrected, phraseMatches)
         guard typedResults != nil || correctedResults != nil else { return nil }
 
         let found = typedResults ?? SearchResult3()
@@ -139,17 +143,16 @@ final class SearchService {
         let isCorrectionOnly = found.isEmpty && foundByCorrection
         let merged = correctedResults.map { found.adding($0) } ?? found
         let rankedFor = isCorrectionOnly ? correction ?? query : query
-        // One word ("hello") is in the lyrics of hundreds of songs and would bury what the
-        // search was for, so lyric matches are shown for a phrase, or when nothing else
-        // matched at all.
-        let isPhrase = query.split(whereSeparator: \.isWhitespace).count >= 2
-        let showsLyrics = isPhrase || (found.isEmpty && !foundByCorrection)
+        var lyrics = lyricsForPhrase ?? []
+        if !isPhrase, query.count >= 3, found.isEmpty, !foundByCorrection {
+            lyrics = await sonic.lyricMatches(for: query) ?? []
+        }
         return Outcome(
             query: query,
             results: SearchRanking.arranged(merged, for: rankedFor),
             correction: foundByCorrection ? correction : nil,
             isCorrectionOnly: isCorrectionOnly,
-            lyrics: showsLyrics ? lyricResults ?? [] : []
+            lyrics: lyrics
         )
     }
 
