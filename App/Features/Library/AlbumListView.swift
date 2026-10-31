@@ -19,6 +19,9 @@ struct AlbumListView: View {
     @State private var isLoadingPage = false
     @State private var canLoadMore = true
     @State private var didApplyInitialSort = false
+    /// Which list a page belongs to. Bumped by every reload, so a page still on its way
+    /// for the old sort is dropped instead of landing in the new list.
+    @State private var generation = 0
 
     /// Fixed two columns: the app is portrait-only, so `.adaptive` buys nothing and
     /// costs a stable grid.
@@ -132,15 +135,28 @@ struct AlbumListView: View {
         let decade: Int?
     }
 
+    /// Always starts a fresh list, even with a page still loading for the old one.
+    ///
+    /// It used to be turned away by that page's `isLoadingPage`. Changing the sort while a
+    /// page loaded -- or opening a list whose first act is to set its initial sort, which
+    /// restarts the load at once -- left the new list waiting on the old request, which
+    /// was then cancelled: an empty list reading "Can't load albums", or the old sort's
+    /// albums under the new sort's name.
     private func reload() async {
+        generation += 1
         albums = []
         canLoadMore = true
+        error = nil
+        isLoadingPage = false
         await loadMore()
     }
 
     private func loadMore() async {
         guard !isLoadingPage, canLoadMore else { return }
         isLoadingPage = true
+        let started = generation
+        // Only the list that started this load may say it is over.
+        defer { if started == generation { isLoadingPage = false } }
 
         do {
             let offset = albums.count
@@ -183,16 +199,18 @@ struct AlbumListView: View {
                     genre: currentGenre
                 )
             }
+            guard started == generation else { return }
             albums.append(contentsOf: page)
             // A short page means the end. `random` never terminates meaningfully,
             // so stop after one page rather than looping forever.
             canLoadMore = page.count == pageSize && sort != .random
             error = nil
         } catch {
+            // A load given up on -- this view's task cancelled by a newer one -- is not
+            // a failure to show.
+            guard started == generation, !Task.isCancelled else { return }
             self.error = error.localizedDescription
             canLoadMore = false
         }
-
-        isLoadingPage = false
     }
 }

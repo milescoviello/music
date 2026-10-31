@@ -13,6 +13,9 @@ struct TracksView: View {
     @State private var songs: [Song] = []
     @State private var canLoadMore = true
     @State private var isLoading = false
+    /// Bumped by a reload, so a page still coming for the old folder is dropped. See
+    /// `AlbumListView.reload`.
+    @State private var generation = 0
 
     private let pageSize = 200
 
@@ -55,8 +58,10 @@ struct TracksView: View {
             }
         }
         .task(id: scope.generation) {
+            generation += 1
             songs = []
             canLoadMore = true
+            isLoading = false
             await loadMore()
         }
     }
@@ -64,7 +69,8 @@ struct TracksView: View {
     private func loadMore() async {
         guard !isLoading, canLoadMore else { return }
         isLoading = true
-        defer { isLoading = false }
+        let started = generation
+        defer { if started == generation { isLoading = false } }
 
         let page = (try? await appState.client.search(
             query: "",
@@ -75,6 +81,8 @@ struct TracksView: View {
             scope: scope.scope
         ))?.songs ?? []
 
+        // Cancelled by a newer load, which an empty answer must not end.
+        guard started == generation, !Task.isCancelled else { return }
         let known = Set(songs.map(\.id))
         songs += page.filter { !known.contains($0.id) }
         canLoadMore = page.count == pageSize
