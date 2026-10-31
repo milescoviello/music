@@ -381,8 +381,15 @@ final class PlaybackController {
     }
 
     /// Replaces the queue with one from another device, paused at its position.
+    /// Counts every time something new is put on to play: a list, a station, another
+    /// device's queue. Whatever takes a while to get its songs ready -- a station -- reads
+    /// it before and after, and stands down if it moved, rather than replacing what was
+    /// started in the meantime.
+    private(set) var playGeneration = 0
+
     func adopt(songs: [Song], currentID: String?, positionSeconds: Double, source: String) {
         guard !songs.isEmpty else { return }
+        playGeneration += 1
         let index = currentID.flatMap { id in songs.firstIndex { $0.id == id } } ?? 0
         if let remote {
             remote.send(.playSongs(songs, from: index, source: source, startAt: positionSeconds, paused: true))
@@ -435,6 +442,7 @@ final class PlaybackController {
         station: Station? = nil
     ) {
         guard !songs.isEmpty else { return }
+        playGeneration += 1
         if let remote {
             remote.send(.playSongs(songs, from: index, source: source, shuffled: shuffled, startAt: seconds, station: station))
             recordStart(of: songs, source: source, station: station)

@@ -23,10 +23,14 @@ final class StationService {
     func play(_ station: Station) {
         guard let appState, starting == nil else { return }
         starting = station
+        let generation = appState.player.playGeneration
         Task {
             defer { starting = nil }
             let songs = await batch(for: station, after: [])
-            guard !songs.isEmpty else { return }
+            // Something else was put on while the station gathered its first songs -- an
+            // album tapped during the wait. That was the later choice: it stays, rather
+            // than being replaced a few seconds into it.
+            guard !songs.isEmpty, appState.player.playGeneration == generation else { return }
             // Shuffle is never applied on top: each station's order is the point of it,
             // whether that is chronology or a whole album.
             appState.player.play(songs: songs, startingAt: 0, source: station.title, station: station)
@@ -38,8 +42,11 @@ final class StationService {
     /// similar songs: those near the start, then those near both, then those near the end.
     func playAdventure(from start: Song, to end: Song) async {
         guard let appState else { return }
+        // Stands down if something else is put on while the path is worked out, as `play`.
+        let generation = appState.player.playGeneration
         // The real thing, when the sonic analysis has both ends.
         if let path = await appState.sonic.path(from: start, to: end, steps: 12) {
+            guard appState.player.playGeneration == generation else { return }
             appState.player.play(
                 songs: [start] + path + [end],
                 startingAt: 0,
@@ -55,6 +62,7 @@ final class StationService {
         let from = GuestDJRules.filter((try? await outgoing) ?? [], queue: queue, generated: [])
         let to = GuestDJRules.filter((try? await incoming) ?? [], queue: queue, generated: [])
         let path = GuestDJRules.bridge(fromRelated: from, toRelated: to, count: 10)
+        guard appState.player.playGeneration == generation else { return }
         appState.player.play(
             songs: [start] + path + [end],
             startingAt: 0,
