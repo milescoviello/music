@@ -196,52 +196,57 @@ final class ListeningHistory {
         let seconds: Int
         /// Carried so a row can show art without another lookup.
         let subtitle: String?
-        var id: String { name }
+        /// What the plays were counted under: for an album or a song, its artist as well.
+        var key: String
+        var id: String { key }
     }
 
     func topArtists(in window: Window, limit: Int = 10) -> [Ranked] {
-        rank(plays(in: window), by: \.artist, limit: limit) { _ in nil }
+        rank(plays(in: window), name: \.artist, limit: limit)
     }
 
+    /// Counted by album *and* artist. By name alone, every album called "Singles" or
+    /// "Greatest Hits" -- this library has several of each -- was one entry with all their
+    /// plays, shown under whichever artist was played last.
     func topAlbums(in window: Window, limit: Int = 10) -> [Ranked] {
-        let scoped = plays(in: window)
-        var artistByAlbum: [String: String] = [:]
-        for play in scoped { artistByAlbum[play.album] = play.artist }
-        return rank(scoped, by: \.album, limit: limit) { artistByAlbum[$0] }
+        rank(plays(in: window), name: \.album, artist: \.artist, limit: limit)
     }
 
+    /// By title and artist, for the same reason: Radiohead's "Creep" is not TLC's.
     func topSongs(in window: Window, limit: Int = 10) -> [Ranked] {
-        let scoped = plays(in: window)
-        var artistBySong: [String: String] = [:]
-        for play in scoped { artistBySong[play.title] = play.artist }
-        return rank(scoped, by: \.title, limit: limit) { artistBySong[$0] }
+        rank(plays(in: window), name: \.title, artist: \.artist, limit: limit)
     }
 
     func topGenres(in window: Window, limit: Int = 6) -> [Ranked] {
         let scoped = plays(in: window).filter { ($0.genre?.isEmpty == false) }
-        return rank(scoped, by: { $0.genre ?? "" }, limit: limit) { _ in nil }
+        return rank(scoped, name: { $0.genre ?? "" }, limit: limit)
     }
 
     private func rank(
         _ source: [Play],
-        by key: (Play) -> String,
-        limit: Int,
-        subtitle: (String) -> String?
+        name: (Play) -> String,
+        artist: ((Play) -> String)? = nil,
+        limit: Int
     ) -> [Ranked] {
-        var counts: [String: (count: Int, seconds: Int)] = [:]
+        var counts: [String: (name: String, artist: String?, count: Int, seconds: Int)] = [:]
         for play in source {
-            let name = key(play)
-            guard !name.isEmpty else { continue }
-            var entry = counts[name] ?? (0, 0)
+            let title = name(play)
+            guard !title.isEmpty else { continue }
+            let by = artist?(play)
+            let key = by.map { "\(title)\u{1F}\($0)" } ?? title
+            var entry = counts[key] ?? (title, by, 0, 0)
             entry.count += 1
             entry.seconds += play.duration
-            counts[name] = entry
+            counts[key] = entry
         }
 
         return counts
-            .map { Ranked(name: $0.key, count: $0.value.count, seconds: $0.value.seconds, subtitle: subtitle($0.key)) }
-            // Ties broken by name so the list does not reshuffle between renders.
-            .sorted { ($0.count, $1.name) > ($1.count, $0.name) }
+            .map { Ranked(name: $0.value.name, count: $0.value.count, seconds: $0.value.seconds, subtitle: $0.value.artist, key: $0.key) }
+            // Ties broken by name, then artist, so the list does not reshuffle between
+            // renders -- two entries can share a name now.
+            .sorted { a, b in
+                a.count != b.count ? a.count > b.count : (a.name, a.subtitle ?? "") < (b.name, b.subtitle ?? "")
+            }
             .prefix(limit)
             .map { $0 }
     }
