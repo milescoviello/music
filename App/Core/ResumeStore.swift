@@ -69,6 +69,7 @@ final class ResumeStore {
             guard let self else { return }
             do {
                 try await client?.createBookmark(id: id, positionMilliseconds: milliseconds)
+                await outbox?.discard(id: id, kinds: [.bookmark])
             } catch {
                 // Same treatment as a play counted offline: owed to the server, sent
                 // when there is one. The outbox is an actor because a background download
@@ -84,6 +85,7 @@ final class ResumeStore {
             guard let self else { return }
             do {
                 try await client?.deleteBookmark(id: songID)
+                await outbox?.discard(id: songID, kinds: [.bookmark])
             } catch {
                 await outbox?.enqueueBookmark(id: songID, positionMilliseconds: nil)
             }

@@ -132,6 +132,20 @@ actor ServerOutbox {
         ))
     }
 
+    /// Drops what is still waiting for `id` of these kinds, because a newer change to the
+    /// same thing has just reached the server. Replayed later, the older one would undo
+    /// it: starred offline, unstarred once back online, and the next flush starred it
+    /// again.
+    func discard(id: String, kinds: Set<Kind>) {
+        for file in files() {
+            guard let data = try? Data(contentsOf: file),
+                  let pending = try? JSONDecoder().decode(Pending.self, from: data),
+                  pending.songID == id, kinds.contains(pending.kind)
+            else { continue }
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
     private func write(_ pending: Pending) {
         // The filename carries the timestamp so a plain name sort is chronological --
         // zero-padded, because otherwise the sort breaks the day the epoch gains a

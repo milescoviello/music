@@ -79,6 +79,8 @@ final class UserStateStore {
                 } else {
                     try await client.unstar(id: id, kind: kind)
                 }
+                // An older star or unstar still waiting offline would undo this one.
+                await self?.outbox?.discard(id: id, kinds: [.star, .unstar])
             } catch {
                 // Offline, or the server is down. Reverting would be wrong here: the
                 // user's intent is not in doubt, only the delivery. So the override
@@ -113,6 +115,7 @@ final class UserStateStore {
             guard let client = self?.client else { return }
             do {
                 try await client.setRating(id: id, rating: wanted)
+                await self?.outbox?.discard(id: id, kinds: [.rating])
             } catch {
                 await self?.outbox?.enqueueRating(id: id, rating: wanted)
             }
