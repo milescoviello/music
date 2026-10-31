@@ -96,8 +96,14 @@ enum GenrePage {
             loading = true
             let offset = songs.count
             Task { @MainActor in
-                let page = (try? await app.client.songsByGenre(genre, count: 100, offset: offset, scope: app.scope.scope)) ?? []
+                let fetched = try? await app.client.songsByGenre(genre, count: 100, offset: offset, scope: app.scope.scope)
                 guard alive.isAlive else { return }
+                // A failed page is not the end of the list: the next scroll asks again.
+                // Read as an empty page, one network blip ended the list for good.
+                guard let page = fetched else {
+                    loading = false
+                    return
+                }
                 songs += page
                 more = page.count == 100
                 loading = false
@@ -225,8 +231,14 @@ enum TracksPage {
             loading = true
             let offset = songs.count
             Task { @MainActor in
-                let page = (try? await app.client.search(query: "", artistCount: 0, albumCount: 0, songCount: 200, songOffset: offset, scope: app.scope.scope))?.songs ?? []
+                let fetched = try? await app.client.search(query: "", artistCount: 0, albumCount: 0, songCount: 200, songOffset: offset, scope: app.scope.scope)
                 guard alive.isAlive else { return }
+                // A failed page is not the end of the list: the next scroll asks again.
+                guard let page = fetched?.songs else {
+                    loading = false
+                    if songs.isEmpty { stack.visibleName = "empty" }
+                    return
+                }
                 let known = Set(songs.map(\.id))
                 songs += page.filter { !known.contains($0.id) }
                 more = page.count == 200

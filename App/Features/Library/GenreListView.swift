@@ -178,15 +178,16 @@ private struct GenreSongsView: View {
         let started = generation
         defer { if started == generation { isLoadingPage = false } }
 
-        let page = (try? await appState.client.songsByGenre(
+        let fetched = try? await appState.client.songsByGenre(
             genre,
             count: pageSize,
             offset: songs.count,
             scope: scope.scope
-        )) ?? []
+        )
 
-        // Cancelled by a newer load, which an empty answer must not end.
-        guard started == generation, !Task.isCancelled else { return }
+        // Cancelled by a newer load, or failed: neither is the end of the list, which
+        // the next appearance of the sentinel asks for again.
+        guard started == generation, !Task.isCancelled, let page = fetched else { return }
         songs.append(contentsOf: page)
         canLoadMore = page.count == pageSize
     }

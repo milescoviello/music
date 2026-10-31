@@ -72,17 +72,18 @@ struct TracksView: View {
         let started = generation
         defer { if started == generation { isLoading = false } }
 
-        let page = (try? await appState.client.search(
+        let fetched = (try? await appState.client.search(
             query: "",
             artistCount: 0,
             albumCount: 0,
             songCount: pageSize,
             songOffset: songs.count,
             scope: scope.scope
-        ))?.songs ?? []
+        ))?.songs
 
-        // Cancelled by a newer load, which an empty answer must not end.
-        guard started == generation, !Task.isCancelled else { return }
+        // Cancelled by a newer load, or failed: neither is the end of the list, which
+        // the next appearance of the sentinel asks for again.
+        guard started == generation, !Task.isCancelled, let page = fetched else { return }
         let known = Set(songs.map(\.id))
         songs += page.filter { !known.contains($0.id) }
         canLoadMore = page.count == pageSize
