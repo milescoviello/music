@@ -118,7 +118,8 @@ struct LyricsView: View {
                     .contentShape(Rectangle())
                     .onTapGesture {
                         guard isSynced, let start = line.start else { return }
-                        player.seek(to: Double(start + (lyrics?.offset ?? 0)) / 1000)
+                        // Sung `offset` ms sooner than its stamp: see `LyricClock`.
+                        player.seek(to: Double(max(0, start - (lyrics?.offset ?? 0))) / 1000)
                     }
                 }
 
@@ -296,7 +297,10 @@ private struct LyricClock: View {
     private var currentLineIndex: Int? {
         guard isSynced, !lines.isEmpty else { return nil }
 
-        let now = Int(appState.player.elapsed * 1000) - offset
+        // A positive offset means the lines come *sooner* -- OpenSubsonic's rule, and the
+        // LRC `[offset:]` tag's it comes from -- so the clock runs ahead by it. This
+        // subtracted it, which made a positive offset come later.
+        let now = Int(appState.player.elapsed * 1000) + offset
         var low = 0
         var high = lines.count - 1
         var result: Int?

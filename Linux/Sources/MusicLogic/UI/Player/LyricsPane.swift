@@ -98,7 +98,7 @@ final class LyricsPane {
             }.margin(horizontal: 0, vertical: 8)
             if lyrics.synced, let start = line.start {
                 let offset = lyrics.offset ?? 0
-                box.onClick { [env] in env.player.seek(to: Double(start + offset) / 1000) }
+                box.onClick { [env] in env.player.seek(to: Double(max(0, start - offset)) / 1000) }
                 gtk_widget_set_cursor_from_name(box.widget, "pointer")
             }
             _ = index
@@ -143,7 +143,9 @@ final class LyricsPane {
     /// Binary search for the line being sung, then highlight and scroll only when it moved.
     private func follow() {
         guard let lyrics, lyrics.synced, !labels.isEmpty else { return }
-        let now = Int(env.player.elapsed * 1000) - (lyrics.offset ?? 0)
+        // A positive offset brings the lines *sooner* (OpenSubsonic, from LRC's
+        // `[offset:]`), so the clock runs ahead by it; subtracting made it come later.
+        let now = Int(env.player.elapsed * 1000) + (lyrics.offset ?? 0)
         let starts = lyrics.lines.map { $0.start ?? 0 }
         var low = 0
         var high = starts.count - 1
