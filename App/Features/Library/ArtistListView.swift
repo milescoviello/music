@@ -14,10 +14,9 @@ struct ArtistListView: View {
             list
                 .overlay(alignment: .trailing) {
                     if flatArtists.count > 40 {
-                        AlphabetRail(available: availableLetters) { letter in
-                            guard let target = flatArtists.first(where: {
-                                AlphabetRail.bucket(for: $0.name) == letter
-                            }) else { return }
+                        let sections = firstArtistByLetter
+                        AlphabetRail(available: Set(sections.keys)) { letter in
+                            guard let target = sections[letter] else { return }
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 proxy.scrollTo(target.id, anchor: .top)
                             }
@@ -32,8 +31,28 @@ struct ArtistListView: View {
         indexes.flatMap(\.artists)
     }
 
-    private var availableLetters: Set<String> {
-        Set(flatArtists.map { AlphabetRail.bucket(for: $0.name) })
+    /// The rail's letters from the server's own sections, each to the section's first
+    /// artist. Worked out here from each name instead, they disagreed with the sections
+    /// they jumped into: Navidrome files by its ignored articles -- The, El, La, Los, Las,
+    /// Le, Les, Os, As, O and A -- where the rail knew only The, A and An, so "La Roux"
+    /// sat under R while the rail called it L. Its "X-Z" section answers all three.
+    private var firstArtistByLetter: [String: Artist] {
+        var map: [String: Artist] = [:]
+        for index in indexes {
+            guard let first = index.artists.first else { continue }
+            for letter in Self.letters(inSection: index.name) where map[letter] == nil {
+                map[letter] = first
+            }
+        }
+        return map
+    }
+
+    private static func letters(inSection name: String) -> [String] {
+        let ends = name.uppercased().split(separator: "-").compactMap(\.unicodeScalars.first)
+        if ends.count == 2, ends[0].value < ends[1].value {
+            return (ends[0].value...ends[1].value).compactMap { Unicode.Scalar($0).map(String.init) }
+        }
+        return [name.uppercased()]
     }
 
     private var list: some View {
