@@ -183,6 +183,20 @@ struct PlaybackQueue: Codable, Sendable {
         return false
     }
 
+    /// Where the player has got to when it moved on to `songID` by itself: the first
+    /// time the song comes up *after* the current track, wrapping round for repeat-all.
+    ///
+    /// Not simply its first place in the queue. A song in the queue twice -- a playlist
+    /// that repeats one, or one added again with Play Next -- sent the position back to
+    /// the earlier copy, and everything between the two played again.
+    func orderIndex(following songID: String) -> Int? {
+        let matches = { (index: Int) -> Bool in
+            self.tracks.indices.contains(self.order[index]) && self.tracks[self.order[index]].id == songID
+        }
+        let after = order.indices.contains(position) ? position + 1 : 0
+        return (after..<order.count).first(where: matches) ?? (0..<min(after, order.count)).first(where: matches)
+    }
+
     mutating func jump(toOrderIndex index: Int) {
         guard order.indices.contains(index) else { return }
         position = index

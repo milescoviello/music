@@ -128,6 +128,35 @@ struct PlaybackQueueTests {
     /// order but not from `tracks`, and `unshuffle` rebuilds the order from
     /// `tracks.indices` -- so everything removed came back the moment shuffle was
     /// turned off.
+    /// The queue's Earlier list can remove a track that already played; what is playing,
+    /// and what comes next, must not change.
+    @Test func removingAnEarlierTrackKeepsTheCurrentOne() {
+        var queue = PlaybackQueue.make(
+            tracks: songs(5), startingAt: 3, shuffled: false, source: "Album"
+        )
+        queue.remove(atOrderIndex: 1)
+        #expect(queue.current?.id == "s4")
+        #expect(queue.earlier.map(\.id) == ["s1", "s3"])
+        #expect(ids(queue) == ["s5"])
+    }
+
+    /// The player moving on by itself is followed to the *next* copy of a song that is in
+    /// the queue twice, not back to the first one -- which replayed everything between.
+    @Test func followingASongInTheQueueTwiceGoesForward() {
+        let tracks = [
+            Song(id: "a", title: "A"), Song(id: "b", title: "B"),
+            Song(id: "c", title: "C"), Song(id: "b", title: "B"),
+        ]
+        var queue = PlaybackQueue.make(tracks: tracks, startingAt: 2, shuffled: false, source: "Playlist")
+        #expect(queue.orderIndex(following: "b") == 3)
+
+        // Repeat-all wrapping round from the last track to the first.
+        queue.jump(toOrderIndex: 3)
+        #expect(queue.orderIndex(following: "a") == 0)
+        // Not in the queue at all.
+        #expect(queue.orderIndex(following: "zzz") == nil)
+    }
+
     @Test func removedTracksDoNotComeBackWhenShuffleIsTurnedOff() {
         var queue = PlaybackQueue.make(
             tracks: songs(6), startingAt: 0, shuffled: true, source: "Album"

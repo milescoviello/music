@@ -1012,9 +1012,7 @@ final class PlaybackController {
     /// The output moved on by itself, so follow it in the logical queue.
     private func handleAdvanced(to songID: String?) {
         guard remote == nil else { return }
-        guard let songID,
-              let orderIndex = queue.order.firstIndex(where: { queue.tracks[$0].id == songID })
-        else {
+        guard let songID, let orderIndex = queue.orderIndex(following: songID) else {
             // Ran off the end of the window -- the end of the queue, a track that could
             // not be loaded, or repeat-one reaching the end of its only track. The queue
             // decides, and the output is rebuilt from it.
