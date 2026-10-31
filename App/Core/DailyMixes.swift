@@ -273,14 +273,14 @@ final class DailyMixes {
         else { return }
 
         extendTask = Task { [weak self] in
-            await self?.runExtension(at: position, appState: appState, scope: scope)
+            await self?.runExtension(of: mixID, appState: appState, scope: scope)
             self?.extendTask = nil
         }
     }
 
-    private func runExtension(at position: Int, appState: AppState, scope: LibraryScope) async {
-        guard mixes.indices.contains(position) else { return }
-        let mix = mixes[position]
+    private func runExtension(of mixID: String, appState: AppState, scope: LibraryScope) async {
+        guard let start = mixes.firstIndex(where: { $0.id == mixID }) else { return }
+        let mix = mixes[start]
         let before = mix.songs.count
         isExtending = true
         defer { isExtending = false }
@@ -317,6 +317,11 @@ final class DailyMixes {
             )
         }
 
+        // Found again by id after the waits above, not kept as a place: the shelf may have
+        // been rebuilt meanwhile -- a new day, another folder -- and that place then held
+        // another mix, which got these tracks, or nothing at all, and writing there crashed.
+        guard let position = mixes.firstIndex(where: { $0.id == mixID }) else { return }
+
         guard !addition.isEmpty else {
             mixes[position].isExhausted = true
             await Diagnostics.shared.record("mixes", "“\(mix.title)” had nothing more to add")
@@ -325,9 +330,10 @@ final class DailyMixes {
 
         record(addition)
         mixes[position].songs += addition
-        onExtended?(mixes[position], addition)
+        let grown = mixes[position]
+        onExtended?(grown, addition)
         await Diagnostics.shared.record(
-            "mixes", "“\(mix.title)” grew from \(before) to \(mixes[position].songs.count)"
+            "mixes", "“\(mix.title)” grew from \(before) to \(grown.songs.count)"
         )
         await persist(appState: appState, scope: scope)
     }
