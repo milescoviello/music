@@ -273,10 +273,21 @@ struct PlaybackQueue: Codable, Sendable {
         position = min(position, max(order.count - 1, 0))
     }
 
+    /// `destination` counts as SwiftUI's `onMove` does: the slot *before* the row is
+    /// lifted out, so moving a row down one is `source + 2` and to the end is
+    /// `order.count`. Both callers pass it that way -- the iPhone's drag and the Linux
+    /// queue's Move Down -- and reading it as a slot *after* the lift put every row
+    /// dragged down one place lower than where it was dropped.
+    ///
+    /// Whatever is playing stays playing: `position` follows its track if the move
+    /// passes it, instead of pointing at whichever track lands in its slot.
     mutating func move(fromOrderIndex source: Int, toOrderIndex destination: Int) {
         guard order.indices.contains(source) else { return }
+        let playing = order.indices.contains(position) ? order[position] : nil
         let value = order.remove(at: source)
-        order.insert(value, at: min(destination, order.count))
+        let insertAt = destination > source ? destination - 1 : destination
+        order.insert(value, at: max(0, min(insertAt, order.count)))
+        if let playing, let index = order.firstIndex(of: playing) { position = index }
     }
 }
 

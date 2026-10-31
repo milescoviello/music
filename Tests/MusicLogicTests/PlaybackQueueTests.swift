@@ -159,6 +159,52 @@ struct PlaybackQueueTests {
         #expect(queue.current != nil)
     }
 
+    /// The bug this was written for: `move` read its destination as a slot after the row
+    /// was lifted out, while the iPhone's drag (SwiftUI `onMove`) and the Linux queue's
+    /// Move Down both pass the slot before -- so a row moved down one went down two.
+    @Test func movingARowDownOneLandsOneLower() {
+        var queue = PlaybackQueue.make(
+            tracks: songs(5), startingAt: 0, shuffled: false, source: "Album"
+        )
+        // Up next is s2 s3 s4 s5; s2 is order index 1. Down one, as onMove gives it.
+        queue.move(fromOrderIndex: 1, toOrderIndex: 3)
+        #expect(ids(queue) == ["s3", "s2", "s4", "s5"])
+        #expect(queue.current?.id == "s1")
+    }
+
+    @Test func movingARowUpAndToTheEnds() {
+        var queue = PlaybackQueue.make(
+            tracks: songs(5), startingAt: 0, shuffled: false, source: "Album"
+        )
+        queue.move(fromOrderIndex: 4, toOrderIndex: 1)
+        #expect(ids(queue) == ["s5", "s2", "s3", "s4"])
+
+        // To the very end: `order.count`, as onMove gives a drop past the last row.
+        queue.move(fromOrderIndex: 1, toOrderIndex: queue.order.count)
+        #expect(ids(queue) == ["s2", "s3", "s4", "s5"])
+
+        // Dropped where it already is, either side of itself: nothing moves.
+        queue.move(fromOrderIndex: 2, toOrderIndex: 2)
+        queue.move(fromOrderIndex: 2, toOrderIndex: 3)
+        #expect(ids(queue) == ["s2", "s3", "s4", "s5"])
+    }
+
+    /// A move past the track playing must not change what is playing.
+    @Test func movingPastTheCurrentTrackKeepsItCurrent() {
+        var queue = PlaybackQueue.make(
+            tracks: songs(5), startingAt: 2, shuffled: false, source: "Album"
+        )
+        // s5 moved to the top, ahead of s3, which is playing.
+        queue.move(fromOrderIndex: 4, toOrderIndex: 0)
+        #expect(queue.current?.id == "s3")
+        #expect(ids(queue) == ["s4"])
+
+        // And the playing track itself, moved to the end, is still the one playing.
+        queue.move(fromOrderIndex: queue.position, toOrderIndex: queue.order.count)
+        #expect(queue.current?.id == "s3")
+        #expect(queue.position == queue.order.count - 1)
+    }
+
     @Test func emptyQueueIsSafeToOperateOn() {
         var queue = PlaybackQueue()
         #expect(queue.current == nil)

@@ -310,7 +310,8 @@ final class RemoteControlServer {
             player.removeFromQueue(orderIndex: index)
         case .move:
             guard let index = valid(command.index), let destination = command.to, destination >= 0 else { return false }
-            player.moveInQueue(from: index, to: min(destination, count - 1))
+            // `count` is the end: the destination is counted before the row is lifted out.
+            player.moveInQueue(from: index, to: min(destination, count))
         case .clearQueue:
             player.clearQueue()
         case .shuffle:
