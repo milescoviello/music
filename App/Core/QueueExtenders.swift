@@ -260,6 +260,9 @@ final class AutoplayService {
         isAdding = true
         let task = Task { [weak self] () -> Bool in
             guard let self, let appState = self.appState else { return false }
+            // The queue this is for. One put on while the options were worked out or the
+            // songs fetched -- an album tapped meanwhile -- gets nothing added to its end.
+            let generation = appState.player.playGeneration
             if self.options.isEmpty {
                 self.computeTask?.cancel()
                 await self.compute()
@@ -275,6 +278,10 @@ final class AutoplayService {
                     subtitle: "Anything from your library", plan: .library
                 )
                 let songs = await self.songs(for: option)
+                guard appState.player.playGeneration == generation, appState.player.remote == nil else {
+                    await Diagnostics.shared.record("autoplay", "another queue was started meanwhile: adding nothing")
+                    return false
+                }
                 let queued = Set(appState.player.queue.tracks.map(\.id))
                 let fresh = songs.filter { !queued.contains($0.id) }.prefix(option.choice.trackCount)
                 guard !fresh.isEmpty else {

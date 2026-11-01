@@ -1044,8 +1044,16 @@ final class PlaybackController {
                 // slow server. Wait for them rather than stopping. Not only with an option
                 // already selected: `extend` works the options out when they are not
                 // ready, and stops by itself if Silence was chosen.
+                //
+                // Unless something else is put on while it waits -- an album tapped in
+                // the silence, which can be a minute with the server out of reach. That
+                // was the later choice: moving on would skip its first track, and giving
+                // up would pause it.
+                let generation = playGeneration
                 Task {
-                    if await autoplay.extend(), queue.advance() {
+                    let added = await autoplay.extend()
+                    guard playGeneration == generation, remote == nil else { return }
+                    if added, queue.advance() {
                         let stops = appState?.sleepTimer.trackDidFinish(next: queue.current) == true
                         rebuildOutput(startPlaying: !stops, seekTo: 0)
                     } else {
