@@ -133,7 +133,7 @@ final class QueuePane {
         }
         let env = env
         let menu = MenuButton(icon: "view-more-symbolic", "flat", "circular", "queue-more") {
-            var sections = Menus.song(env, song, showsNavigation: false).sections
+            var sections = Menus.song(env, song, showsNavigation: false, showsQueueItems: false).sections
             if !actions.isEmpty { sections.insert(actions, at: 0) }
             sections.append(Menus.navigationItems(env, song, jumps: true))
             return Menu(sections)
@@ -153,7 +153,7 @@ final class QueuePane {
         line.append(menu)
         line.css("queue-row")
         line.contextMenu { [env] in
-            var sections = Menus.song(env, song, showsNavigation: false).sections
+            var sections = Menus.song(env, song, showsNavigation: false, showsQueueItems: false).sections
             if !actions.isEmpty { sections.insert(actions, at: 0) }
             sections.append(Menus.navigationItems(env, song, jumps: true))
             return Menu(sections)
@@ -173,6 +173,8 @@ final class QueuePane {
             let song = queue.tracks[queue.order[orderIndex]]
             let actions: [Menu.Item] = [
                 .action("Play Now") { player.jump(toOrderIndex: orderIndex) },
+                // Moved, not copied: the song goes from here to straight after this one.
+                .action("Play Next") { player.moveInQueue(from: orderIndex, to: queue.position + 1) },
                 .action("Remove from Queue", destructive: true) { player.removeFromQueue(orderIndex: orderIndex) },
             ]
             backList.append(row(song, actions: actions, marked: false)) { player.jump(toOrderIndex: orderIndex) }

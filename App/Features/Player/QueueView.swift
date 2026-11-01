@@ -10,6 +10,10 @@ struct QueueView: View {
     @State private var tab: Tab = .upNext
     @State private var isSavingAsPlaylist = false
     @State private var isConfirmingClear = false
+    /// Drag handles showing. Off by default, because a list in edit mode cannot swipe --
+    /// iOS turns swipe actions off while one is editing -- and swiping a song away is
+    /// what the queue is for most. Edit shows the handles; Done puts the swipes back.
+    @State private var isReordering = false
 
     private enum Tab: String, CaseIterable {
         case earlier = "Earlier"
@@ -62,6 +66,14 @@ struct QueueView: View {
 
             Spacer(minLength: 0)
 
+            if tab == .upNext, player.queue.upNextCount > 1 {
+                Button(isReordering ? "Done" : "Edit") {
+                    withAnimation { isReordering.toggle() }
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.9))
+            }
+
             Menu {
                 // A queue built by hand is the one thing in the app that exists
                 // nowhere else, so it gets a way out to something permanent.
@@ -95,11 +107,27 @@ struct QueueView: View {
                     .moveDisabled(true)
             }
 
-            // Removing is in the row's long-press menu, not a swipe: this list is always
-            // in edit mode, for the drag handles, and iOS turns swipe actions off while a
-            // list is editing.
+            // Swipe left to remove, right to play next. Neither works while the drag
+            // handles show (Edit), so the long-press menu has both too.
             ForEach(upNextWithIndices, id: \.orderIndex) { entry in
                 row(entry)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            remove(entry)
+                        } label: {
+                            Label("Remove", systemImage: "minus.circle")
+                        }
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        if entry.orderIndex > player.queue.position + 1 {
+                            Button {
+                                playNext(entry)
+                            } label: {
+                                Label("Play Next", systemImage: "text.insert")
+                            }
+                            .tint(.appTint)
+                        }
+                    }
             }
             // Reordering is local, so it is free here -- unlike a server playlist,
             // where the API has no move operation at all.
@@ -122,9 +150,11 @@ struct QueueView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        // Always active: a queue is exactly the place where dragging to reorder is
-        // expected without first tapping an Edit button.
-        .environment(\.editMode, .constant(.active))
+        .environment(\.editMode, .constant(isReordering ? .active : .inactive))
+        // Nothing left to reorder: the handles go with it.
+        .onChange(of: player.queue.upNextCount) { _, count in
+            if count < 2 { isReordering = false }
+        }
         .overlay {
             if !player.queue.hasUpNext, !(autoplay.isActive && !autoplay.options.isEmpty) {
                 placeholder("Nothing queued")
@@ -138,6 +168,21 @@ struct QueueView: View {
                 ForEach(earlierWithIndices, id: \.orderIndex) { entry in
                     row(entry)
                         .id(entry.orderIndex)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                remove(entry)
+                            } label: {
+                                Label("Remove", systemImage: "minus.circle")
+                            }
+                        }
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            Button {
+                                playNext(entry)
+                            } label: {
+                                Label("Play Next", systemImage: "text.insert")
+                            }
+                            .tint(.appTint)
+                        }
                 }
             }
             .listStyle(.plain)
@@ -175,26 +220,54 @@ struct QueueView: View {
         .buttonStyle(.plain)
         .listRowBackground(Color.clear)
         .contextMenu {
+            // The queue's own: these move the song that is already here. The generic
+            // Play Next / Add to Queue would add a second copy of it.
+            Button("Play Now", systemImage: "play.fill") {
+                player.jump(toOrderIndex: entry.orderIndex)
+            }
+            if entry.orderIndex != player.queue.position + 1 {
+                Button("Play Next", systemImage: "text.insert") { playNext(entry) }
+            }
+            if entry.orderIndex < player.queue.order.count - 1 {
+                Button("Move to End", systemImage: "text.append") { moveToEnd(entry) }
+            }
             Button("Remove from Queue", systemImage: "minus.circle", role: .destructive) {
                 remove(entry)
             }
             Divider()
-            SongMenu(song: entry.song, showsNavigation: false)
+            SongMenu(song: entry.song, showsNavigation: false, showsQueueItems: false)
             Divider()
             SongJumpItems(song: entry.song)
         }
+    }
+
+    /// Straight after the track playing -- moved there, from Up Next or from Earlier.
+    private func playNext(_ entry: (orderIndex: Int, song: Song)) {
+        guard let index = stillHolds(entry) else { return }
+        player.moveInQueue(from: index, to: player.queue.position + 1)
+    }
+
+    private func moveToEnd(_ entry: (orderIndex: Int, song: Song)) {
+        guard let index = stillHolds(entry) else { return }
+        player.moveInQueue(from: index, to: player.queue.order.count)
     }
 
     /// The menu was built for one row. If the queue shifted while it was open -- a DJ
     /// pick or a station top-up landing ahead of it -- that index is now some other
     /// song, so it is only acted on while it still holds this one.
     private func remove(_ entry: (orderIndex: Int, song: Song)) {
+        guard let index = stillHolds(entry) else { return }
+        player.removeFromQueue(orderIndex: index)
+    }
+
+    /// The row's place, if the queue still has this song there.
+    private func stillHolds(_ entry: (orderIndex: Int, song: Song)) -> Int? {
         let queue = player.queue
         guard queue.order.indices.contains(entry.orderIndex),
               queue.tracks.indices.contains(queue.order[entry.orderIndex]),
               queue.tracks[queue.order[entry.orderIndex]].id == entry.song.id
-        else { return }
-        player.removeFromQueue(orderIndex: entry.orderIndex)
+        else { return nil }
+        return entry.orderIndex
     }
 
     private func placeholder(_ text: String) -> some View {

@@ -45,7 +45,9 @@ enum Menus {
     }
 
     /// The long-press menu for one song.
-    static func song(_ env: Env, _ song: Song, showsNavigation: Bool = true, showsRating: Bool = true) -> Menu {
+    /// `showsQueueItems` false in the queue, which has its own: there Play Next moves the
+    /// song, and these would add a second copy of a song already queued.
+    static func song(_ env: Env, _ song: Song, showsNavigation: Bool = true, showsRating: Bool = true, showsQueueItems: Bool = true) -> Menu {
         let app = env.app
         let user = app.userState
         let downloads = app.downloads
@@ -54,7 +56,7 @@ enum Menus {
         if let count = song.playCount, count > 0 {
             sections.append([.action("\(count) \(count == 1 ? "play" : "plays")", enabled: false) {}])
         }
-        sections.append(queueItems(env, [song]))
+        if showsQueueItems { sections.append(queueItems(env, [song])) }
 
         var more: [Menu.Item] = [
             .action("Start Radio") { startRadio(app, from: song) },

@@ -17,6 +17,9 @@ struct SongMenu: View {
     /// Set false where a rating control is already on screen — the player. Two ways to
     /// set the same 0–5 value, a foot apart, reads as a bug rather than a convenience.
     var showsRating = true
+    /// Set false in the queue, which has its own: there Play Next means *move* this song,
+    /// and these would add a second copy of a song already queued.
+    var showsQueueItems = true
 
     private func startRadio() {
         Task {
@@ -37,9 +40,11 @@ struct SongMenu: View {
             }
         }
 
-        QueueInsertItems(songs: [song])
+        if showsQueueItems {
+            QueueInsertItems(songs: [song])
 
-        Divider()
+            Divider()
+        }
 
         Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
             startRadio()
