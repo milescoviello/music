@@ -834,9 +834,12 @@ final class PlaybackController {
                 )
             } catch {
                 // Offline, or the server is down. The play is owed either way, so it
-                // goes to disk with the time it actually happened.
+                // goes to disk with the time it actually happened -- marked if it was sent
+                // and only the answer is missing, so it isn't counted twice.
                 await appState.outbox.enqueue(
-                    songID: event.songID, listenedAt: event.listenedAt
+                    songID: event.songID,
+                    listenedAt: event.listenedAt,
+                    unconfirmed: (error as? SubsonicClient.ClientError)?.isUnanswered == true
                 )
             }
         }

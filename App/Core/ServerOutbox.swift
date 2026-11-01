@@ -42,6 +42,9 @@ actor ServerOutbox {
         /// everything else here is — files written before bookmarks existed have no such
         /// key, and `flush` deletes what it cannot decode.
         var positionMs: Int?
+        /// `scrobble` only: an earlier send got no answer -- a timeout, a dropped
+        /// connection -- so the server may already have counted it. Optional like the rest.
+        var unconfirmed: Bool?
         /// Same reasoning as `kind_`, though this one has been present since the start.
         private var attempts_: Int?
 
@@ -59,6 +62,7 @@ actor ServerOutbox {
             case target
             case rating
             case positionMs
+            case unconfirmed
             case attempts_ = "attempts"
         }
 
@@ -68,7 +72,8 @@ actor ServerOutbox {
             listenedAt: Date,
             target: String? = nil,
             rating: Int? = nil,
-            positionMs: Int? = nil
+            positionMs: Int? = nil,
+            unconfirmed: Bool? = nil
         ) {
             kind_ = kind
             self.songID = songID
@@ -76,6 +81,7 @@ actor ServerOutbox {
             self.target = target
             self.rating = rating
             self.positionMs = positionMs
+            self.unconfirmed = unconfirmed
             attempts_ = 0
         }
     }
@@ -107,8 +113,12 @@ actor ServerOutbox {
         return result
     }
 
-    func enqueue(songID: String, listenedAt: Date) {
-        write(Pending(kind: .scrobble, songID: songID, listenedAt: listenedAt))
+    /// `unconfirmed`: the play was sent and no answer came back, so it may be on the
+    /// server already.
+    func enqueue(songID: String, listenedAt: Date, unconfirmed: Bool = false) {
+        write(Pending(
+            kind: .scrobble, songID: songID, listenedAt: listenedAt, unconfirmed: unconfirmed ? true : nil
+        ))
     }
 
     func enqueueStar(id: String, target: String, starred: Bool) {
@@ -186,11 +196,19 @@ actor ServerOutbox {
             }
 
             do {
-                try await submit(pending, using: client)
+                if pending.unconfirmed == true, try await isOnServer(pending, using: client) {
+                    // The first send arrived and only its answer was lost. Sent again, the
+                    // server would count the play twice: it can't tell a repeat.
+                } else {
+                    try await submit(pending, using: client)
+                }
                 try? FileManager.default.removeItem(at: file)
                 sent += 1
             } catch {
                 pending.attempts += 1
+                if pending.kind == .scrobble, (error as? SubsonicClient.ClientError)?.isUnanswered == true {
+                    pending.unconfirmed = true
+                }
                 if pending.attempts >= maximumAttempts {
                     try? FileManager.default.removeItem(at: file)
                 } else if let updated = try? JSONEncoder().encode(pending) {
@@ -205,6 +223,17 @@ actor ServerOutbox {
         }
 
         return sent
+    }
+
+    /// Whether the server already has this play. A scrobble sets the song's last-played
+    /// time to the time it carries, so a match means it arrived. A later play of the same
+    /// song since leaves it unknown, and it is sent: a rare double count rather than a
+    /// lost play.
+    private func isOnServer(_ pending: Pending, using client: SubsonicClient) async throws -> Bool {
+        guard pending.kind == .scrobble,
+              let played = try await client.song(id: pending.songID).lastPlayedAt
+        else { return false }
+        return abs(played.timeIntervalSince(pending.listenedAt)) < 2
     }
 
     private func submit(_ pending: Pending, using client: SubsonicClient) async throws {

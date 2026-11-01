@@ -121,20 +121,38 @@ actor SubsonicClient {
         /// captive portal's page), so the outbox can tell one bad item from no server.
         case rejected(String)
         case transport(String)
+        /// Sent, but no answer came back: a timeout, or the connection dropped. Unlike
+        /// `transport`, the server may have acted on it, so a play sent again could count
+        /// twice.
+        case unanswered(String)
 
         var errorDescription: String? {
             switch self {
             case .notConfigured: return "No server configured."
             case let .server(message), let .rejected(message): return message
-            case let .transport(message): return message
+            case let .transport(message), let .unanswered(message): return message
             }
         }
 
         /// Transport failures mean "the server was unreachable", which is what
         /// offline detection keys on. A server *error* means we reached it fine.
         var isTransport: Bool {
-            if case .transport = self { return true }
+            switch self {
+            case .transport, .unanswered: return true
+            default: return false
+            }
+        }
+
+        var isUnanswered: Bool {
+            if case .unanswered = self { return true }
             return false
+        }
+
+        /// What a failed request is reported as.
+        static func network(_ error: any Error) -> ClientError {
+            let code = (error as NSError).code
+            let unanswered = code == NSURLErrorTimedOut || code == NSURLErrorNetworkConnectionLost
+            return unanswered ? .unanswered(error.localizedDescription) : .transport(error.localizedDescription)
         }
     }
 
@@ -204,7 +222,7 @@ actor SubsonicClient {
             if !Self.isCancellation(error) {
                 await Diagnostics.shared.record(endpoint, error.localizedDescription)
             }
-            throw ClientError.transport(error.localizedDescription)
+            throw ClientError.network(error)
         }
     }
 
@@ -263,7 +281,7 @@ actor SubsonicClient {
             if !Self.isCancellation(error) {
                 await Diagnostics.shared.record(endpoint, error.localizedDescription)
             }
-            throw ClientError.transport(error.localizedDescription)
+            throw ClientError.network(error)
         }
     }
 
