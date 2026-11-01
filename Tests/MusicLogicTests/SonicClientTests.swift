@@ -62,6 +62,12 @@ struct SonicClientTests {
         #expect(TrackShape.fromLevels([-20], hop: 0.1) == nil)
     }
 
+    @Test func aPlusInAQueryStaysAPlus() {
+        // A bare "+" in a query is a space to the service, as it is to Navidrome.
+        let url = client.url("v1/lyrics/search", ["q": "dan + shay", "limit": "5"])
+        #expect(url?.absoluteString == "http://192.168.1.148:8650/v1/lyrics/search?limit=5&q=dan%20%2B%20shay")
+    }
+
     @Test func tagsWithSpacesStillMakeAPath() {
         let url = client.url("v1/tags/female vocalists/tracks", ["limit": "5"])
         #expect(url?.absoluteString == "http://192.168.1.148:8650/v1/tags/female%20vocalists/tracks?limit=5")

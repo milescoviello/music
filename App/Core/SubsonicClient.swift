@@ -85,7 +85,18 @@ enum SubsonicAuth {
         items.append(contentsOf: repeated)
 
         components?.queryItems = items
+        if let query = components?.percentEncodedQuery {
+            components?.percentEncodedQuery = encodingPlus(query)
+        }
         return components?.url
+    }
+
+    /// `URLComponents` leaves a "+" in a name or value as it is, and the server reads a
+    /// "+" in a query as a space: "Florence + the Machine" reached it as "Florence   the
+    /// Machine", and a playlist named "A+B" was saved as "A B". Spaces are already "%20",
+    /// so every "+" left is a real one.
+    static func encodingPlus(_ query: String) -> String {
+        query.replacingOccurrences(of: "+", with: "%2B")
     }
 }
 
@@ -235,7 +246,7 @@ actor SubsonicClient {
 
         var components = URLComponents()
         components.queryItems = items
-        guard let body = components.percentEncodedQuery,
+        guard let body = components.percentEncodedQuery.map(SubsonicAuth.encodingPlus),
               let url = URL(string: credentials.baseURL.absoluteString)?
                   .appendingPathComponent("rest/\(endpoint)")
         else { throw ClientError.notConfigured }

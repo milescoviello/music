@@ -171,6 +171,11 @@ struct SonicClient: Sendable {
         ) else { return nil }
         if !query.isEmpty {
             components.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+            // `URLComponents` leaves a "+" as it is, and the service reads one in a query as
+            // a space, so a lyric search for "1+1" looked for "1 1".
+            if let encoded = components.percentEncodedQuery {
+                components.percentEncodedQuery = encoded.replacingOccurrences(of: "+", with: "%2B")
+            }
         }
         return components.url
     }
