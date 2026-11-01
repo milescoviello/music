@@ -249,7 +249,7 @@ struct QueueView: View {
 
     private func moveToEnd(_ entry: (orderIndex: Int, song: Song)) {
         guard let index = stillHolds(entry) else { return }
-        player.moveInQueue(from: index, to: player.queue.order.count)
+        player.moveToEnd(fromOrderIndex: index)
     }
 
     /// The menu was built for one row. If the queue shifted while it was open -- a DJ

@@ -710,6 +710,17 @@ final class PlaybackController {
         persist()
     }
 
+    /// To the very end of the queue. Its own call rather than a move to `order.count`:
+    /// played to a computer, the phone holds only a window of that computer's queue, and
+    /// the end of the window is not the end of the queue. The computer clamps the far
+    /// destination sent here to its own end.
+    func moveToEnd(fromOrderIndex index: Int) {
+        if let remote { remote.send(.at(.move, index, to: Int(Int32.max))); return }
+        queue.move(fromOrderIndex: index, toOrderIndex: queue.order.count)
+        refillWindow()
+        persist()
+    }
+
     func toggleShuffle() {
         if let remote { remote.send(.shuffle(!queue.isShuffled)); return }
         if queue.isShuffled {
