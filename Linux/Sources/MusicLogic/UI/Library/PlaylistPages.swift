@@ -240,6 +240,8 @@ enum PlaylistPage {
         Task {
             do {
                 try await app.native.movePlaylistTrack(playlistID: playlist.id, from: from + 1, insertBefore: to + 1)
+                // The downloaded copy's order follows.
+                app.playlistSync.syncSoon()
             } catch {
                 await Diagnostics.shared.record("playlist", "reorder failed: \(error)")
             }

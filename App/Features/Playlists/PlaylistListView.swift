@@ -207,6 +207,8 @@ struct PlaylistDetailView: View {
                     from: source + 1,
                     insertBefore: destination + 1
                 )
+                // The downloaded copy's order follows.
+                appState.playlistSync.syncSoon()
             } catch {
                 await Diagnostics.shared.record("playlist", "reorder failed: \(error)")
             }

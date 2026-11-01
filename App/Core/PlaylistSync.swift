@@ -12,10 +12,12 @@ import Observation
 ///
 /// - **Wi-Fi only by default.** 499 tracks of FLAC is roughly 20 GB; that is not
 ///   something to put on a cellular bill by accident.
-/// - **It only ever adds.** A track dropped from a playlist keeps its download rather
-///   than being deleted, because the alternative is an automatic process quietly
-///   removing music someone may have wanted. Reclaiming space stays a manual choice in
-///   the Downloads screen.
+/// - **It follows the server, and never deletes what something else wants.** A downloaded
+///   playlist is kept as it is on the server: songs added there download, songs taken off
+///   leave its download, and its order is the server's. It used to only ever add, so a
+///   playlist changed on the desktop was a different playlist on the phone. A song taken
+///   off is deleted only if no other downloaded album or playlist has it, and nothing is
+///   removed on an answer that looks short -- see `sync`.
 @MainActor
 @Observable
 final class PlaylistSync {
@@ -58,6 +60,9 @@ final class PlaylistSync {
     private weak var client: SubsonicClient?
     private weak var downloads: DownloadCenter?
     private weak var reachability: Reachability?
+    private weak var cache: LibraryCache?
+    private weak var folders: DownloadFolderStore?
+    @ObservationIgnored private var soon: Task<Void, Never>?
 
     init() {
         let defaults = UserDefaults.standard
@@ -109,11 +114,26 @@ final class PlaylistSync {
     func configure(
         client: SubsonicClient,
         downloads: DownloadCenter,
-        reachability: Reachability
+        reachability: Reachability,
+        cache: LibraryCache? = nil,
+        folders: DownloadFolderStore? = nil
     ) {
         self.client = client
         self.downloads = downloads
         self.reachability = reachability
+        self.cache = cache
+        self.folders = folders
+    }
+
+    /// A sync a few seconds from now: for a playlist just edited here, so its download
+    /// follows without waiting for the next launch. Several edits make one sync.
+    func syncSoon() {
+        soon?.cancel()
+        soon = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            await self?.sync()
+        }
     }
 
     func isIncluded(_ playlist: Playlist) -> Bool {
@@ -126,12 +146,13 @@ final class PlaylistSync {
         } else {
             includedIDs.remove(playlist.id)
             // This playlist's waiting downloads only. `stopUnchosen` would also cancel
-            // every playlist downloaded with its own button, which was never synced.
+            // every playlist downloaded with its own button. Waiting songs another
+            // download also wants keep coming, for that one.
             guard let downloads else { return }
-            let waiting = downloads.catalog.pending.values
-                .filter { $0.groupID == playlist.id }
-                .map(\.song.id)
-            if !waiting.isEmpty { downloads.remove(waiting) }
+            let waiting = Set(downloads.catalog.pending.values
+                .filter { $0.isMember(of: playlist.id) }
+                .map(\.song.id))
+            if !waiting.isEmpty { downloads.removeGroup(playlist.id, songIDs: waiting) }
         }
     }
 
@@ -142,56 +163,87 @@ final class PlaylistSync {
         includedIDs.remove(groupID)
     }
 
-    /// Fetches every included playlist and queues anything not already on the phone.
+    /// Brings every downloaded playlist into line with the server, and downloads the
+    /// chosen ones.
     ///
-    /// Safe to call often: it compares against the download catalog first, so a synced
-    /// library makes this a handful of cheap requests and no transfers.
+    /// Downloaded means any playlist with songs on the phone for it -- with its own button
+    /// or chosen in Offline & Library -- and those are kept in step whether or not the
+    /// automatic download is on: that switch is about fetching playlists nobody tapped,
+    /// not about letting a downloaded one drift from the server. New songs wait for Wi-Fi
+    /// when that is asked for; taking songs off and following the order do not.
     func sync() async {
-        guard isEnabled, !isSyncing,
-              let client, let downloads
-        else { return }
-
-        if isWiFiOnly, reachability?.isExpensive == true {
-            lastSummary = "Waiting for Wi-Fi"
-            return
-        }
+        guard !isSyncing, let client, let downloads else { return }
         guard reachability?.isOnline != false else { return }
+        let mayFetch = !(isWiFiOnly && reachability?.isExpensive == true)
 
         isSyncing = true
         defer { isSyncing = false }
 
         guard let playlists = try? await client.playlists() else { return }
 
+        let downloaded = downloads.groups
         var queued = 0
-        for playlist in playlists where includedIDs.contains(playlist.id) {
+        var dropped = 0
+        for playlist in playlists
+        where downloaded.contains(playlist.id) || (isEnabled && includedIDs.contains(playlist.id)) {
             guard let detail = try? await client.playlistDetail(id: playlist.id) else { continue }
-
-            let missing = detail.songs.filter { downloads.status(for: $0.id) == .none }
-            guard !missing.isEmpty else { continue }
-
-            // Grouped under the playlist so the Downloads screen shows why they are
-            // here, and removing the group removes the lot.
-            downloads.download(missing, groupID: playlist.id, groupName: playlist.name)
-            queued += missing.count
+            let result = follow(detail, name: playlist.name, groupID: playlist.id, mayFetch: mayFetch)
+            queued += result.queued
+            dropped += result.dropped
+            // The Downloads folder takes its order from the cached copy, so it follows the
+            // server's order too, offline as well.
+            await cache?.store(detail, for: CacheKey.playlist(playlist.id))
+            folders?.update(order: detail.songs.map(\.id), forPlaylist: playlist.id)
         }
 
-        if includesFavourites, let starred = try? await client.starred() {
-            let missing = starred.songs.filter { downloads.status(for: $0.id) == .none }
-            if !missing.isEmpty {
-                // Their own group, so removing "Favourites" from Downloads does not
-                // take a playlist's copies with it.
-                downloads.download(missing, groupID: "favourites", groupName: "Favourites")
-                queued += missing.count
-            }
+        if isEnabled, includesFavourites, let starred = try? await client.starred() {
+            let favourites = PlaylistDetail(
+                id: "favourites", name: "Favourites", songCount: starred.songs.count, entry: starred.songs
+            )
+            let result = follow(favourites, name: "Favourites", groupID: "favourites", mayFetch: mayFetch)
+            queued += result.queued
+            dropped += result.dropped
         }
 
-        lastSummary = queued == 0
-            ? "Everything is on this phone"
-            : "Downloading \(queued) \(queued == 1 ? "track" : "tracks")"
-
-        if queued > 0 {
-            await Diagnostics.shared.record("playlist sync", "queued \(queued) tracks")
+        if queued == 0, dropped == 0 {
+            lastSummary = mayFetch ? "Everything is on this phone" : "Waiting for Wi-Fi"
+        } else {
+            lastSummary = [
+                queued > 0 ? "Downloading \(queued) \(queued == 1 ? "track" : "tracks")" : nil,
+                dropped > 0 ? "\(dropped) taken off" : nil,
+            ].compactMap { $0 }.joined(separator: " · ")
         }
+        if queued > 0 || dropped > 0 {
+            await Diagnostics.shared.record("playlist sync", "queued \(queued), dropped \(dropped)")
+        }
+    }
+
+    /// One playlist's download, made the server's: its songs already on the phone for
+    /// another reason join it, missing ones download when `mayFetch`, and ones the server
+    /// no longer has leave it -- deleted only if nothing else wants them.
+    ///
+    /// Nothing leaves on an answer that looks short -- fewer songs than the playlist says
+    /// it has, or none at all -- because deleting on a bad answer is the one mistake here
+    /// that costs music.
+    private func follow(
+        _ detail: PlaylistDetail, name: String, groupID: String, mayFetch: Bool
+    ) -> (queued: Int, dropped: Int) {
+        guard let downloads else { return (0, 0) }
+        let songs = detail.songs
+        let missing = songs.filter { downloads.status(for: $0.id) == .none }.count
+        if mayFetch {
+            downloads.download(songs, groupID: groupID, groupName: name)
+        } else {
+            // Join only: what is already here becomes part of it, nothing is fetched.
+            downloads.download(songs.filter { downloads.status(for: $0.id) != .none }, groupID: groupID, groupName: name)
+        }
+
+        let isWhole = !songs.isEmpty && (detail.songCount.map { $0 == songs.count } ?? true)
+        guard isWhole else { return (mayFetch ? missing : 0, 0) }
+        let onServer = Set(songs.map(\.id))
+        let stale = Set(downloads.catalog.songIDs(downloadedAs: groupID)).subtracting(onServer)
+        if !stale.isEmpty { downloads.removeGroup(groupID, songIDs: stale) }
+        return (mayFetch ? missing : 0, stale.count)
     }
 
     /// Rough projection for the settings screen, so 20 GB is never a surprise.

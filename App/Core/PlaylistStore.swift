@@ -98,6 +98,8 @@ final class PlaylistStore {
                 ? "Added to “\(playlist.name)”"
                 : "Added \(adding.count) songs to “\(playlist.name)”"
             lastMessage = skipped == 0 ? added : "\(added) · \(skipped) already there"
+            // A downloaded playlist's download follows: the new songs come down too.
+            appState?.playlistSync.syncSoon()
             await load()
         } catch {
             lastMessage = "Could not add to “\(playlist.name)”"
@@ -110,6 +112,8 @@ final class PlaylistStore {
         guard let client else { return false }
         do {
             try await client.removeFromPlaylist(id: playlistID, indices: [index])
+            // And its download: the song leaves it, deleted unless something else has it.
+            appState?.playlistSync.syncSoon()
             return true
         } catch {
             lastMessage = "Could not remove that track"

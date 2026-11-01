@@ -74,7 +74,8 @@ final class AppState {
         hermes.configure(requests: requests)
         queueSync.configure(client: client)
         playlistSync.configure(
-            client: client, downloads: downloads, reachability: reachability
+            client: client, downloads: downloads, reachability: reachability,
+            cache: cache, folders: downloadFolders
         )
         downloads.attach(appState: self)
         downloadFolders.configure(downloads: downloads, cache: cache)
