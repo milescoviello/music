@@ -58,6 +58,8 @@ final class StreamCache {
     /// cannot send does not become a loop of requests.
     @ObservationIgnored private var failed: Set<String> = []
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
+    /// What the fetch under way will bring, while it is still wanted.
+    @ObservationIgnored private var fetchingVariant: StreamVariant?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
 
     private let session: URLSession
@@ -113,13 +115,19 @@ final class StreamCache {
     /// if not — a skip past three tracks should not finish downloading the three.
     func prefetch(_ requests: [Request]) {
         protected = Set(requests.map(\.song.id))
-        plan = requests.filter { request in
+        let wanted = requests.filter { request in
             storage.entry(for: request.song.id, satisfying: request.variant) == nil
                 && !failed.contains(request.song.id)
         }
 
-        if let fetching = fetchingSongID, !plan.contains(where: { $0.song.id == fetching }) {
+        if let fetching = fetchingSongID, !wanted.contains(where: { $0.song.id == fetching }) {
             fetchTask?.cancel()
+            fetchingVariant = nil
+        }
+        // Not the one on its way. Planned again -- by a track change, or anything else
+        // that moved the queue while it downloaded -- it was downloaded a second time.
+        plan = wanted.filter { request in
+            !(request.song.id == fetchingSongID && fetchingVariant?.satisfies(request.variant) == true)
         }
         startNext()
     }
@@ -128,6 +136,7 @@ final class StreamCache {
     func pause() {
         plan = []
         fetchTask?.cancel()
+        fetchingVariant = nil
     }
 
     func removeAll() {
@@ -153,11 +162,13 @@ final class StreamCache {
         }
 
         fetchingSongID = request.song.id
+        fetchingVariant = request.variant
         fetchTask = Task { [weak self] in
             await self?.fetch(request)
             guard let self else { return }
             fetchTask = nil
             fetchingSongID = nil
+            fetchingVariant = nil
             startNext()
         }
     }
