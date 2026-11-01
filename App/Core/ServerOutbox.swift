@@ -112,6 +112,11 @@ actor ServerOutbox {
     }
 
     func enqueueStar(id: String, target: String, starred: Bool) {
+        // Each of these replaces whatever is still waiting for the same thing. Left side by
+        // side, two made in one second -- a star and the unstar straight after it -- went
+        // out in the order of their file names' random part, and half the time the server
+        // ended up with the one taken back.
+        discard(id: id, kinds: [.star, .unstar])
         write(Pending(
             kind: starred ? .star : .unstar,
             songID: id,
@@ -121,12 +126,14 @@ actor ServerOutbox {
     }
 
     func enqueueRating(id: String, rating: Int) {
+        discard(id: id, kinds: [.rating])
         write(Pending(kind: .rating, songID: id, listenedAt: .now, rating: rating))
     }
 
     /// A resume position that could not be saved now. `nil` position means "forget where
     /// I was", which is what finishing a track does.
     func enqueueBookmark(id: String, positionMilliseconds: Int?) {
+        discard(id: id, kinds: [.bookmark])
         write(Pending(
             kind: .bookmark, songID: id, listenedAt: .now, positionMs: positionMilliseconds
         ))
