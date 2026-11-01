@@ -200,7 +200,9 @@ struct NowPlayingView: View {
                     // `showsNavigation: false` because the menu's own Go to Album/Artist
                     // are `NavigationLink`s, which push *inside* the player — the dead end
                     // this screen's own jumps avoid. Replaced below with jumps.
-                    SongMenu(song: song, showsNavigation: false, showsRating: false)
+                    // No queue items either: this song is already playing, so Play Next and
+                    // Add to Queue would only queue a second copy of it.
+                    SongMenu(song: song, showsNavigation: false, showsRating: false, showsQueueItems: false)
 
                     if let albumId = song.albumId, let album = song.album {
                         Button("Go to Album", systemImage: "square.stack") {

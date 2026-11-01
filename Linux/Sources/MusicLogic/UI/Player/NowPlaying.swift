@@ -477,7 +477,8 @@ final class NowPlaying {
     private func menu() -> Menu {
         guard let song = app.player.currentSong else { return Menu([]) }
         let app = app
-        var sections = Menus.song(env, song, showsNavigation: false, showsRating: true).sections
+        // No queue items: this song is already playing, so they would only queue a copy.
+        var sections = Menus.song(env, song, showsNavigation: false, showsRating: true, showsQueueItems: false).sections
         var jumps = Menus.navigationItems(env, song, jumps: true)
         jumps.append(.action("Show Similar Tracks") { [env] in SimilarTracks.present(env, song: song) })
         jumps.append(.action("Sonic Adventure…") { app.navigator.open(.sonicAdventure(song)) })
