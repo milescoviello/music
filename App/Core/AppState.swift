@@ -26,6 +26,7 @@ final class AppState {
     let scope = LibraryScopeStore()
     let userState = UserStateStore()
     let playlistStore = PlaylistStore()
+    let playlistArrangement = PlaylistArrangement()
     let requests = MusicRequestService()
     let queueSync = QueueSync()
     let playlistSync = PlaylistSync()

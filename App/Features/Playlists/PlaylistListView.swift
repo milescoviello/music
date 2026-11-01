@@ -13,56 +13,33 @@ struct PlaylistListView: View {
     private var playlists: [Playlist] { store.playlists }
     private var isLoading: Bool { store.isLoading }
 
-    var body: some View {
-        List {
-            Section {
-                ForEach(playlists) { playlist in
-                    NavigationLink(value: Destination.playlist(PlaylistRef(playlist))) {
-                        HStack(spacing: Metrics.itemSpacing) {
-                            ArtworkImage(
-                                id: playlist.coverArt,
-                                size: .thumb,
-                                cornerRadius: Metrics.radiusThumb,
-                                playlistID: playlist.id
-                            )
-                            .frame(width: Metrics.thumbPlaylist, height: Metrics.thumbPlaylist)
+    private var arrangement: PlaylistArrangement { appState.playlistArrangement }
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(playlist.name)
-                                    .lineLimit(1)
-                                Text(subtitle(for: playlist))
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .frame(minHeight: 64)
+    /// Drag handles showing, for moving pinned playlists and the rest. Off otherwise, so
+    /// rows can be swiped to pin.
+    @State private var isArranging = false
+
+    var body: some View {
+        let split = arrangement.arranged(playlists)
+        List {
+            // His main ones, first and in his own order. Swipe right or long-press to pin.
+            if !split.pinned.isEmpty {
+                Section("Pinned") {
+                    ForEach(split.pinned) { playlist in
+                        row(playlist)
                     }
-                    .contextMenu {
-                        Button("Play", systemImage: "play.fill") { play(playlist) }
-                        Button("Shuffle", systemImage: "shuffle") {
-                            play(playlist, shuffled: true)
-                        }
-                        Divider()
-                        Button("Play Next", systemImage: "text.insert") {
-                            withSongs(playlist) { appState.player.playNext($0) }
-                        }
-                        if appState.player.canAddToUpNext {
-                            Button("Add to Up Next", systemImage: "list.bullet.indent") {
-                                withSongs(playlist) { appState.player.addToUpNext($0) }
-                            }
-                        }
-                        Button("Add to Queue", systemImage: "text.append") {
-                            withSongs(playlist) { appState.player.append($0) }
-                        }
-                        Divider()
-                        downloadItems(for: playlist)
-                        Divider()
-                        Button("Rename…", systemImage: "pencil") { editing = playlist }
-                        Button("Delete", systemImage: "trash", role: .destructive) {
-                            deleting = playlist
-                        }
-                    }
+                    .onMove { arrangement.movePinned(from: $0, to: $1, shown: split.pinned) }
                 }
+            }
+
+            Section {
+                ForEach(split.rest) { playlist in
+                    row(playlist)
+                }
+                // Moving one by hand makes the order his own: My Order in the sort menu.
+                .onMove { arrangement.moveRest(from: $0, to: $1, shown: split.rest) }
+            } header: {
+                if !split.pinned.isEmpty { Text("Playlists") }
             } footer: {
                 if !playlists.isEmpty {
                     // Stated once, quietly: the server has no folder parameter for
@@ -74,7 +51,29 @@ struct PlaylistListView: View {
         .listStyle(.plain)
         .playerClearance()
         .navigationTitle("Playlists")
+        .environment(\.editMode, .constant(isArranging ? .active : .inactive))
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button(isArranging ? "Done" : "Edit") {
+                    withAnimation { isArranging.toggle() }
+                }
+                .disabled(playlists.count < 2)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Picker("Sort", selection: Binding(
+                        get: { arrangement.sort },
+                        set: { arrangement.sort = $0 }
+                    )) {
+                        ForEach(PlaylistArrangement.Sort.allCases) { sort in
+                            Text(sort.title).tag(sort)
+                        }
+                    }
+                } label: {
+                    Label(arrangement.sort.title, systemImage: "arrow.up.arrow.down")
+                }
+                .accessibilityLabel("Sort playlists")
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("New Playlist", systemImage: "plus") { isCreating = true }
@@ -159,6 +158,73 @@ struct PlaylistListView: View {
             appState.player.play(
                 songs: detail.songs, startingAt: 0, source: playlist.name, shuffled: shuffled
             )
+        }
+    }
+
+    private func row(_ playlist: Playlist) -> some View {
+        NavigationLink(value: Destination.playlist(PlaylistRef(playlist))) {
+            HStack(spacing: Metrics.itemSpacing) {
+                ArtworkImage(
+                    id: playlist.coverArt,
+                    size: .thumb,
+                    cornerRadius: Metrics.radiusThumb,
+                    playlistID: playlist.id
+                )
+                .frame(width: Metrics.thumbPlaylist, height: Metrics.thumbPlaylist)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(playlist.name)
+                        .lineLimit(1)
+                    Text(subtitle(for: playlist))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(minHeight: 64)
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                withAnimation { arrangement.togglePin(playlist) }
+            } label: {
+                if arrangement.isPinned(playlist) {
+                    Label("Unpin", systemImage: "pin.slash")
+                } else {
+                    Label("Pin", systemImage: "pin")
+                }
+            }
+            .tint(.orange)
+        }
+        .contextMenu {
+            Button(
+                arrangement.isPinned(playlist) ? "Unpin" : "Pin to Top",
+                systemImage: arrangement.isPinned(playlist) ? "pin.slash" : "pin"
+            ) {
+                withAnimation { arrangement.togglePin(playlist) }
+            }
+            Divider()
+            Button("Play", systemImage: "play.fill") { play(playlist) }
+            Button("Shuffle", systemImage: "shuffle") {
+                play(playlist, shuffled: true)
+            }
+            Divider()
+            Button("Play Next", systemImage: "text.insert") {
+                withSongs(playlist) { appState.player.playNext($0) }
+            }
+            if appState.player.canAddToUpNext {
+                Button("Add to Up Next", systemImage: "list.bullet.indent") {
+                    withSongs(playlist) { appState.player.addToUpNext($0) }
+                }
+            }
+            Button("Add to Queue", systemImage: "text.append") {
+                withSongs(playlist) { appState.player.append($0) }
+            }
+            Divider()
+            downloadItems(for: playlist)
+            Divider()
+            Button("Rename…", systemImage: "pencil") { editing = playlist }
+            Button("Delete", systemImage: "trash", role: .destructive) {
+                deleting = playlist
+            }
         }
     }
 
