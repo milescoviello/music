@@ -101,6 +101,21 @@ enum AutoplayRules {
         return available.first { $0 != .silence }
     }
 
+    /// What to try, in order, when the queue runs out: the selection, then every other
+    /// choice on offer, then Library Radio, which always has something. Autoplay used to
+    /// try the selection alone, so a choice that came back empty -- no next album, a radio
+    /// of songs already queued, a failed request -- stopped the music. Silence, chosen,
+    /// is the one way to stop, and is honoured.
+    static func attempts(selected: AutoplayChoice?, available: [AutoplayChoice]) -> [AutoplayChoice] {
+        if selected == .silence { return [] }
+        var order: [AutoplayChoice] = []
+        for choice in [selected].compactMap({ $0 }) + available + [.libraryRadio]
+        where choice != .silence && !order.contains(choice) {
+            order.append(choice)
+        }
+        return order
+    }
+
     /// The album after (or before) `albumID` in an artist's discography, oldest first by
     /// year then name. Nil at either end.
     static func neighbour(of albumID: String, in albums: [Album], direction: AutoplayChoice) -> Album? {

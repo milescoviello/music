@@ -168,6 +168,10 @@ final class AutoplayService {
             preferred: preferred(endedWithAlbum: albumEnding),
             available: built.map(\.choice)
         )
+        await Diagnostics.shared.record(
+            "autoplay",
+            "after “\(last.title)”: \(built.map(\.choice.title).joined(separator: ", ")); chose \(selected?.title ?? "nothing")"
+        )
     }
 
     private func option(for choice: AutoplayChoice, last: Song, artist: ArtistDetail?, similar: [Artist]) async -> Option? {
@@ -240,22 +244,49 @@ final class AutoplayService {
 
     // MARK: - Adding
 
-    /// Adds the selected option's tracks to the end of the queue. Returns whether anything
-    /// was added; safe to call repeatedly, as the player does while the last track ends.
+    /// Adds tracks to the end of the queue: the selected option's, or -- when that has
+    /// nothing new to give -- the next option's, down to Library Radio. Returns whether
+    /// anything was added; safe to call repeatedly, as the player does while the last
+    /// track ends.
+    ///
+    /// The options are worked out here if they are not ready yet. They are built a few
+    /// seconds after the end of the queue changes, from several requests; a last track
+    /// that ended first found nothing selected, and the music stopped.
     @discardableResult
     func extend() async -> Bool {
         if let addTask { return await addTask.value }
-        guard isActive, let option = selectedOption, option.choice != .silence, let appState else { return false }
+        guard isActive, appState != nil else { return false }
 
         isAdding = true
         let task = Task { [weak self] () -> Bool in
-            guard let self else { return false }
-            let songs = await self.songs(for: option)
-            let queued = Set(appState.player.queue.tracks.map(\.id))
-            let fresh = songs.filter { !queued.contains($0.id) }.prefix(option.choice.trackCount)
-            guard !fresh.isEmpty else { return false }
-            appState.player.append(Array(fresh))
-            return true
+            guard let self, let appState = self.appState else { return false }
+            if self.options.isEmpty {
+                self.computeTask?.cancel()
+                await self.compute()
+            }
+            let attempts = AutoplayRules.attempts(selected: self.selected, available: self.options.map(\.choice))
+            guard !attempts.isEmpty else {
+                await Diagnostics.shared.record("autoplay", "Silence chosen: stopping")
+                return false
+            }
+            for choice in attempts {
+                let option = self.options.first { $0.choice == choice } ?? Option(
+                    choice: .libraryRadio, title: AutoplayChoice.libraryRadio.title,
+                    subtitle: "Anything from your library", plan: .library
+                )
+                let songs = await self.songs(for: option)
+                let queued = Set(appState.player.queue.tracks.map(\.id))
+                let fresh = songs.filter { !queued.contains($0.id) }.prefix(option.choice.trackCount)
+                guard !fresh.isEmpty else {
+                    await Diagnostics.shared.record("autoplay", "\(option.choice.title) had nothing new (\(songs.count) found)")
+                    continue
+                }
+                appState.player.append(Array(fresh))
+                await Diagnostics.shared.record("autoplay", "added \(fresh.count) from \(option.title)")
+                return true
+            }
+            await Diagnostics.shared.record("autoplay", "nothing to add from any option")
+            return false
         }
         addTask = task
         let added = await task.value

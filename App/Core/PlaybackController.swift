@@ -1028,9 +1028,11 @@ final class PlaybackController {
             if queue.advance() {
                 let stops = appState?.sleepTimer.trackDidFinish(next: queue.current) == true
                 rebuildOutput(startPlaying: !stops, seekTo: 0)
-            } else if let autoplay = appState?.autoplay, autoplay.isActive, autoplay.selectedOption != nil {
+            } else if let autoplay = appState?.autoplay, autoplay.isActive {
                 // The end came before Autoplay's tracks did — a short last track, or a
-                // slow server. Wait for them rather than stopping.
+                // slow server. Wait for them rather than stopping. Not only with an option
+                // already selected: `extend` works the options out when they are not
+                // ready, and stops by itself if Silence was chosen.
                 Task {
                     if await autoplay.extend(), queue.advance() {
                         let stops = appState?.sleepTimer.trackDidFinish(next: queue.current) == true

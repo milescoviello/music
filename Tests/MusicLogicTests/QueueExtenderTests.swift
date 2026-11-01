@@ -64,6 +64,18 @@ struct AutoplayTests {
         #expect(AutoplayRules.neighbour(of: "c", in: albums, direction: .nextAlbum) == nil)
     }
 
+    /// The music must not stop because the chosen option came back empty: every other
+    /// choice is tried, and Library Radio last of all. Silence, chosen, is the one stop.
+    @Test func autoplayTriesEveryOptionBeforeStopping() {
+        let attempts = AutoplayRules.attempts(
+            selected: .nextAlbum, available: [.silence, .nextAlbum, .similarAlbum, .trackRadio]
+        )
+        #expect(attempts == [.nextAlbum, .similarAlbum, .trackRadio, .libraryRadio])
+        // Nothing worked out yet: Library Radio still plays.
+        #expect(AutoplayRules.attempts(selected: nil, available: []) == [.libraryRadio])
+        #expect(AutoplayRules.attempts(selected: .silence, available: [.silence, .trackRadio]).isEmpty)
+    }
+
     @Test func radioAddsTwentyAndEverythingElseThirty() {
         #expect(AutoplayChoice.trackRadio.trackCount == 20)
         #expect(AutoplayChoice.nextAlbum.trackCount == 30)
