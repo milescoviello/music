@@ -64,12 +64,12 @@ struct ChartsTests {
             play("c", album: "A1", artist: "X", date(2026, 6, 1)),
         ]
         let tracks = Charts.topTracks(plays, in: period, limit: 10)
-        #expect(tracks.first?.id == "a")
+        #expect(tracks.first?.songID == "a")
         #expect(tracks.first?.plays == 2)
-        #expect(tracks.first(where: { $0.id == "b" })?.plays == 1)
+        #expect(tracks.first(where: { $0.songID == "b" })?.plays == 1)
 
         let albums = Charts.topAlbums(plays, in: period, limit: 10)
-        #expect(albums.map(\.id) == ["A1", "B1"])
+        #expect(albums.map(\.title) == ["A1", "B1"])
         #expect(albums.first?.plays == 3)
 
         #expect(Charts.topArtists(plays, in: period, limit: 1).map(\.id) == ["X"])
@@ -89,5 +89,32 @@ struct ChartsTests {
         #expect(albums.map(\.plays) == [2, 1])
         #expect(albums.map(\.subtitle) == ["Queen", "ABBA"])
         #expect(Set(albums.map(\.id)).count == 2)
+    }
+
+    @Test func aSongOrAlbumInBothFoldersIsOneRowWithAllItsPlays() {
+        let period = ChartPeriod.current(.year, now: date(2026, 10, 17), calendar: calendar)
+        // The two library folders' copies: the same tags, different song and album ids.
+        func play(_ songID: String, _ title: String, albumID: String, _ when: Date) -> ChartPlay {
+            ChartPlay(songID: songID, title: title, artist: "Tame Impala", album: "Currents",
+                      albumID: albumID, artistID: "tame", at: when)
+        }
+        let plays = [
+            play("one-1", "Yes I'm Changing", albumID: "currents-1", date(2026, 3, 1)),
+            play("one-1", "Yes I'm Changing", albumID: "currents-1", date(2026, 3, 2)),
+            play("two-1", "Yes I'm Changing", albumID: "currents-2", date(2026, 3, 3)),
+            play("one-2", "Eventually", albumID: "currents-1", date(2026, 3, 4)),
+            play("one-2", "Eventually", albumID: "currents-1", date(2026, 3, 5)),
+        ]
+
+        let tracks = Charts.topTracks(plays, in: period, limit: 10)
+        #expect(tracks.map(\.title) == ["Yes I'm Changing", "Eventually"])
+        #expect(tracks.map(\.plays) == [3, 2])
+        // Played from the copy heard last.
+        #expect(tracks.first?.songID == "two-1")
+
+        let albums = Charts.topAlbums(plays, in: period, limit: 10)
+        #expect(albums.count == 1)
+        #expect(albums.first?.plays == 5)
+        #expect(albums.first?.albumID == "currents-1")
     }
 }

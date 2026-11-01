@@ -192,18 +192,31 @@ enum Charts {
     /// Plexamp's choices for how long a chart is.
     static let limits = [10, 25, 50, 100]
 
+    /// By title and artist, not by song id. The library's two folders hold most songs
+    /// twice, under two ids, and a song played from both was two rows, each with part of
+    /// its plays: in October 2026, 26 of the songs played had been played from both.
     static func topTracks(_ plays: [ChartPlay], in period: ChartPeriod, limit: Int) -> [ChartRow] {
-        rank(plays, in: period, limit: limit, key: \.songID) { play in
-            ChartRow(id: play.songID, title: play.title, subtitle: play.artist, plays: 0,
+        let key = { (play: ChartPlay) in
+            "\(SearchRanking.normalised(play.title))\u{1F}\(SearchRanking.normalised(play.artist))"
+        }
+        return rank(plays, in: period, limit: limit, key: key) { play in
+            ChartRow(id: key(play), title: play.title, subtitle: play.artist, plays: 0,
                      songID: play.songID, albumID: play.albumID, artistID: play.artistID, coverArt: play.coverArt)
         }
     }
 
+    /// By name and album artist, not by album id, for the same reason as `topTracks`: an
+    /// album held in both folders was two rows -- October 2026 had Mellon Collie twice, 110
+    /// plays and 23 -- and fell down the chart. The artist is the album artist's id where
+    /// the play has it, so a compilation is one album; plays from before ids were recorded
+    /// go by the track artist's name.
+    ///
+    /// The row's id is what it is counted under. By the album's name alone, two artists'
+    /// "Greatest Hits" were two rows with one id, and the list showed one of them twice.
     static func topAlbums(_ plays: [ChartPlay], in period: ChartPeriod, limit: Int) -> [ChartRow] {
-        // The row's id is what it is counted under. By the album's name alone, two
-        // artists' "Greatest Hits" played before album ids were recorded were two rows
-        // with one id, and the list showed one of them twice.
-        let key = { (play: ChartPlay) in play.albumID ?? "\(play.album)\u{1F}\(play.artist)" }
+        let key = { (play: ChartPlay) in
+            "\(SearchRanking.normalised(play.album))\u{1F}\(play.artistID ?? SearchRanking.normalised(play.artist))"
+        }
         return rank(plays, in: period, limit: limit, key: key) { play in
             ChartRow(id: key(play), title: play.album, subtitle: play.artist, plays: 0,
                      albumID: play.albumID, artistID: play.artistID, coverArt: play.coverArt)
