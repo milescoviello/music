@@ -297,14 +297,14 @@ struct PlaylistDetailView: View {
             // copying every song into a new array on each redraw, which for a smart
             // playlist of the whole library is 28,000 of them.
             ForEach(songs.indices, id: \.self) { index in
+                let song = songs[index]
                 // Trailing swipe removes from the playlist here, rather than the generic
-                // "add to queue": in a playlist, removal is the action you actually want,
-                // and the index is valid because `songs` came straight from the server.
+                // "add to queue": in a playlist, removal is the action you actually want.
                 PlayableSongRow(
                     songs: songs, index: index, source: playlist.name, selection: selection,
                     onRemove: {
                         Task {
-                            if await store.removeIndex(index, from: playlist.id) {
+                            if await store.remove(song, shownAt: index, from: playlist.id) {
                                 await load()
                             }
                         }

@@ -219,7 +219,7 @@ enum PlaylistPage {
                 wrapper.contextMenu {
                     var sections = Menus.song(env, song).sections
                     var own: [Menu.Item] = [.action("Remove from Playlist", destructive: true) {
-                        Task { if await app.playlistStore.removeIndex(index, from: playlist.id) { reload() } }
+                        Task { if await app.playlistStore.remove(song, shownAt: index, from: playlist.id) { reload() } }
                     }]
                     if index > 0 { own.insert(.action("Move Up") { move(app, playlist, from: index, to: index - 1, reload) }, at: 0) }
                     if index + 1 < songs.count { own.insert(.action("Move Down") { move(app, playlist, from: index, to: index + 2, reload) }, at: own.count - 1) }

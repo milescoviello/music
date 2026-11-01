@@ -106,12 +106,38 @@ final class PlaylistStore {
         }
     }
 
-    /// The index is a position in the server's current copy, so the caller must have
-    /// just fetched it. Returns true so the detail view knows to reload.
-    func removeIndex(_ index: Int, from playlistID: String) async -> Bool {
+    /// Removals one after another, each waiting for the one before.
+    @ObservationIgnored private var removing: Task<Bool, Never>?
+
+    /// Takes `song`, shown at `index`, out of the playlist. Returns true so the detail view
+    /// knows to reload.
+    ///
+    /// The server removes by position, and the position is looked up in the playlist as
+    /// the server has it now, one removal at a time. The row's own index went stale as
+    /// soon as one removal landed: the list is only reloaded afterwards, so a second song
+    /// removed before that, or two removals sent together, took out the song below the one
+    /// chosen.
+    func remove(_ song: Song, shownAt index: Int, from playlistID: String) async -> Bool {
+        let previous = removing
+        let task = Task { [weak self] () -> Bool in
+            _ = await previous?.value
+            guard let self else { return false }
+            return await self.removeNow(song, shownAt: index, from: playlistID)
+        }
+        removing = task
+        return await task.value
+    }
+
+    private func removeNow(_ song: Song, shownAt index: Int, from playlistID: String) async -> Bool {
         guard let client else { return false }
         do {
-            try await client.removeFromPlaylist(id: playlistID, indices: [index])
+            let ids = try await client.playlistDetail(id: playlistID).songs.map(\.id)
+            // The same song can be on a playlist twice: the copy nearest where it was shown.
+            guard let position = ids.indices
+                .filter({ ids[$0] == song.id })
+                .min(by: { abs($0 - index) < abs($1 - index) })
+            else { return true }
+            try await client.removeFromPlaylist(id: playlistID, indices: [position])
             // And its download: the song leaves it, deleted unless something else has it.
             appState?.playlistSync.syncSoon()
             return true
