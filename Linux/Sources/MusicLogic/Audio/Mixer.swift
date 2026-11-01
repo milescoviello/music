@@ -131,11 +131,11 @@ final class Mixer: @unchecked Sendable {
                     plan = nil
                 } else {
                     self.active = nil
-                    timeline.append(frame: writtenFrames + Int64(offset + count), songID: nil, position: 0, step: 0)
+                    timeline.append(frame: writtenFrames + Int64(offset + count), source: nil, position: 0, step: 0)
                 }
             }
         } else {
-            timeline.append(frame: writtenFrames + Int64(offset), songID: nil, position: 0, step: 0)
+            timeline.append(frame: writtenFrames + Int64(offset), source: nil, position: 0, step: 0)
         }
 
         for voice in fading {
@@ -157,7 +157,7 @@ final class Mixer: @unchecked Sendable {
             if isCurrent {
                 timeline.append(
                     frame: writtenFrames + Int64(offset + produced),
-                    songID: source.song.id,
+                    source: source,
                     position: source.position,
                     step: tempo * speed / Double(rate)
                 )
@@ -184,7 +184,7 @@ final class Mixer: @unchecked Sendable {
         if isCurrent {
             isStalled = stalled
             if stalled, let source = voice.sources.first {
-                timeline.append(frame: writtenFrames + Int64(offset + produced), songID: source.song.id, position: source.position, step: 0)
+                timeline.append(frame: writtenFrames + Int64(offset + produced), source: source, position: source.position, step: 0)
             }
             if produced > 0, let spectrum {
                 spectrum.sampleRate = Double(rate)
@@ -386,12 +386,18 @@ struct FadePlan: Equatable {
 /// What the mixer played, by output frame: which track, at what position, moving how
 /// fast. Read against the stream's latency, it says what is being heard now.
 ///
+/// A track is the source playing it, not only its song id: the same song queued twice in a
+/// row is two sources with one id, and a timeline of ids alone never showed the second
+/// one starting.
+///
 /// A fixed ring, appended to on the render thread under the mixer's lock. A marker that
 /// only continues the previous one in a straight line is not stored, so in steady play
 /// there is one marker per track rather than one per buffer.
 final class Timeline {
     struct Reading {
         let songID: String?
+        /// The source's `serial`, 0 for silence.
+        let serial: Int
         let position: Double
         let isMoving: Bool
     }
@@ -399,6 +405,7 @@ final class Timeline {
     private struct Marker {
         var frame: Int64 = 0
         var songID: String?
+        var serial = 0
         var position: Double = 0
         var step: Double = 0
     }
@@ -407,15 +414,17 @@ final class Timeline {
     private var count = 0
     private var head = 0
 
-    func append(frame: Int64, songID: String?, position: Double, step: Double) {
+    func append(frame: Int64, source: TrackSource?, position: Double, step: Double) {
+        let songID = source?.song.id
+        let serial = source?.serial ?? 0
         if count > 0 {
             let last = markers[(head - 1 + markers.count) % markers.count]
             let projected = last.position + Double(frame - last.frame) * last.step
-            if last.songID == songID, abs(last.step - step) < 1e-12, abs(projected - position) < 0.002 {
+            if last.serial == serial, abs(last.step - step) < 1e-12, abs(projected - position) < 0.002 {
                 return
             }
         }
-        markers[head] = Marker(frame: frame, songID: songID, position: position, step: step)
+        markers[head] = Marker(frame: frame, songID: songID, serial: serial, position: position, step: step)
         head = (head + 1) % markers.count
         count = min(count + 1, markers.count)
     }
@@ -427,7 +436,12 @@ final class Timeline {
             let marker = markers[(head - back + markers.count) % markers.count]
             if marker.frame <= frame || back == count {
                 let elapsed = Double(max(0, frame - marker.frame)) * marker.step
-                return Reading(songID: marker.songID, position: marker.position + elapsed, isMoving: marker.step > 0)
+                return Reading(
+                    songID: marker.songID,
+                    serial: marker.serial,
+                    position: marker.position + elapsed,
+                    isMoving: marker.step > 0
+                )
             }
         }
         return nil

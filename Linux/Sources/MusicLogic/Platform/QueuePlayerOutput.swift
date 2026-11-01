@@ -46,8 +46,13 @@ final class QueuePlayerOutput: AudioOutput {
     /// The current track and what follows, as the controller last described it.
     private var window: [Song] = []
     private var wantsToPlay = false
-    /// The track last reported as heard, so a change is reported once.
-    private var heardSongID: String?
+    /// The source last reported as heard, so a change is reported once. A source, not a
+    /// song id: by id, the same song queued twice in a row never reported its second play,
+    /// so the queue lagged a track behind and that play was not counted.
+    private var heardSerial = 0
+    /// The source the window's first song is playing from, for the same reason: by id, the
+    /// window could not tell that song's next play from the one already playing.
+    private var windowSerial = 0
     /// The held source last reported unreachable, so it is reported once. Weak rather than
     /// an `ObjectIdentifier`: the source made to retry it can reuse the old one's address.
     private weak var reportedUnreachable: TrackSource?
@@ -91,12 +96,10 @@ final class QueuePlayerOutput: AudioOutput {
         window = songs
         guard let current = songs.first, let first = makeSource(for: current) else {
             stop()
-            if let current = songs.first {
+            if songs.first != nil {
                 // Nothing to play it from. Reported as run off the end, so the controller
                 // moves on rather than sitting on a silent track.
-                heardSongID = current.id
                 Task { @MainActor [weak self] in
-                    self?.heardSongID = nil
                     self?.onAdvanced?(nil)
                 }
             }
@@ -114,12 +117,13 @@ final class QueuePlayerOutput: AudioOutput {
                 mixer.fading = []
                 mixer.plan = nil
                 mixer.timeline.reset()
-                mixer.timeline.append(frame: mixer.writtenFrames, songID: current.id, position: startAt, step: 0)
+                mixer.timeline.append(frame: mixer.writtenFrames, source: first, position: startAt, step: 0)
             }
         }
         released.forEach { $0.cancel() }
 
-        heardSongID = current.id
+        heardSerial = first.serial
+        windowSerial = first.serial
         duration = Double(current.duration ?? 0)
         elapsed = startAt
         rebuildTail()
@@ -224,11 +228,12 @@ final class QueuePlayerOutput: AudioOutput {
     /// The mixer may have moved on — a gapless join, a fade — before the timeline says it
     /// has been heard. Planning starts from the track it is actually on.
     private func alignWindow() {
-        let actual = withMixer { $0.active?.sources.first?.song.id }
-        guard let actual, window.first?.id != actual,
-              let index = window.firstIndex(where: { $0.id == actual })
+        let actual = withMixer { mixer in mixer.active?.sources.first.map { (id: $0.song.id, serial: $0.serial) } }
+        guard let actual, actual.serial != windowSerial,
+              let index = window.indices.dropFirst().first(where: { window[$0].id == actual.id })
         else { return }
         window.removeFirst(index)
+        windowSerial = actual.serial
     }
 
     /// The first song plus every following song reached without a fade.
@@ -313,7 +318,7 @@ final class QueuePlayerOutput: AudioOutput {
                 guard let source = mixer.active?.sources.first else { return }
                 source.seek(to: seconds)
                 mixer.timeline.reset()
-                mixer.timeline.append(frame: mixer.writtenFrames, songID: source.song.id, position: seconds, step: 0)
+                mixer.timeline.append(frame: mixer.writtenFrames, source: source, position: seconds, step: 0)
             }
         }
         released.forEach { $0.cancel() }
@@ -337,7 +342,8 @@ final class QueuePlayerOutput: AudioOutput {
         }
         released.forEach { $0.cancel() }
         window = []
-        heardSongID = nil
+        heardSerial = 0
+        windowSerial = 0
         elapsed = 0
         duration = 0
         isBuffering = false
@@ -373,12 +379,16 @@ final class QueuePlayerOutput: AudioOutput {
         startAhead()
 
         guard let heard else { return }
-        if heard.songID != heardSongID {
-            heardSongID = heard.songID
-            if let songID = heard.songID, let position = window.firstIndex(where: { $0.id == songID }) {
+        if heard.serial != heardSerial {
+            heardSerial = heard.serial
+            // A source other than the window's first is a later song: searched for past the
+            // first, which may be this same song's play that has just ended.
+            if heard.serial != windowSerial, let songID = heard.songID,
+               let position = window.indices.dropFirst().first(where: { window[$0].id == songID }) {
                 window.removeFirst(position)
+                windowSerial = heard.serial
             }
-            duration = current?.song.id == heard.songID ? current?.duration ?? 0 : Double(window.first?.duration ?? 0)
+            duration = current?.serial == heard.serial ? current?.duration ?? 0 : Double(window.first?.duration ?? 0)
             elapsed = heard.position
             onAdvanced?(heard.songID)
             // A step moves the window, so the next transition needs planning.
@@ -393,7 +403,7 @@ final class QueuePlayerOutput: AudioOutput {
         }
         let moved = abs(heard.position - elapsed) > 0.0001
         elapsed = heard.position
-        if let current, current.song.id == heard.songID {
+        if let current, current.serial == heard.serial {
             let known = current.duration
             if known > 0 { duration = known }
         }
@@ -404,7 +414,7 @@ final class QueuePlayerOutput: AudioOutput {
 
         // Reported once what is heard has reached the held track, so the controller is
         // never told about a track it has not yet been told is playing.
-        if let current, current.song.id == heard.songID, current.isUnreachable,
+        if let current, current.serial == heard.serial, current.isUnreachable,
            reportedUnreachable !== current {
             reportedUnreachable = current
             onUnreachable?(current.song.id)

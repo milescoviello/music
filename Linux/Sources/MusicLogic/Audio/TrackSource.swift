@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// One track on its way to the speakers: a decoding thread filling a ring of samples, and
 /// the render thread taking them out.
@@ -17,6 +18,10 @@ final class TrackSource: @unchecked Sendable {
     let rate: Int
     /// This track's processing: its own ReplayGain, the shared EQ and limiter.
     let chain: DSPChain?
+    /// Tells this source from every other, another of the same song included: the same
+    /// song queued twice in a row is two plays, and the output follows sources, not ids.
+    let serial: Int
+    private static let serials = Atomic<Int>(0)
 
     private let lock = NSCondition()
     private let capacity: Int
@@ -62,6 +67,7 @@ final class TrackSource: @unchecked Sendable {
         self.location = location
         self.rate = rate
         self.chain = chain
+        serial = Self.serials.wrappingAdd(1, ordering: .relaxed).newValue
         capacity = rate * 12
         ringLeft = .allocate(capacity: capacity)
         ringRight = .allocate(capacity: capacity)
