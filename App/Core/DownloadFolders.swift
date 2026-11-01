@@ -122,20 +122,30 @@ struct DownloadFolders: Sendable {
         // when one of its songs says it belongs to an album of that id.
         var albumGroups: Set<String> = []
         for item in items.values {
-            if let group = item.entry.groupID, group == item.song.albumId {
-                albumGroups.insert(group)
+            for membership in item.entry.memberships where membership.id == item.song.albumId {
+                albumGroups.insert(membership.id)
             }
         }
 
+        // Every download a song is part of, not just the first: a song two playlists
+        // share is in both their folders.
         var byAlbum: [String: [Item]] = [:]
         var albumsAsked: [String: [Item]] = [:]
         var playlistsAsked: [String: [Item]] = [:]
+        var playlistNames: [String: String] = [:]
         for item in items.values {
             byAlbum[Self.albumKey(item.song), default: []].append(item)
-            if let group = item.entry.groupID, !albumGroups.contains(group) {
-                playlistsAsked[group, default: []].append(item)
-            } else {
-                albumsAsked[item.entry.groupID ?? Self.albumKey(item.song), default: []].append(item)
+            for membership in item.entry.memberships {
+                if membership.isOwn {
+                    albumsAsked[Self.albumKey(item.song), default: []].append(item)
+                } else if albumGroups.contains(membership.id) {
+                    albumsAsked[membership.id, default: []].append(item)
+                } else {
+                    playlistsAsked[membership.id, default: []].append(item)
+                    if playlistNames[membership.id] == nil, let name = membership.name {
+                        playlistNames[membership.id] = name
+                    }
+                }
             }
         }
 
@@ -204,7 +214,9 @@ struct DownloadFolders: Sendable {
             }
 
             let parts = split(members)
-            let name = asked.lazy.compactMap(\.entry.groupName).first
+            // Its own membership's name: `groupName` is only the song's first group, which
+            // for a shared song is another playlist's.
+            let name = playlistNames[key]
                 ?? (key == "favourites" ? "Favourites" : "Playlist")
 
             playlists.append(Folder(

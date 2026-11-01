@@ -133,7 +133,7 @@ enum DownloadsPage {
             guard response == "remove" else { return }
             let folders = app.downloadFolders.folders
             let current = folders.folder(id: folder.id) ?? folder
-            app.downloads.remove(folders.songIDsToRemove(for: current))
+            app.downloads.removeFolder(key: current.key, otherwise: folders.songIDsToRemove(for: current))
             removed()
         }
     }

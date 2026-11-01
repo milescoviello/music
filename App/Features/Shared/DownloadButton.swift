@@ -39,13 +39,12 @@ struct CollectionDownloadButton: View {
     }
 
     /// This album's or playlist's own download, and the sync that would bring it back.
-    /// A collection that is only "all here" because its songs came with other albums or
-    /// playlists has nothing of its own; then the button removes what it shows as here,
-    /// which is what tapping the check asks for.
+    /// Songs another downloaded album or playlist also has stay on the phone and only
+    /// leave this one. It used to delete every song shown here when this collection had
+    /// none of its own, which took them from the playlists that did.
     private func remove() {
         playlistSync.stopSyncing(groupID: groupID)
-        let own = downloads.catalog.songIDs(downloadedAs: groupID)
-        downloads.remove(own.isEmpty ? songs.map(\.id) : own)
+        downloads.removeGroup(groupID)
     }
 
     @ViewBuilder

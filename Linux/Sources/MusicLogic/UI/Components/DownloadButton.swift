@@ -70,9 +70,9 @@ final class CollectionDownloadButton {
         if fraction == nil, !complete {
             downloads.download(list, groupID: groupID, groupName: groupName)
         } else {
+            // Songs another downloaded album or playlist has stay, and only leave this one.
             env.app.playlistSync.stopSyncing(groupID: groupID)
-            let own = downloads.catalog.songIDs(downloadedAs: groupID)
-            downloads.remove(own.isEmpty ? list.map(\.id) : own)
+            downloads.removeGroup(groupID)
         }
     }
 

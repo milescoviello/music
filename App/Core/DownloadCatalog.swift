@@ -99,6 +99,15 @@ struct DownloadCatalog: Codable, Sendable {
         /// non-optional with a default would make the whole catalog undecodable, which is
         /// the bug this batch went looking for in `ServerOutbox`.
         var qualityRaw: String?
+        /// Every album and playlist this song is on the phone for, read through
+        /// `memberships`. Optional for the same reason as `qualityRaw`: catalogs from
+        /// before it have only `groupID`, which reads as a list of one.
+        ///
+        /// A song used to have one group, the first download that brought it. Downloading
+        /// a second playlist skipped the songs already here, so they never joined it --
+        /// that playlist's folder lacked them -- and removing the first playlist deleted
+        /// them although the second still had them.
+        var memberships_: [Membership]?
 
         var quality: DownloadQuality {
             qualityRaw.flatMap(DownloadQuality.init(rawValue:)) ?? .original
@@ -106,6 +115,55 @@ struct DownloadCatalog: Codable, Sendable {
 
         var id: String { song.id }
         var url: URL { Paths.media.appendingPathComponent(filename) }
+
+        /// Why this song is here: the albums and playlists it came with, and `.own` when it
+        /// was downloaded by itself. Setting it keeps `groupID` and `groupName` as the
+        /// first group's, for anything that still reads those.
+        var memberships: [Membership] {
+            get {
+                memberships_ ?? [groupID.map { Membership(id: $0, name: groupName) } ?? .own]
+            }
+            set {
+                memberships_ = newValue
+                let first = newValue.first { !$0.isOwn }
+                groupID = first?.id
+                groupName = first?.name
+            }
+        }
+
+        /// In this album's or playlist's download. A song downloaded by itself counts as
+        /// part of its own album's, which is where the Downloads screen files it.
+        func isMember(of groupID: String) -> Bool {
+            memberships.contains { $0.id == groupID || ($0.isOwn && song.albumId == groupID) }
+        }
+
+        /// Takes this song out of one album's or playlist's download. Nil when nothing
+        /// else wants it, meaning its file can go.
+        func leaving(_ groupID: String) -> Entry? {
+            let rest = memberships.filter { !($0.id == groupID || ($0.isOwn && song.albumId == groupID)) }
+            guard !rest.isEmpty else { return nil }
+            var entry = self
+            entry.memberships = rest
+            return entry
+        }
+
+        /// This song, in one more album's or playlist's download as well.
+        func joining(_ membership: Membership) -> Entry {
+            guard !memberships.contains(where: { $0.id == membership.id }) else { return self }
+            var entry = self
+            entry.memberships = memberships + [membership]
+            return entry
+        }
+    }
+
+    /// One reason a song is downloaded.
+    struct Membership: Codable, Sendable, Hashable {
+        /// The album or playlist id; empty for a song downloaded by itself.
+        var id: String
+        var name: String?
+
+        static let own = Membership(id: "", name: nil)
+        var isOwn: Bool { id.isEmpty }
     }
 
     var totalBytes: Int64 {
@@ -120,9 +178,57 @@ struct DownloadCatalog: Codable, Sendable {
     func songIDs(downloadedAs groupID: String) -> [String] {
         [entries, pending].flatMap { table in
             table.values.lazy
-                .filter { $0.groupID == groupID || ($0.groupID == nil && $0.song.albumId == groupID) }
+                .filter { $0.isMember(of: groupID) }
                 .map(\.song.id)
         }
+    }
+
+    /// Ends one album's or playlist's download, for `songIDs` or for all its songs. A song
+    /// another download still has stays here and only leaves this one; the rest are taken
+    /// out and returned, so their files and transfers can follow.
+    mutating func leave(
+        _ groupID: String,
+        songIDs: Set<String>? = nil
+    ) -> (finished: [Entry], waiting: [Entry]) {
+        func sweep(_ table: inout [String: Entry]) -> [Entry] {
+            var gone: [Entry] = []
+            for (id, entry) in table where entry.isMember(of: groupID) && (songIDs?.contains(id) ?? true) {
+                if let staying = entry.leaving(groupID) {
+                    table[id] = staying
+                } else {
+                    table.removeValue(forKey: id)
+                    gone.append(entry)
+                }
+            }
+            return gone
+        }
+        return (sweep(&entries), sweep(&pending))
+    }
+
+    /// These songs, already here or on their way, in one more download as well.
+    mutating func join(songIDs: [String], _ membership: Membership) -> Bool {
+        var changed = false
+        for id in songIDs {
+            if let entry = entries[id] {
+                let joined = entry.joining(membership)
+                if joined.memberships != entry.memberships { entries[id] = joined; changed = true }
+            } else if let entry = pending[id] {
+                let joined = entry.joining(membership)
+                if joined.memberships != entry.memberships { pending[id] = joined; changed = true }
+            }
+        }
+        return changed
+    }
+
+    /// Every album and playlist id with something downloaded or on its way.
+    var groupIDs: Set<String> {
+        var ids = Set<String>()
+        for table in [entries, pending] {
+            for entry in table.values {
+                for membership in entry.memberships where !membership.isOwn { ids.insert(membership.id) }
+            }
+        }
+        return ids
     }
 
     /// The albums represented by what is downloaded, newest addition first.
@@ -279,6 +385,30 @@ actor DownloadCatalogStore {
         }
         save()
         return catalog
+    }
+
+    /// Takes these songs, already here or on their way, into one more download as well.
+    func join(songIDs: [String], _ membership: DownloadCatalog.Membership) -> DownloadCatalog {
+        _ = load()
+        if catalog.join(songIDs: songIDs, membership) { save() }
+        return catalog
+    }
+
+    /// Ends one album's or playlist's download: see `DownloadCatalog.leave`. Deletes the
+    /// files of the songs nothing else wants, and returns their ids so their transfers
+    /// can be cancelled.
+    func leave(
+        _ groupID: String,
+        songIDs: Set<String>? = nil
+    ) -> (catalog: DownloadCatalog, removed: [String]) {
+        _ = load()
+        let gone = catalog.leave(groupID, songIDs: songIDs)
+        for entry in gone.finished {
+            try? FileManager.default.removeItem(at: entry.url)
+            try? FileManager.default.removeItem(at: Paths.lyricsFile(songID: entry.song.id))
+        }
+        save()
+        return (catalog, (gone.finished + gone.waiting).map(\.song.id))
     }
 
     func removeAll() -> DownloadCatalog {

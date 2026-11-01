@@ -146,7 +146,7 @@ private struct DownloadFolderRemoval: ViewModifier {
                 // may have landed in between.
                 let folders = appState.downloadFolders.folders
                 let current = folders.folder(id: chosen.id) ?? chosen
-                appState.downloads.remove(folders.songIDsToRemove(for: current))
+                appState.downloads.removeFolder(key: current.key, otherwise: folders.songIDsToRemove(for: current))
                 onRemoved()
             }
         } message: { chosen in

@@ -25,8 +25,7 @@ final class DownloadCenter {
     /// transition hops actors.
     private(set) var catalog = DownloadCatalog() {
         didSet {
-            let present = Set(catalog.entries.values.compactMap(\.groupID))
-                .union(catalog.pending.values.compactMap(\.groupID))
+            let present = catalog.groupIDs
             if present != groups { groups = present }
         }
     }
@@ -148,8 +147,27 @@ final class DownloadCenter {
         groupName: String? = nil,
         quality: DownloadQuality = .original
     ) {
+        // Songs already here, or on their way, for another album or playlist join this
+        // one too, rather than being skipped: skipped, this playlist's folder lacked them,
+        // and removing the other download deleted them from under it.
+        let membership = groupID.map { DownloadCatalog.Membership(id: $0, name: groupName) } ?? .own
+        var joining: [String] = []
+        let present = songs.filter { status(for: $0.id) != .none }.map(\.id)
+        if !present.isEmpty {
+            var mirror = catalog
+            if mirror.join(songIDs: present, membership) {
+                catalog = mirror
+                joining = present
+            }
+        }
+
         let wanted = songs.filter { status(for: $0.id) == .none }
-        guard !wanted.isEmpty, let signer = appState?.signer else { return }
+        guard !wanted.isEmpty, let signer = appState?.signer else {
+            if !joining.isEmpty {
+                Task { catalog = await store.join(songIDs: joining, membership) }
+            }
+            return
+        }
 
         var queued: [(entry: DownloadCatalog.Entry, url: URL)] = []
         for song in wanted {
@@ -177,6 +195,9 @@ final class DownloadCenter {
         isDownloading = true
 
         Task {
+            // In the same task as the new songs, and first, so the screen is never handed
+            // a catalog from before the join after one from after it.
+            if !joining.isEmpty { _ = await store.join(songIDs: joining, membership) }
             // Recorded before the transfers start, so the crash window between "file
             // landed" and "catalog knows" is recoverable at launch.
             catalog = await store.markPending(queued.map(\.entry))
@@ -301,9 +322,38 @@ final class DownloadCenter {
         groups.contains(groupID)
     }
 
-    /// Removes one album's or playlist's download: see `DownloadCatalog.songIDs(downloadedAs:)`.
-    func removeGroup(_ groupID: String) {
-        remove(catalog.songIDs(downloadedAs: groupID))
+    /// Ends one album's or playlist's download -- all of it, or just `songIDs`. A song
+    /// another download still has stays, and only leaves this one; see
+    /// `DownloadCatalog.leave`.
+    ///
+    /// It used to delete every song filed under the group, which with one group per song
+    /// took the songs another downloaded playlist shared with it.
+    func removeGroup(_ groupID: String, songIDs: Set<String>? = nil) {
+        // Gone from the screen at once, as in `remove`; the files follow.
+        var mirror = catalog
+        let gone = mirror.leave(groupID, songIDs: songIDs)
+        let removed = Set((gone.finished + gone.waiting).map(\.song.id))
+        catalog = mirror
+        if progress.keys.contains(where: removed.contains) {
+            progress = progress.filter { !removed.contains($0.key) }
+        }
+        isDownloading = !progress.isEmpty
+        Task {
+            let result = await store.leave(groupID, songIDs: songIDs)
+            await cancelTasks(for: result.removed)
+            catalog = result.catalog
+        }
+    }
+
+    /// Removes a Downloads-screen folder: its album's or playlist's download when it has
+    /// one, so songs other downloads share stay; otherwise -- songs downloaded one at a
+    /// time with no album id to file them by -- `songIDs`, the songs only it shows.
+    func removeFolder(key: String, otherwise songIDs: [String]) {
+        if catalog.songIDs(downloadedAs: key).isEmpty {
+            remove(songIDs)
+        } else {
+            removeGroup(key)
+        }
     }
 
     func removeAll() {
