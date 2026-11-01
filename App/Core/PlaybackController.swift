@@ -1194,6 +1194,10 @@ final class PlaybackController {
 
     func persistNow() {
         guard remote == nil else { return }
+        // A debounced save still waiting holds an older snapshot, and would land on top
+        // of this one.
+        saveTask?.cancel()
+        saveTask = nil
         let snapshot = QueueSnapshot(queue: queue, positionSeconds: elapsed, savedAt: .now)
         lastSavedAt = snapshot.savedAt
         Task { [store] in await store.save(snapshot) }
