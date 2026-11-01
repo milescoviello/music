@@ -41,6 +41,11 @@ struct PlaybackQueue: Codable, Sendable {
     var lastAddedTrackIndex: Int? { didSet { listID = UUID() } }
     /// Set when the queue is a station, which tops itself up as it plays.
     var station: Station? { didSet { listID = UUID() } }
+    /// How many of `tracks` the queue was started with: the album or playlist itself.
+    /// Those at this index and above were added after -- Play Next, Add to Up Next, Add
+    /// to Queue, picks -- which is what lets shuffling leave them where they were put.
+    /// Optional so a queue saved before it still decodes, read as "nothing added".
+    var baseCount: Int?
 
     /// Changes whenever the list does: the tracks, their order, or anything kept with
     /// them. Never for `position` or `repeatMode`, which change every track and with a
@@ -51,6 +56,7 @@ struct PlaybackQueue: Codable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case tracks, order, position, repeatMode, isShuffled, sourceDescription, lastAddedTrackIndex, station
+        case baseCount
     }
 
     var isEmpty: Bool { tracks.isEmpty }
@@ -117,6 +123,7 @@ struct PlaybackQueue: Codable, Sendable {
             station: station
         )
         queue.position = queue.order.firstIndex(of: index) ?? 0
+        queue.baseCount = tracks.count
 
         // `keepingCurrent: false` on purpose. Pressing Shuffle should start on a
         // random track; keeping the current one pinned it to position 0, so shuffle
@@ -127,29 +134,45 @@ struct PlaybackQueue: Codable, Sendable {
         return queue
     }
 
+    /// The songs added after the queue began that come straight after the track playing:
+    /// what Play Next and Add to Up Next put there, in their order.
+    private var addedUpNext: [Int] {
+        let base = baseCount ?? tracks.count
+        guard order.indices.contains(position) else { return [] }
+        return Array(order.dropFirst(position + 1).prefix { $0 >= base })
+    }
+
+    /// With `keepingCurrent`, what was added to come next stays next, in its order, and
+    /// everything else is shuffled behind it. Shuffling it in with the rest scattered
+    /// songs chosen to play next across the whole queue.
     mutating func shuffle(keepingCurrent: Bool) {
         guard !order.isEmpty else { return }
 
         let currentTrackIndex = order.indices.contains(position) ? order[position] : nil
-        var shuffledOrder = Array(tracks.indices).shuffled()
-
-        if keepingCurrent, let currentTrackIndex,
-           let existing = shuffledOrder.firstIndex(of: currentTrackIndex) {
-            shuffledOrder.swapAt(0, existing)
-            position = 0
+        if keepingCurrent, let currentTrackIndex {
+            let kept = [currentTrackIndex] + addedUpNext
+            let keptSet = Set(kept)
+            order = kept + tracks.indices.filter { !keptSet.contains($0) }.shuffled()
         } else {
-            position = 0
+            order = Array(tracks.indices).shuffled()
         }
-
-        order = shuffledOrder
+        position = 0
         isShuffled = true
     }
 
+    /// Back to the album's or playlist's own order from the track playing, with what was
+    /// added to come next still straight after it. Rebuilt from the track order alone,
+    /// those songs -- added last, so numbered last -- went to the very end.
     mutating func unshuffle() {
         guard isShuffled else { return }
         let currentTrackIndex = order.indices.contains(position) ? order[position] : 0
-        order = Array(tracks.indices)
-        position = currentTrackIndex
+        let added = addedUpNext
+        let addedSet = Set(added)
+        var rebuilt = tracks.indices.filter { !addedSet.contains($0) }
+        let at = rebuilt.firstIndex(of: currentTrackIndex) ?? 0
+        rebuilt.insert(contentsOf: added, at: min(at + 1, rebuilt.count))
+        order = rebuilt
+        position = at
         isShuffled = false
     }
 
@@ -204,8 +227,14 @@ struct PlaybackQueue: Codable, Sendable {
 
     /// Plexamp's Play Next: straight after the current track, ahead of anything added
     /// before.
+    ///
+    /// The end of what was added before stays the place Add to Up Next goes next: these
+    /// went in ahead of it, so it is still further down. Taking these as the last thing
+    /// added put the next Add to Up Next ahead of the earlier additions.
     mutating func insertNext(_ songs: [Song]) {
+        let pending = upNextInsertionPoint.map { order[$0] }
         insert(songs, afterOrderIndex: position)
+        if let pending { lastAddedTrackIndex = pending }
     }
 
     /// Plexamp's Add to Up Next: after the last thing added, so a run of additions plays
@@ -264,6 +293,7 @@ struct PlaybackQueue: Codable, Sendable {
         position = 0
         isShuffled = false
         lastAddedTrackIndex = nil
+        baseCount = 1
     }
 
     mutating func remove(atOrderIndex index: Int) {
@@ -276,6 +306,8 @@ struct PlaybackQueue: Codable, Sendable {
         // switched off. Found by a test, not by use.
         guard tracks.indices.contains(trackIndex) else { return }
         tracks.remove(at: trackIndex)
+        // One fewer of the original songs, so what was added still starts where it did.
+        if let base = baseCount, trackIndex < base { baseCount = base - 1 }
 
         // Every remaining index above the removed one now points one slot too high.
         order = order.map { $0 > trackIndex ? $0 - 1 : $0 }
@@ -352,6 +384,8 @@ actor PlaybackQueueStore {
         var sourceDescription: String
         var lastAddedTrackIndex: Int?
         var station: Station?
+        /// Optional: lists saved before it read as "nothing added".
+        var baseCount: Int?
     }
 
     private struct SavedPosition: Codable {
@@ -381,7 +415,8 @@ actor PlaybackQueueStore {
             isShuffled: list.isShuffled,
             sourceDescription: list.sourceDescription,
             lastAddedTrackIndex: list.lastAddedTrackIndex,
-            station: list.station
+            station: list.station,
+            baseCount: list.baseCount
         )
         // Whether the saved position still points at the track it was saved on.
         var isSameTrack = false
@@ -424,7 +459,8 @@ actor PlaybackQueueStore {
                 isShuffled: queue.isShuffled,
                 sourceDescription: queue.sourceDescription,
                 lastAddedTrackIndex: queue.lastAddedTrackIndex,
-                station: queue.station
+                station: queue.station,
+                baseCount: queue.baseCount
             )
             // Atomic: a crash mid-write must not leave a half-written queue.
             guard let data = try? JSONEncoder().encode(list),
