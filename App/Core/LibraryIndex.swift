@@ -40,7 +40,7 @@ final class LibraryIndex {
 
         // Last launch's copy first, so the screen is never empty while the fresh one loads.
         if loadedScope != key, let stored = await appState.cache.load([Album].self, for: key) {
-            albums = stored
+            albums = SearchRanking.oneOfEach(stored)
             loadedScope = key
         }
 
@@ -58,7 +58,8 @@ final class LibraryIndex {
             offset += pageSize
         }
 
-        albums = fetched
+        // One of each for the shelves cut from it, as in every other album list.
+        albums = SearchRanking.oneOfEach(fetched)
         loadedScope = key
         loadedAt = .now
         await appState.cache.store(fetched, for: key)

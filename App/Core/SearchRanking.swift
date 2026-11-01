@@ -40,6 +40,13 @@ enum SearchRanking {
         )
     }
 
+    /// One of each album by name and artist, the first kept. The library's two folders
+    /// hold many albums twice, so lists in "All" showed them twice: checked on the server,
+    /// 24 of Most Played's first 100 albums, 11 of the A-Z list's, 8 of Recently Played's.
+    static func oneOfEach(_ albums: [Album]) -> [Album] {
+        unique(albums) { "\(comparable($0.name))\u{1F}\(comparable($0.artist ?? ""))" }
+    }
+
     /// For matching only: `normalised`, with punctuation gone and runs of spaces made
     /// one, so "k" is "K." and "dont stop" is "Don't Stop". Not used for sorting, which
     /// keeps `normalised`.

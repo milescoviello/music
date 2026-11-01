@@ -63,9 +63,10 @@ final class HomeModel {
         // built from is already served from the cache above.
         async let neglected = Rediscovery.forgottenFavourites(appState: appState, scope: scope, limit: 3)
 
-        recentlyPlayed = await played ?? []
-        recentlyAdded = await added ?? []
-        mostPlayed = await frequent ?? []
+        // One of each: the two library folders hold many albums twice.
+        recentlyPlayed = SearchRanking.oneOfEach(await played ?? [])
+        recentlyAdded = SearchRanking.oneOfEach(await added ?? [])
+        mostPlayed = SearchRanking.oneOfEach(await frequent ?? [])
         favoriteSongs = Array((await starred?.songs ?? []).prefix(4))
         forgotten = await neglected
         hasLoaded = true
@@ -93,7 +94,7 @@ final class HomeModel {
         if let genre = recentlyPlayed.lazy.compactMap(\.genre).first(where: { !$0.isEmpty }) {
             let seen = Set(recentlyPlayed.map(\.id))
             let albums = (try? await client.albums(type: .random, size: 20, scope: scope, genre: genre)) ?? []
-            let fresh = albums.filter { !seen.contains($0.id) }
+            let fresh = SearchRanking.oneOfEach(albums.filter { !seen.contains($0.id) })
             moreInGenre = fresh.isEmpty ? nil : (genre, fresh)
         }
 

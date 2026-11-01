@@ -168,7 +168,9 @@ final class AlbumList {
         albums += page
         // A short page is the end; random never ends meaningfully, so one page.
         canLoadMore = page.count == Self.pageSize && sort != .random
-        grid.set(albums)
+        // One of each: the two library folders hold many albums twice. `albums` stays as
+        // the server sent it, since the next page's offset is counted in its rows.
+        grid.set(SearchRanking.oneOfEach(albums))
         if albums.isEmpty {
             status.child = Loader.empty("No Albums")
             stack.visibleName = "status"

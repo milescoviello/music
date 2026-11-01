@@ -14,7 +14,8 @@ enum LibraryFacets {
     /// A discography split the way Plexamp's artist page splits it, in `ReleaseKind`
     /// order, newest first within each.
     static func byReleaseKind(_ albums: [Album]) -> [(kind: ReleaseKind, albums: [Album])] {
-        let grouped = Dictionary(grouping: albums, by: \.kind)
+        // One of each: an artist's page listed an album once per library folder holding it.
+        let grouped = Dictionary(grouping: SearchRanking.oneOfEach(albums), by: \.kind)
         return ReleaseKind.allCases.compactMap { kind in
             guard let members = grouped[kind], !members.isEmpty else { return nil }
             return (kind, newestFirst(members))

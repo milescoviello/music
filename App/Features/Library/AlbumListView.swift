@@ -120,8 +120,10 @@ struct AlbumListView: View {
         downloadedOnly || !appState.reachability.isOnline
     }
 
+    /// One of each album: the library's two folders hold many twice. `albums` stays as
+    /// the server sent it, since the next page's offset is counted in its rows.
     private var displayed: [Album] {
-        guard isFilteringToDownloads else { return albums }
+        guard isFilteringToDownloads else { return SearchRanking.oneOfEach(albums) }
 
         let downloaded = downloads.catalog.downloadedAlbums
         guard let genre else { return downloaded }

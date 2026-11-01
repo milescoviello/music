@@ -122,6 +122,17 @@ struct SearchArrangingTests {
         #expect(SearchRanking.arranged(results, for: "cigarettes").songs.map(\.id) == ["a", "c"])
     }
 
+    /// The two folders hold many albums twice; every album list shows one of each, the
+    /// first kept, and keeps different artists' albums of the same name apart.
+    @Test func oneOfEachAlbum() {
+        var a1 = Album(id: "1", name: "Currents"); a1.artist = "Tame Impala"
+        var a2 = Album(id: "2", name: "Currents"); a2.artist = "Tame Impala"
+        var other = Album(id: "3", name: "Currents"); other.artist = "Someone Else"
+        var singles = Album(id: "4", name: "Singles"); singles.artist = "A"
+        var singles2 = Album(id: "5", name: "Singles"); singles2.artist = "B"
+        #expect(SearchRanking.oneOfEach([a1, a2, other, singles, singles2]).map(\.id) == ["1", "3", "4", "5"])
+    }
+
     @Test func addingKeepsTheTypedResultsFirstAndDropsRepeats() {
         var typed = SearchResult3()
         typed.song = [Song(id: "1", title: "One")]
