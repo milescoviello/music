@@ -200,8 +200,12 @@ enum Charts {
     }
 
     static func topAlbums(_ plays: [ChartPlay], in period: ChartPeriod, limit: Int) -> [ChartRow] {
-        rank(plays, in: period, limit: limit, key: { $0.albumID ?? "\($0.album)\u{1F}\($0.artist)" }) { play in
-            ChartRow(id: play.albumID ?? play.album, title: play.album, subtitle: play.artist, plays: 0,
+        // The row's id is what it is counted under. By the album's name alone, two
+        // artists' "Greatest Hits" played before album ids were recorded were two rows
+        // with one id, and the list showed one of them twice.
+        let key = { (play: ChartPlay) in play.albumID ?? "\(play.album)\u{1F}\(play.artist)" }
+        return rank(plays, in: period, limit: limit, key: key) { play in
+            ChartRow(id: key(play), title: play.album, subtitle: play.artist, plays: 0,
                      albumID: play.albumID, artistID: play.artistID, coverArt: play.coverArt)
         }
     }

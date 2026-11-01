@@ -74,4 +74,20 @@ struct ChartsTests {
 
         #expect(Charts.topArtists(plays, in: period, limit: 1).map(\.id) == ["X"])
     }
+
+    @Test func albumsOfOneNameByTwoArtistsAreTwoRows() {
+        let period = ChartPeriod.current(.year, now: date(2026, 10, 17), calendar: calendar)
+        // Plays from before album ids were recorded.
+        func play(_ id: String, artist: String, _ when: Date) -> ChartPlay {
+            ChartPlay(songID: id, title: id, artist: artist, album: "Greatest Hits", at: when)
+        }
+        let albums = Charts.topAlbums([
+            play("a", artist: "Queen", date(2026, 3, 1)),
+            play("a", artist: "Queen", date(2026, 3, 2)),
+            play("b", artist: "ABBA", date(2026, 4, 1)),
+        ], in: period, limit: 10)
+        #expect(albums.map(\.plays) == [2, 1])
+        #expect(albums.map(\.subtitle) == ["Queen", "ABBA"])
+        #expect(Set(albums.map(\.id)).count == 2)
+    }
 }
