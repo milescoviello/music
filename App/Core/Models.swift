@@ -582,7 +582,21 @@ enum ServerDate {
         // Navidrome includes fractional seconds, which the default options reject.
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return fractional.date(from: value)
+        return fractional.date(from: milliseconds(value))
+    }
+
+    /// `value` with its fractional seconds cut or padded to three digits.
+    ///
+    /// Navidrome writes Go's RFC 3339, which drops trailing zeros: anything from one digit
+    /// (`.7Z`) to nine (`.123456789Z`). Which of those the formatter takes isn't documented,
+    /// and one date it turns down fails a whole page of songs, so it is only given three.
+    static func milliseconds(_ value: String) -> String {
+        guard let dot = value.firstIndex(of: "."), value[..<dot].contains("T") else { return value }
+        let start = value.index(after: dot)
+        let end = value[start...].firstIndex(where: { !($0.isASCII && $0.isNumber) }) ?? value.endIndex
+        let digits = String(value[start..<end])
+        guard !digits.isEmpty else { return value }
+        return String(value[...dot]) + String((digits + "000").prefix(3)) + String(value[end...])
     }
 }
 
