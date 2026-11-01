@@ -103,8 +103,16 @@ final class PlaybackController {
     init() {
         session.configure()
 
-        session.onPause = { [weak self] in self?.pause() }
-        session.onResume = { [weak self] in self?.play() }
+        // About this device's own sound: headphones pulled out, a call. A computer being
+        // played to is not affected, and pausing it from here also never resumed it.
+        session.onPause = { [weak self] in
+            guard let self, remote == nil else { return }
+            pause()
+        }
+        session.onResume = { [weak self] in
+            guard let self, remote == nil else { return }
+            play()
+        }
 
         nowPlaying.onPlay = { [weak self] in self?.play() }
         nowPlaying.onPause = { [weak self] in self?.pause() }
