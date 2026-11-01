@@ -1,18 +1,55 @@
 # Music
 
-A native SwiftUI music client for [Navidrome](https://www.navidrome.org/),
-built for one iPhone and nothing else.
+A music player for a self-hosted [Navidrome](https://www.navidrome.org/) server: an
+iPhone app and a Linux desktop app that share one core, and an optional service that
+runs next to the server. It aims at what Plexamp does for a Plex library, for a
+Navidrome one.
 
-Written from scratch. There is no WebKit here: no web view, no CSS, no
-JavaScript. Scrolling, gestures, swipe-back and the tab bar are the system's,
-and playback is `AVQueuePlayer`, so gapless, background audio and the lock
-screen work the way they do in any other iOS app.
+Play counts, ratings, favourites, playlists and the play queue all live on the
+Navidrome server and go through the Subsonic API, so any other client on the same
+server -- desktop Feishin, say -- stays in step. Neither app keeps that state to itself.
 
-Play counts, ratings and playlists live on the Navidrome server and are read and
-written over the Subsonic API, so a desktop client stays in sync with this one
-automatically -- neither app owns that state.
+## What it does
 
-## Building
+- **Browse and play the library**: artists, albums, playlists, genres, decades,
+  favourites and folders, with a Home of recently played, recently added and
+  forgotten favourites.
+- **Search that copes with typos**, missing spaces and one-letter titles, plus search
+  by a line of lyrics.
+- **Up Next**: Play Next, Add to Up Next and Add to Queue, swipe to remove and drag to
+  reorder. **Autoplay** carries on when the queue runs out, and there are stations and
+  daily mixes built from what you play.
+- **Playback**: gapless albums, crossfades (beat-matched when the tracks' beats are
+  known), an equalizer, playback speed, a sleep timer, synced lyrics with translation
+  and romanization, and the Plexamp visualizers.
+- **Offline**: download albums and playlists. A downloaded playlist follows the server
+  when it changes, and a song two downloads share stays until neither needs it.
+- **Guest DJs** that slip picks into the queue as it plays, and **listening stats**:
+  history, charts, and top artists, albums and songs by week, month and year.
+- **Siri and Shortcuts** on the phone: play a playlist, play favourites, shuffle the
+  library.
+- **Play on the computer from the phone** (see below), the way one Plexamp plays to
+  another.
+- **Sonic features**, with `server/sonic` running: sonically similar tracks, albums and
+  artists, Sonic Adventure, sonic radio, the loudness-shaped seekbar, and instant lyric
+  search. Without it, the app falls back to what Navidrome offers.
+
+The iPhone app is native SwiftUI with no web view, so scrolling, gestures and the tab bar
+are the system's, and playback is `AVQueuePlayer`, so background audio and the lock screen
+work as they do in any iOS app. The Linux app is GTK 4 and libadwaita over the same core.
+
+## Parts
+
+| | |
+|---|---|
+| `App/` | The iPhone app. `App/Core` is shared with Linux. |
+| `Linux/` | The Linux app: GTK screens, the audio engine and the desktop services |
+| `server/sonic/` | The optional companion service: sonic analysis and lyric search ([README](server/sonic/README.md)) |
+| `Tests/` | Logic tests, which run with `swift test` on Linux and macOS |
+| `tools/` | The iPhone install-on-plug-in helper, and a one-off Plex to Navidrome import |
+| `docs/` | How Plexamp's features work, and how they are matched here |
+
+## Building the iPhone app
 
 There is no Mac in this loop. GitHub Actions compiles on a macOS runner and
 publishes an unsigned `.ipa`; it is signed and installed on-device with
@@ -109,11 +146,14 @@ curl -N -H "Authorization: Bearer $TOKEN" http://desktop:47823/v1/events
 ## Layout
 
 ```
-App/Core        Subsonic client, models, session, Keychain
+App/Core        Subsonic client, models, playback, queue, downloads, search, stores
 App/Features    One directory per screen
 Linux/Sources   The Linux app: GTK bindings, audio engine, desktop services, screens,
                 and the remote-player server (Linux/Sources/MusicLogic/Remote)
 Linux/Modules   C module maps for GTK, epoxy, FFmpeg, PulseAudio, Rubber Band
+server/sonic    The companion service (Python, Essentia), run with Docker Compose
+Tests           Logic tests for the Foundation-only parts of App/Core
+tools           phone-refresh (installs on plug-in), plex-to-navidrome (import)
 ```
 
 `Linux/Sources/MusicLogic/Core` is a link to `App/Core`: the Linux build
