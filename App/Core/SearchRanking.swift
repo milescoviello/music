@@ -47,6 +47,13 @@ enum SearchRanking {
         unique(albums) { "\(comparable($0.name))\u{1F}\(comparable($0.artist ?? ""))" }
     }
 
+    /// One of each recording by title and artist, the first kept -- what mixes and
+    /// playlists already treat as the same song. The two folders' copies of a song have
+    /// different ids, so de-duplicating by id kept both.
+    static func oneOfEach(_ songs: [Song]) -> [Song] {
+        unique(songs) { "\(comparable($0.title))\u{1F}\(comparable($0.artist ?? ""))" }
+    }
+
     /// For matching only: `normalised`, with punctuation gone and runs of spaces made
     /// one, so "k" is "K." and "dont stop" is "Don't Stop". Not used for sorting, which
     /// keeps `normalised`.

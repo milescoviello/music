@@ -87,6 +87,8 @@ enum GenrePage {
         let app = env.app
         let list = SongList.long(env, source: genre)
         var songs: [Song] = []
+        // Rows the server has sent, for the next offset: `songs` is one of each recording.
+        var fetchedRows = 0
         var loading = false
         var more = true
         let scroller = ScrolledWindow(list.view).vexpand()
@@ -94,7 +96,7 @@ enum GenrePage {
         func loadMore() {
             guard !loading, more else { return }
             loading = true
-            let offset = songs.count
+            let offset = fetchedRows
             Task { @MainActor in
                 let fetched = try? await app.client.songsByGenre(genre, count: 100, offset: offset, scope: app.scope.scope)
                 guard alive.isAlive else { return }
@@ -104,7 +106,9 @@ enum GenrePage {
                     loading = false
                     return
                 }
-                songs += page
+                fetchedRows += page.count
+                // One of each: the two library folders hold most songs twice.
+                songs = SearchRanking.oneOfEach(songs + page)
                 more = page.count == 100
                 loading = false
                 list.set(songs)
@@ -223,13 +227,15 @@ enum TracksPage {
             description: "This server does not list every track at once. Albums and Artists still have them all."
         ), name: "empty")
         var songs: [Song] = []
+        // Rows the server has sent, for the next offset: `songs` is one of each recording.
+        var fetchedRows = 0
         var loading = false
         var more = true
         let alive = stack.liveness
         func loadMore() {
             guard !loading, more else { return }
             loading = true
-            let offset = songs.count
+            let offset = fetchedRows
             Task { @MainActor in
                 let fetched = try? await app.client.search(query: "", artistCount: 0, albumCount: 0, songCount: 200, songOffset: offset, scope: app.scope.scope)
                 guard alive.isAlive else { return }
@@ -239,8 +245,9 @@ enum TracksPage {
                     if songs.isEmpty { stack.visibleName = "empty" }
                     return
                 }
-                let known = Set(songs.map(\.id))
-                songs += page.filter { !known.contains($0.id) }
+                fetchedRows += page.count
+                // One of each: the two library folders hold most songs twice.
+                songs = SearchRanking.oneOfEach(songs + page)
                 more = page.count == 200
                 loading = false
                 list.set(songs)

@@ -366,6 +366,8 @@ struct ArtistDetailView: View {
             }
             .map(\.element)
 
-        return result + rest
+        // One of each recording: the two folders' copies have different ids, so the
+        // list above, by id, played most songs twice.
+        return SearchRanking.oneOfEach(result + rest)
     }
 }

@@ -132,6 +132,9 @@ private struct GenreSongsView: View {
     /// Bumped by a reload, so a page still coming for the old folder is dropped. See
     /// `AlbumListView.reload`.
     @State private var generation = 0
+    /// Rows the server has sent, for the next page's offset: `songs` holds one of each
+    /// recording, the two library folders having most songs twice.
+    @State private var fetched = 0
 
     private let pageSize = 100
 
@@ -166,6 +169,7 @@ private struct GenreSongsView: View {
         .task(id: scope.generation) {
             generation += 1
             songs = []
+            fetched = 0
             canLoadMore = true
             isLoadingPage = false
             await loadMore()
@@ -178,17 +182,18 @@ private struct GenreSongsView: View {
         let started = generation
         defer { if started == generation { isLoadingPage = false } }
 
-        let fetched = try? await appState.client.songsByGenre(
+        let fetchedPage = try? await appState.client.songsByGenre(
             genre,
             count: pageSize,
-            offset: songs.count,
+            offset: fetched,
             scope: scope.scope
         )
 
         // Cancelled by a newer load, or failed: neither is the end of the list, which
         // the next appearance of the sentinel asks for again.
-        guard started == generation, !Task.isCancelled, let page = fetched else { return }
-        songs.append(contentsOf: page)
+        guard started == generation, !Task.isCancelled, let page = fetchedPage else { return }
+        fetched += page.count
+        songs = SearchRanking.oneOfEach(songs + page)
         canLoadMore = page.count == pageSize
     }
 }
