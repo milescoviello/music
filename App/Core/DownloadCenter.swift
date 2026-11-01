@@ -47,6 +47,8 @@ final class DownloadCenter {
         }
     }
     private(set) var activeCount = 0
+    /// Whether `catalog` has been read from disk yet. Until it has, it is empty.
+    @ObservationIgnored private(set) var isCatalogLoaded = false
     /// The songs with a transfer under way: `progress`'s keys, changed only when they do.
     private(set) var arriving: Set<String> = []
     private(set) var isDownloading = false
@@ -88,6 +90,7 @@ final class DownloadCenter {
         self.appState = appState
         Task {
             catalog = await store.reconcile()
+            isCatalogLoaded = true
             await adoptRunningTasks()
             appState.playlistSync.catalogLoaded()
             resumeWaiting()
@@ -460,6 +463,15 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
         }
     }
 
+    /// A song's waiting entry as the catalog file has it. Every waiting entry is written
+    /// there before its transfer starts.
+    static func pendingOnDisk(_ songID: String) -> DownloadCatalog.Entry? {
+        guard let data = try? Data(contentsOf: Paths.catalog),
+              let catalog = try? JSONDecoder().decode(DownloadCatalog.self, from: data)
+        else { return nil }
+        return catalog.pending[songID]
+    }
+
     static func isErrorBody(_ url: URL) -> Bool {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return false }
         defer { try? handle.close() }
@@ -508,7 +520,14 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
         }
 
         let target = center
-        let entry = MainActor.assumeIsolated { target?.catalog.pending[songID] }
+        // Asked of the file on disk until the catalog has been read. A relaunch in the
+        // background to be handed finished downloads is exactly that moment, and the
+        // empty catalog in memory had none of them waiting: their files were let go, and
+        // the songs downloaded again from the start.
+        let entry = MainActor.assumeIsolated { () -> DownloadCatalog.Entry? in
+            guard let target else { return nil }
+            return target.isCatalogLoaded ? target.catalog.pending[songID] : Self.pendingOnDisk(songID)
+        }
         guard let entry else { return }
 
         // Synchronous, inline, before this method returns.
