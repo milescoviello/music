@@ -378,6 +378,14 @@ actor SubsonicClient {
         ).album ?? []
     }
 
+    /// The most played albums, each once with the plays of all its copies: see
+    /// `Charts.mergingCopies`. Three times as many are asked for, since an album's other
+    /// copy can sit well down the server's list.
+    func mostPlayedAlbums(size: Int, scope: LibraryScope = .all) async throws -> [Album] {
+        let frequent = try await self.albums(type: .frequent, size: min(size * 3, 500), scope: scope)
+        return Array(Charts.mergingCopies(frequent).prefix(size))
+    }
+
     /// Albums released in a span of years, for decade browsing.
     ///
     /// Two things about the server's answer. It filters on the **release** year while the

@@ -350,10 +350,11 @@ struct StatsView: View {
     private func load() async {
         async let status = try? appState.client.scanStatus()
         async let stars = try? appState.client.starred()
-        async let frequent = try? appState.client.albums(type: .frequent, size: 10)
+        // Each once, with all its copies' plays: the two library folders hold most twice.
+        async let frequent = try? appState.client.mostPlayedAlbums(size: 10)
         async let playing = try? appState.client.nowPlaying()
         async let recent = try? appState.native.recentlyPlayed(limit: 25)
-        async let top = try? appState.native.mostPlayed(limit: 25)
+        async let top = try? appState.native.mostPlayedRecordings(limit: 25)
 
         scan = await status
         starred = await stars

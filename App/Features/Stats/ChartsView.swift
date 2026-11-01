@@ -98,7 +98,7 @@ struct ChartsView: View {
         .onChange(of: spanRaw) { period = nil }
         .task(id: "\(spanRaw)-\(scope.generation)") {
             guard span == .all else { return }
-            serverAlbums = (try? await appState.client.albums(type: .frequent, size: limit, scope: scope.scope)) ?? []
+            serverAlbums = (try? await appState.client.mostPlayedAlbums(size: limit, scope: scope.scope)) ?? []
         }
         .task(id: rankKey) { await rank(rankKey) }
     }

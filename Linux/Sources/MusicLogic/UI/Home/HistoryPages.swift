@@ -255,10 +255,10 @@ enum StatsPage {
             fill()
             async let status = try? app.client.scanStatus()
             async let stars = try? app.client.starred()
-            async let frequent = try? app.client.albums(type: .frequent, size: 10)
+            async let frequent = try? app.client.mostPlayedAlbums(size: 10)
             async let playing = try? app.client.nowPlaying()
             async let recent = try? app.native.recentlyPlayed(limit: 25)
-            async let top = try? app.native.mostPlayed(limit: 25)
+            async let top = try? app.native.mostPlayedRecordings(limit: 25)
             let (scan, starred, mostPlayed, nowPlaying, recentTracks, topTracks) = await (status, stars, frequent ?? [], playing ?? [], recent ?? [], top ?? [])
             guard alive.isAlive else { return }
             if !topTracks.isEmpty {
@@ -413,7 +413,7 @@ enum ChartsPage {
             Task { @MainActor in
                 var rows: [ChartRow]
                 if span == .all, kind == .albums {
-                    let albums = (try? await app.client.albums(type: .frequent, size: limit, scope: app.scope.scope)) ?? []
+                    let albums = (try? await app.client.mostPlayedAlbums(size: limit, scope: app.scope.scope)) ?? []
                     rows = albums.map { ChartRow(id: $0.id, title: $0.name, subtitle: $0.artist, plays: $0.playCount ?? 0, albumID: $0.id, artistID: $0.artistId, coverArt: $0.coverArt) }
                 } else {
                     let currentKind = kind

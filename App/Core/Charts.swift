@@ -230,6 +230,52 @@ enum Charts {
         }
     }
 
+    /// Copies of one thing as one: an album or a recording the library's two folders both
+    /// hold, whose plays the server counts apart under two ids. The first copy of each key
+    /// stands for all of them, with every copy's plays added, and the most played come
+    /// first; ties keep the order they came in.
+    ///
+    /// For the server's all-time lists, which listed such copies once each with part of
+    /// the plays: in November 2026 four of the ten Most Played albums were a second copy
+    /// of one above them, and the most played song of all, 222 plays, showed as 117.
+    static func mergingCopies<T>(
+        _ items: [T],
+        key: (T) -> String,
+        plays: (T) -> Int,
+        setPlays: (inout T, Int) -> Void
+    ) -> [T] {
+        var order: [String] = []
+        var first: [String: T] = [:]
+        var totals: [String: Int] = [:]
+        for item in items {
+            let name = key(item)
+            if first[name] == nil {
+                order.append(name)
+                first[name] = item
+            }
+            totals[name, default: 0] += plays(item)
+        }
+        var merged: [(offset: Int, total: Int, item: T)] = []
+        for (offset, name) in order.enumerated() {
+            guard var item = first[name], let total = totals[name] else { continue }
+            setPlays(&item, total)
+            merged.append((offset: offset, total: total, item: item))
+        }
+        return merged
+            .sorted { $0.total != $1.total ? $0.total > $1.total : $0.offset < $1.offset }
+            .map { $0.item }
+    }
+
+    /// Albums, as `mergingCopies`: by name and album artist.
+    static func mergingCopies(_ albums: [Album]) -> [Album] {
+        mergingCopies(
+            albums,
+            key: { "\(SearchRanking.normalised($0.name))\u{1F}\($0.artistId ?? SearchRanking.normalised($0.artist ?? ""))" },
+            plays: { $0.playCount ?? 0 },
+            setPlays: { $0.playCount = $1 }
+        )
+    }
+
     /// Counts by key within the period. The row is built from the most recent play of
     /// each, so a renamed album or newer artwork wins. Ties go to whoever got there last.
     private static func rank(

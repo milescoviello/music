@@ -134,6 +134,20 @@ actor NavidromeClient {
             .filter { ($0.playCount ?? 0) > 0 }
     }
 
+    /// `mostPlayed`, with each recording once and the plays of all its copies, by title and
+    /// artist: the library's two folders hold most songs twice, and the server counts each
+    /// copy's plays apart. See `Charts.mergingCopies`.
+    func mostPlayedRecordings(limit: Int = 25) async throws -> [Song] {
+        let counted = try await mostPlayed(limit: limit * 4)
+        let merged = Charts.mergingCopies(
+            counted,
+            key: { "\(SearchRanking.normalised($0.title))\u{1F}\(SearchRanking.normalised($0.artist ?? ""))" },
+            plays: { $0.playCount ?? 0 },
+            setPlays: { $0.playCount = $1 }
+        )
+        return Array(merged.prefix(limit))
+    }
+
     // MARK: - Playlist order
 
     /// Moves a track within a playlist.

@@ -91,6 +91,30 @@ struct ChartsTests {
         #expect(Set(albums.map(\.id)).count == 2)
     }
 
+    @Test func allTimeListsCountAnAlbumsCopiesTogether() {
+        func album(_ id: String, _ name: String, _ artistID: String, _ plays: Int) -> Album {
+            var album = Album(id: id, name: name)
+            album.artistId = artistID
+            album.artist = artistID
+            album.playCount = plays
+            return album
+        }
+        // The server's Most Played as it stood in November 2026, abridged: each copy in
+        // its own place, with its own plays.
+        let merged = Charts.mergingCopies([
+            album("dm", "D>E>A>T>H>M>E>T>A>L", "panchiko", 857),
+            album("ht2", "Hybrid Theory", "linkin park", 367),
+            album("ht1", "Hybrid Theory", "linkin park", 339),
+            album("cu2", "Currents", "tame impala", 308),
+            album("cu1", "Currents", "tame impala", 229),
+            album("ok2", "OK Computer", "radiohead", 190),
+            album("gh", "Greatest Hits", "queen", 150),
+            album("gh2", "Greatest Hits", "abba", 150),
+        ])
+        #expect(merged.map(\.id) == ["dm", "ht2", "cu2", "ok2", "gh", "gh2"])
+        #expect(merged.map(\.playCount) == [857, 706, 537, 190, 150, 150])
+    }
+
     @Test func aSongOrAlbumInBothFoldersIsOneRowWithAllItsPlays() {
         let period = ChartPeriod.current(.year, now: date(2026, 10, 17), calendar: calendar)
         // The two library folders' copies: the same tags, different song and album ids.
