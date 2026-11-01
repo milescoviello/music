@@ -259,25 +259,19 @@ struct PlaylistDetailView: View {
     /// positions on every move, so the local copy is only a guess until it confirms.
     private func move(from offsets: IndexSet, to destination: Int) {
         guard let source = offsets.first, var detail else { return }
+        // `destination` is an index into the list *before* the row was lifted out, which
+        // is exactly what `insert_before` means: the song it lands in front of. The store
+        // goes by the songs, not these positions, which a move still on its way changes.
+        let shown = songs
+        guard shown.indices.contains(source) else { return }
+        let song = shown[source]
+        let anchor = shown.indices.contains(destination) ? shown[destination] : nil
 
         detail.entry?.move(fromOffsets: offsets, toOffset: destination)
         self.detail = detail
 
         Task {
-            do {
-                // Both ends are 1-based on the server, and `destination` is already an
-                // index into the list *before* the row was lifted out, which is exactly
-                // what `insert_before` means.
-                try await appState.native.movePlaylistTrack(
-                    playlistID: playlist.id,
-                    from: source + 1,
-                    insertBefore: destination + 1
-                )
-                // The downloaded copy's order follows.
-                appState.playlistSync.syncSoon()
-            } catch {
-                await Diagnostics.shared.record("playlist", "reorder failed: \(error)")
-            }
+            await store.move(song, shownAt: source, before: anchor, shownAt: destination, in: playlist.id)
             await load()
         }
     }

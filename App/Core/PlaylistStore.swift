@@ -106,8 +106,8 @@ final class PlaylistStore {
         }
     }
 
-    /// Removals one after another, each waiting for the one before.
-    @ObservationIgnored private var removing: Task<Bool, Never>?
+    /// Removals and moves one after another, each waiting for the one before.
+    @ObservationIgnored private var editing: Task<Bool, Never>?
 
     /// Takes `song`, shown at `index`, out of the playlist. Returns true so the detail view
     /// knows to reload.
@@ -118,14 +118,66 @@ final class PlaylistStore {
     /// removed before that, or two removals sent together, took out the song below the one
     /// chosen.
     func remove(_ song: Song, shownAt index: Int, from playlistID: String) async -> Bool {
-        let previous = removing
+        let previous = editing
         let task = Task { [weak self] () -> Bool in
             _ = await previous?.value
             guard let self else { return false }
             return await self.removeNow(song, shownAt: index, from: playlistID)
         }
-        removing = task
+        editing = task
         return await task.value
+    }
+
+    /// Moves `song`, shown at `index`, in front of `anchor`, shown at `anchorIndex` -- or to
+    /// the end when `anchor` is nil.
+    ///
+    /// Navidrome moves by position too, so this is done the way removal is: in turn, with
+    /// both songs looked up in the playlist as the server has it then. Sent as the rows'
+    /// indices, two moves made quickly could reach the server in either order, and the
+    /// list re-read after the first could hand the next one stale positions: the wrong
+    /// song moved, or the right one to the wrong place.
+    func move(
+        _ song: Song, shownAt index: Int, before anchor: Song?, shownAt anchorIndex: Int, in playlistID: String
+    ) async {
+        let previous = editing
+        let task = Task { [weak self] () -> Bool in
+            _ = await previous?.value
+            guard let self else { return false }
+            await self.moveNow(song, shownAt: index, before: anchor, shownAt: anchorIndex, in: playlistID)
+            return true
+        }
+        editing = task
+        _ = await task.value
+    }
+
+    private func moveNow(
+        _ song: Song, shownAt index: Int, before anchor: Song?, shownAt anchorIndex: Int, in playlistID: String
+    ) async {
+        guard let client, let native = appState?.native else { return }
+        do {
+            let ids = try await client.playlistDetail(id: playlistID).songs.map(\.id)
+            guard let position = Self.nearest(song.id, to: index, in: ids) else { return }
+            let target: Int
+            if let anchor {
+                guard let found = Self.nearest(anchor.id, to: anchorIndex, in: ids) else { return }
+                target = found
+            } else {
+                target = ids.count
+            }
+            // In front of itself or of the song after it: already there.
+            guard target != position, target != position + 1 else { return }
+            // Both 1-based on the server.
+            try await native.movePlaylistTrack(playlistID: playlistID, from: position + 1, insertBefore: target + 1)
+            // The downloaded copy's order follows.
+            appState?.playlistSync.syncSoon()
+        } catch {
+            await Diagnostics.shared.record("playlist", "reorder failed: \(error)")
+        }
+    }
+
+    /// The same song can be on a playlist twice: the copy nearest where it was shown.
+    private static func nearest(_ id: String, to index: Int, in ids: [String]) -> Int? {
+        ids.indices.filter { ids[$0] == id }.min { abs($0 - index) < abs($1 - index) }
     }
 
     private func removeNow(_ song: Song, shownAt index: Int, from playlistID: String) async -> Bool {

@@ -221,8 +221,8 @@ enum PlaylistPage {
                     var own: [Menu.Item] = [.action("Remove from Playlist", destructive: true) {
                         Task { if await app.playlistStore.remove(song, shownAt: index, from: playlist.id) { reload() } }
                     }]
-                    if index > 0 { own.insert(.action("Move Up") { move(app, playlist, from: index, to: index - 1, reload) }, at: 0) }
-                    if index + 1 < songs.count { own.insert(.action("Move Down") { move(app, playlist, from: index, to: index + 2, reload) }, at: own.count - 1) }
+                    if index > 0 { own.insert(.action("Move Up") { move(app, playlist, songs, from: index, to: index - 1, reload) }, at: 0) }
+                    if index + 1 < songs.count { own.insert(.action("Move Down") { move(app, playlist, songs, from: index, to: index + 2, reload) }, at: own.count - 1) }
                     sections.insert(own, at: 0)
                     return Menu(sections)
                 }
@@ -234,17 +234,15 @@ enum PlaylistPage {
         return body.margin(horizontal: 12, vertical: 24)
     }
 
-    /// Navidrome's own API moves a track; Subsonic's has no move at all. Both ends are
-    /// 1-based, and the target is where it goes before.
-    private static func move(_ app: AppState, _ playlist: PlaylistRef, from: Int, to: Int, _ reload: @escaping @MainActor () -> Void) {
+    /// Navidrome's own API moves a track; Subsonic's has no move at all. `to` is the row it
+    /// goes before. The store goes by the songs, not these positions, which a move still
+    /// on its way changes.
+    private static func move(_ app: AppState, _ playlist: PlaylistRef, _ songs: [Song], from: Int, to: Int, _ reload: @escaping @MainActor () -> Void) {
+        guard songs.indices.contains(from) else { return }
+        let song = songs[from]
+        let anchor = songs.indices.contains(to) ? songs[to] : nil
         Task {
-            do {
-                try await app.native.movePlaylistTrack(playlistID: playlist.id, from: from + 1, insertBefore: to + 1)
-                // The downloaded copy's order follows.
-                app.playlistSync.syncSoon()
-            } catch {
-                await Diagnostics.shared.record("playlist", "reorder failed: \(error)")
-            }
+            await app.playlistStore.move(song, shownAt: from, before: anchor, shownAt: to, in: playlist.id)
             reload()
         }
     }
