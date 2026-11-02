@@ -5,6 +5,14 @@ enum StreamVariant: Codable, Hashable, Sendable {
     case original
     case mp3(kbps: Int)
 
+    /// For the log: "original", "MP3 320k".
+    var label: String {
+        switch self {
+        case .original: "original"
+        case let .mp3(kbps): "MP3 \(kbps)k"
+        }
+    }
+
     /// Whether a file of this variant can stand in for a request for `wanted`.
     ///
     /// The original satisfies anything, and a transcode satisfies any request for the

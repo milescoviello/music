@@ -93,13 +93,16 @@ final class AudioSessionCoordinator {
             // No special case for `.appWasSuspended`: it was never followed by `.ended`
             // and iOS 16 stopped sending it at all.
             wasInterruptedWhilePlaying = isPlaying
+            log("interrupted\(isPlaying ? " while playing" : "")")
             onPause?()
 
         case .ended:
             let options = rawOptions
                 .map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
 
-            guard options.contains(.shouldResume), wasInterruptedWhilePlaying else { return }
+            let resumes = options.contains(.shouldResume) && wasInterruptedWhilePlaying
+            log("interruption over: \(resumes ? "resuming" : options.contains(.shouldResume) ? "wasn't playing" : "iOS says don't resume")")
+            guard resumes else { return }
             resumeAfterInterruption()
 
         @unknown default:
@@ -112,10 +115,34 @@ final class AudioSessionCoordinator {
               let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason)
         else { return }
 
+        // Which way the sound now goes, by kind, never by name: "AirPods" is a port
+        // type, but a device's name can be a person's.
+        let outputs = AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType.rawValue)
+        log("route changed (\(Self.describe(reason))), now \(outputs.joined(separator: ", "))")
+
         // Headphones pulled out or an AirPod removed. Never auto-resume when a new
         // device appears -- that starts music in someone's pocket.
         if reason == .oldDeviceUnavailable {
             onPause?()
+        }
+    }
+
+    /// Calls, other apps, headphones: the commonest reasons music stops by itself, and
+    /// so the first thing to look for in the log when it did.
+    private func log(_ what: String) {
+        Task { await Diagnostics.shared.record("audio", what) }
+    }
+
+    private static func describe(_ reason: AVAudioSession.RouteChangeReason) -> String {
+        switch reason {
+        case .newDeviceAvailable: "a device came"
+        case .oldDeviceUnavailable: "a device went"
+        case .categoryChange: "category change"
+        case .override: "override"
+        case .wakeFromSleep: "wake from sleep"
+        case .noSuitableRouteForCategory: "no suitable route"
+        case .routeConfigurationChange: "configuration change"
+        default: "reason \(reason.rawValue)"
         }
     }
 

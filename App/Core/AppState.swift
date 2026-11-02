@@ -112,7 +112,11 @@ final class AppState {
             self?.player.streamingSettingsChanged()
         }
         reachability.onNetworkChange = { [weak self] in
-            self?.player.networkChanged()
+            guard let self else { return }
+            // What explains a run of timeouts: the phone left Wi-Fi.
+            let network = reachability.network
+            Task { await Diagnostics.shared.record("network", "now \(network)") }
+            player.networkChanged()
         }
 
         // Plays recorded while offline reach the server the moment there is one.

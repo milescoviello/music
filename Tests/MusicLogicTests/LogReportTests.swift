@@ -9,14 +9,14 @@ struct LogReportTests {
     private let pacific = TimeZone(identifier: "America/Los_Angeles")!
 
     /// 2026-11-02 18:14:03 UTC: 10:14:03 in Pacific, the day after the clocks went back.
-    private func report(note: String = "", sections: [LogReport.Section] = [], failures: String = "") -> LogReport {
+    private func report(note: String = "", sections: [LogReport.Section] = [], log: String = "") -> LogReport {
         LogReport(
             sentAt: Date(timeIntervalSince1970: 1_793_643_243),
             app: "0.1.0 · build 412 · 2d23852",
             system: "iOS 26.1",
             note: note,
             sections: sections,
-            failures: failures
+            log: log
         )
     }
 
@@ -24,7 +24,7 @@ struct LogReportTests {
         let text = report(
             note: "The second play didn't count",
             sections: [.init(title: "Playback", rows: [.init(label: "Song", value: "A — B (s1)")])],
-            failures: "11-02 10:01:00  [scrobble]  timed out"
+            log: "11-02 10:01:00  [scrobble]  timed out"
         ).text(in: pacific)
         #expect(text == """
         Music logs
@@ -38,7 +38,7 @@ struct LogReportTests {
         Playback:
           Song: A — B (s1)
 
-        Recent failures, oldest first:
+        Log, oldest first:
         11-02 10:01:00  [scrobble]  timed out
 
         """)
@@ -48,7 +48,7 @@ struct LogReportTests {
         let text = report(note: "  \n ", sections: [.init(title: "Sync", rows: [])]).text(in: pacific)
         #expect(!text.contains("What went wrong"))
         #expect(!text.contains("Sync:"))
-        #expect(text.hasSuffix("Recent failures, oldest first:\n  Nothing has failed.\n"))
+        #expect(text.hasSuffix("Log, oldest first:\n  Nothing logged yet.\n"))
     }
 
     @Test func aNoteOfSeveralLinesStaysTogether() {

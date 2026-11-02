@@ -62,6 +62,7 @@ final class PlaybackController {
 
     private func queueDidChange() {
         let current = queue.current
+        if let current, current.id != currentSong?.id { announce(current) }
         if current != currentSong { currentSong = current }
         if hasQueue == queue.isEmpty { hasQueue = !queue.isEmpty }
         let canAdd = queue.canAddToUpNext
@@ -96,6 +97,54 @@ final class PlaybackController {
     /// The next try at a track the server did not answer for, and how many have been made.
     private var retryTask: Task<Void, Never>?
     private var retryAttempt = 0
+
+    // MARK: - The log
+
+    /// Where each track was found when the output asked, for the log: a stream that
+    /// stalls and a cached file that won't play are different bugs.
+    @ObservationIgnored private var sources: [String: String] = [:]
+    /// A track that has started but whose source the output has not asked for yet.
+    @ObservationIgnored private var unannouncedSongID: String?
+    @ObservationIgnored private var bufferingSince: Date?
+
+    /// The log's line for a track starting: which, and from where. The source is known
+    /// once the output has asked where the track is, which can be just after.
+    private func announce(_ song: Song) {
+        guard remote == nil else { return }
+        if let source = sources[song.id] {
+            logStart(song, from: source)
+        } else {
+            unannouncedSongID = song.id
+        }
+    }
+
+    private func logStart(_ song: Song, from source: String) {
+        unannouncedSongID = nil
+        let line = "“\(song.title)” (\(song.id)) from \(source)"
+        Task { await Diagnostics.shared.record("playback", line) }
+    }
+
+    private func located(_ song: Song, from source: String, _ location: MediaLocation) -> MediaLocation {
+        if sources.count > 100 { sources.removeAll() }
+        sources[song.id] = source
+        if unannouncedSongID == song.id { logStart(song, from: source) }
+        return location
+    }
+
+    /// A wait for data that lasted: the start of a track buffers briefly as a matter of
+    /// course, so only one of more than two seconds is worth a line.
+    private func bufferingChanged() {
+        if isBuffering {
+            bufferingSince = .now
+            return
+        }
+        guard let since = bufferingSince else { return }
+        bufferingSince = nil
+        let waited = Date.now.timeIntervalSince(since)
+        guard waited > 2, let song = currentSong else { return }
+        let line = "“\(song.title)” (\(song.id)) waited \(Diagnostics.duration(waited)) for data at \(LogReport.clock(elapsed))"
+        Task { await Diagnostics.shared.record("playback", line) }
+    }
     /// Seconds before each try: a blip — a server restarting, Wi-Fi rejoining — is ridden
     /// out in a few minutes; an outage is left paused rather than resumed an hour later.
     private static let retryDelays: [Double] = [5, 15, 30, 60, 120]
@@ -267,18 +316,18 @@ final class PlaybackController {
         let download = appState.downloads.localURL(for: song.id)
 
         if let download, policy.usesDownload(on: network) {
-            return MediaLocation(url: download, mimeType: nil, isLocal: true)
+            return located(song, from: "the download", MediaLocation(url: download, mimeType: nil, isLocal: true))
         }
 
         let variant = policy.variant(for: song, on: network)
         if let cached = appState.streamCache.file(for: song.id, satisfying: variant) {
-            return MediaLocation(url: cached, mimeType: nil, isLocal: true)
+            return located(song, from: "the cache", MediaLocation(url: cached, mimeType: nil, isLocal: true))
         }
 
         // No network: whatever copy is here, at whatever quality, beats silence.
         if network == .offline,
            let local = download ?? appState.streamCache.anyFile(for: song.id) {
-            return MediaLocation(url: local, mimeType: nil, isLocal: true)
+            return located(song, from: "a copy kept for offline", MediaLocation(url: local, mimeType: nil, isLocal: true))
         }
 
         // AVFoundation has no Vorbis or Opus decoder, so those are always converted —
@@ -292,7 +341,7 @@ final class PlaybackController {
         let mimeType = variant == .original
             ? song.contentType ?? Self.mimeType(for: song.suffix)
             : "audio/mpeg"
-        return MediaLocation(url: url, mimeType: mimeType, isLocal: false)
+        return located(song, from: "a stream, \(variant.label), on \(network)", MediaLocation(url: url, mimeType: mimeType, isLocal: false))
     }
 
     /// Where the cache fetches a variant from. The original comes from `download.view`
@@ -983,7 +1032,10 @@ final class PlaybackController {
         elapsed = newElapsed
         // Only when it changes: this runs four times a second, and an observed property
         // assigned its own value can still count as a change to whatever reads it.
-        if isBuffering != output.isBuffering { isBuffering = output.isBuffering }
+        if isBuffering != output.isBuffering {
+            isBuffering = output.isBuffering
+            bufferingChanged()
+        }
 
         // The queue's duration comes from the server and can be absent or wrong; the
         // output knows the real one once the file or stream is open.

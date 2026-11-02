@@ -117,6 +117,7 @@ func logicPackage() -> Package {
                     "RecentPlays.swift",
                     "SonicClient.swift",
                     "LogReport.swift",
+                    "Diagnostics.swift",
                     "BeatMatch.swift",
                     "RhythmStore.swift",
                     "VisualizerHost.swift",

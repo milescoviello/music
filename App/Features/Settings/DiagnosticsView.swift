@@ -57,8 +57,8 @@ struct DiagnosticsView: View {
                 Text("Send Logs")
             } footer: {
                 Text("""
-                Sends what's playing, what's waiting to sync and the failure log below to \
-                the sonic service on your server, which keeps it for looking into a bug. \
+                Sends what's playing, what's waiting to sync and the log below to the \
+                sonic service on your server, which keeps it for looking into a bug. \
                 The password and sign-in aren't in it.
                 """)
             }
@@ -137,10 +137,11 @@ struct DiagnosticsView: View {
 
             Section {
                 if lines.isEmpty {
-                    Text("Nothing has failed.")
+                    Text("Nothing logged yet.")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(lines) { line in
+                    // The newest, for reading here; Send Logs sends all of it.
+                    ForEach(lines.prefix(Self.shown)) { line in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(line.message)
                                 .font(.caption)
@@ -153,7 +154,7 @@ struct DiagnosticsView: View {
                 }
             } header: {
                 HStack {
-                    Text("Recent Failures")
+                    Text("Log")
                     Spacer()
                     if !lines.isEmpty {
                         ShareLink(item: exportText) {
@@ -162,7 +163,10 @@ struct DiagnosticsView: View {
                     }
                 }
             } footer: {
-                Text("Request URLs are stripped of their query, which is where the auth token lives.")
+                Text("""
+                What the app did and what went wrong, newest first\(lines.count > Self.shown ? ": the latest \(Self.shown) of \(lines.count)" : ""). \
+                Request URLs are stripped of their query, which is where the auth token lives.
+                """)
             }
 
             if !lines.isEmpty {
@@ -189,6 +193,7 @@ struct DiagnosticsView: View {
     }
 
     @State private var exportText = ""
+    private static let shown = 200
     @State private var isRebuildingMixes = false
 
     private func label(for kind: ServerOutbox.Kind) -> String {

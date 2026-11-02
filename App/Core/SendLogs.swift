@@ -54,6 +54,21 @@ extension AppState {
         }
         sync.append(.init(label: "Daily mixes", value: "\(mixes.mixes.count) built"))
 
+        // The settings that change what playback and caching do, so a report can be
+        // read against them.
+        let policy = streaming.policy
+        let on = { (flag: Bool) in flag ? "on" : "off" }
+        let settings: [LogReport.Row] = [
+            .init(label: "On Wi-Fi", value: "\(policy.wifiQuality), cache ahead \(policy.wifiCacheAhead)"),
+            .init(label: "On cellular", value: "\(policy.cellularQuality), cache ahead \(policy.cellularCacheAhead)"),
+            .init(label: "Cache size", value: "\(policy.cacheMegabytes) MB"),
+            .init(label: "Prefer downloads", value: "\(policy.preferDownloads)"),
+            .init(label: "Sweet Fades", value: "\(on(audio.sweetFades)), beat-matched \(on(audio.beatMatchedFades))"),
+            .init(label: "Loudness leveling", value: on(audio.loudnessLeveling)),
+            .init(label: "Equalizer", value: audio.equalizer ? "on, \(audio.presetName)" : "off"),
+            .init(label: "Autoplay", value: on(autoplay.isEnabled)),
+        ]
+
         return LogReport(
             sentAt: .now,
             app: version,
@@ -63,8 +78,9 @@ extension AppState {
                 .init(title: "Playback", rows: playback),
                 .init(title: "Connection", rows: connection),
                 .init(title: "Sync", rows: sync),
+                .init(title: "Settings", rows: settings),
             ],
-            failures: await Diagnostics.shared.export()
+            log: await Diagnostics.shared.export()
         )
     }
 

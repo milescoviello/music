@@ -42,6 +42,9 @@ public enum MusicApplication {
             }
             let state = AppState()
             self.state = state
+            // Where every stretch of the log starts: which build, on what.
+            let launched = "launched \(SettingsPages.logVersion) on \(LogReport.currentSystem), network \(state.reachability.network)"
+            Task { await Diagnostics.shared.record("app", launched) }
             let shell = Shell(application: OpaquePointer(application), app: state)
             self.shell = shell
             shell.present()

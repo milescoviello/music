@@ -590,7 +590,7 @@ enum SettingsPages {
         }
         func fill(pending: [ServerOutbox.Kind: Int], lines: [Diagnostics.Line], export: String) {
             body.removeAll()
-            let send = PreferencesGroup("Send Logs", description: "Sends what's playing, what's waiting to sync and the failure log to the sonic service on your server, which keeps it for looking into a bug. The password and sign-in aren't in it.")
+            let send = PreferencesGroup("Send Logs", description: "Sends what's playing, what's waiting to sync and the log to the sonic service on your server, which keeps it for looking into a bug. The password and sign-in aren't in it.")
             send.add(EntryRow("What went wrong? (optional)", text: draft.note).onChange { draft.note = $0 })
             send.add(ButtonRow("Send Logs", icon: "mail-send-symbolic") {
                 guard !draft.isSending else { return }
@@ -651,15 +651,18 @@ enum SettingsPages {
             })
             body.append(mixes)
 
-            let failures = PreferencesGroup("Recent Failures", description: "Request URLs are stripped of their query, which is where the auth token lives.")
+            let shown = 200
+            let count = lines.count > shown ? ": the latest \(shown) of \(lines.count)" : ""
+            let failures = PreferencesGroup("Log", description: "What the app did and what went wrong, newest first\(count). Request URLs are stripped of their query, which is where the auth token lives.")
             if lines.isEmpty {
-                failures.add(ActionRow("Nothing has failed."))
+                failures.add(ActionRow("Nothing logged yet."))
             } else {
                 failures.suffix(Button("Copy", "flat") {
                     gdk_clipboard_set_text(gtk_widget_get_clipboard(body.widget), export)
                     env.toast("Copied the log")
                 })
-                for line in lines {
+                // The newest, for reading here; Copy and Send Logs take all of it.
+                for line in lines.prefix(shown) {
                     let row = ActionRow(line.message, subtitle: "\(line.area) · \(line.at.formatted(date: .omitted, time: .standard))")
                     row.titleLines(0)
                     failures.add(row)

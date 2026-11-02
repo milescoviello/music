@@ -117,12 +117,63 @@ final class QueuePlayerOutput: AudioOutput {
     /// Never removed: each observer is owned by its player, which is owned by this
     /// object, so they are deallocated together.
     private var timeObservers: [Any] = []
+    /// AVPlayer says why an item failed or stalled only through these, and nothing was
+    /// listening: a track that would not open or stopped early left no trace in the log.
+    private var troubleObservers: [NSObjectProtocol] = []
+    private var statusObservations: [ObjectIdentifier: NSKeyValueObservation] = [:]
 
     init() {
         for player in players {
             player.actionAtItemEnd = .advance
         }
         addTimeObservers()
+        observeTrouble()
+    }
+
+    // MARK: - The log
+
+    /// Only `Sendable` values cross to the main actor: the item's identity and words.
+    private func observeTrouble() {
+        let center = NotificationCenter.default
+        troubleObservers.append(center.addObserver(
+            forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            let item = (notification.object as AnyObject?).map { ObjectIdentifier($0) }
+            let reason = (notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)
+                .map(Diagnostics.describe) ?? "no reason given"
+            MainActor.assumeIsolated { self?.logTrouble(item, "stopped before its end: \(reason)") }
+        })
+        troubleObservers.append(center.addObserver(
+            forName: AVPlayerItem.playbackStalledNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            let item = (notification.object as AnyObject?).map { ObjectIdentifier($0) }
+            MainActor.assumeIsolated { self?.logTrouble(item, "stalled, out of data") }
+        })
+        troubleObservers.append(center.addObserver(
+            forName: AVPlayerItem.newErrorLogEntryNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            let item = (notification.object as AnyObject?).map { ObjectIdentifier($0) }
+            MainActor.assumeIsolated { self?.logErrorLogEntry(item) }
+        })
+    }
+
+    /// The newest entry of the item's own error log: an HTTP status and what the loader
+    /// made of it. Its URI is left out, as it carries the auth token.
+    private func logErrorLogEntry(_ id: ObjectIdentifier?) {
+        guard let id,
+              let item = players.lazy.flatMap({ $0.items() }).first(where: { ObjectIdentifier($0) == id }),
+              let event = item.errorLog()?.events.last
+        else { return }
+        let detail = [event.errorComment, "\(event.errorDomain) \(event.errorStatusCode)"]
+            .compactMap { $0 }
+            .joined(separator: ", ")
+        logTrouble(id, "network error: \(detail)")
+    }
+
+    private func logTrouble(_ id: ObjectIdentifier?, _ what: String) {
+        guard let id, let songID = itemToSongID[id] else { return }
+        let title = window.first { $0.id == songID }?.title ?? "A track"
+        Task { await Diagnostics.shared.record("playback", "“\(title)” (\(songID)) \(what)") }
     }
 
     var holdsCurrent: Bool {
@@ -315,6 +366,15 @@ final class QueuePlayerOutput: AudioOutput {
         item.audioTimePitchAlgorithm = .spectral
         let id = ObjectIdentifier(item)
         itemToSongID[id] = song.id
+        // An item that cannot be opened says so only through its status.
+        statusObservations = statusObservations.filter { itemToSongID[$0.key] != nil }
+        // `@Sendable`, so it is never taken for main-actor code: KVO may call it from
+        // any thread.
+        statusObservations[id] = item.observe(\.status) { @Sendable [weak self] item, _ in
+            guard item.status == .failed else { return }
+            let reason = item.error.map(Diagnostics.describe) ?? "no reason given"
+            Task { @MainActor in self?.logTrouble(id, "couldn't be opened: \(reason)") }
+        }
 
         if let chain = makeChain?(song) {
             Task { await attachTap(to: item, chain: chain) }

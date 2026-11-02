@@ -213,17 +213,24 @@ actor SubsonicClient {
         _ repeated: [URLQueryItem] = []
     ) async throws -> Data {
         let url = try dataURL(endpoint, query, repeated)
+        let started = Date.now
         do {
             let (data, _) = try await session.data(from: url)
             return data
         } catch {
             // Recorded rather than only thrown: most callers use `try?` so the screen
             // can fall back to cache, which means the reason would otherwise vanish.
-            if !Self.isCancellation(error) {
-                await Diagnostics.shared.record(endpoint, error.localizedDescription)
-            }
+            await Self.recordFailure(endpoint, error, since: started)
             throw ClientError.network(error)
         }
+    }
+
+    /// With how long it took to fail: a timeout at 30 seconds is a server that never
+    /// answered; one at a tenth of a second is no network at all.
+    private static func recordFailure(_ endpoint: String, _ error: any Error, since started: Date) async {
+        guard !isCancellation(error) else { return }
+        let elapsed = Diagnostics.duration(Date.now.timeIntervalSince(started))
+        await Diagnostics.shared.record(endpoint, "\(Diagnostics.describe(error)) after \(elapsed)")
     }
 
     /// A request its caller gave up on: a queue upload replaced by a newer one, a screen
@@ -274,13 +281,12 @@ actor SubsonicClient {
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(body.utf8)
 
+        let started = Date.now
         do {
             let (data, _) = try await session.data(for: request)
             return data
         } catch {
-            if !Self.isCancellation(error) {
-                await Diagnostics.shared.record(endpoint, error.localizedDescription)
-            }
+            await Self.recordFailure(endpoint, error, since: started)
             throw ClientError.network(error)
         }
     }
@@ -297,16 +303,32 @@ actor SubsonicClient {
         do {
             envelope = try decoder.decode(Envelope<T>.self, from: data)
         } catch {
+            // Thrown and, behind a `try?`, gone: so said here.
+            await Diagnostics.shared.record(endpoint, "unreadable answer, \(data.count) bytes: \(String(describing: error).prefix(300))")
             throw ClientError.server("Unexpected response from server.")
         }
 
         if let error = envelope.subsonicResponse.error {
+            await Diagnostics.shared.record(endpoint, "refused: \(error.message)")
             throw ClientError.rejected(error.message)
         }
         guard let payload = envelope.subsonicResponse.payload else {
             throw ClientError.server("Server returned no data.")
         }
         return payload
+    }
+
+    /// An answer that is only a status, read, and recorded when it is a refusal.
+    private func status(of data: Data, from endpoint: String) async throws -> StatusOnly {
+        guard let decoded = try? decoder.decode(StatusOnly.self, from: data) else {
+            await Diagnostics.shared.record(endpoint, "unreadable answer, \(data.count) bytes")
+            throw ClientError.server("Unexpected response from server.")
+        }
+        if let error = decoded.subsonicResponse.error {
+            await Diagnostics.shared.record(endpoint, "refused: \(error.message)")
+            throw ClientError.rejected(error.message)
+        }
+        return decoded
     }
 
     /// For endpoints whose only meaningful answer is success or failure.
@@ -317,12 +339,7 @@ actor SubsonicClient {
     ) async throws {
         let data = try await fetch(endpoint, query, repeated)
 
-        guard let decoded = try? decoder.decode(StatusOnly.self, from: data) else {
-            throw ClientError.server("Unexpected response from server.")
-        }
-        if let error = decoded.subsonicResponse.error {
-            throw ClientError.rejected(error.message)
-        }
+        let decoded = try await status(of: data, from: endpoint)
         guard decoded.subsonicResponse.status == "ok" else {
             throw ClientError.server("Server rejected the request.")
         }
@@ -732,13 +749,7 @@ actor SubsonicClient {
             ],
             songIDs.map { URLQueryItem(name: "id", value: $0) }
         )
-
-        guard let decoded = try? decoder.decode(StatusOnly.self, from: data) else {
-            throw ClientError.server("Unexpected response from server.")
-        }
-        if let error = decoded.subsonicResponse.error {
-            throw ClientError.rejected(error.message)
-        }
+        _ = try await status(of: data, from: "savePlayQueue.view")
     }
 
     // MARK: - Resume positions

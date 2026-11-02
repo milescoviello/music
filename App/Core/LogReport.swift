@@ -24,8 +24,8 @@ struct LogReport: Sendable, Equatable {
     /// What the person sending it says went wrong.
     var note: String
     var sections: [Section]
-    /// `Diagnostics.export()`: the failure log, oldest first.
-    var failures: String
+    /// `Diagnostics.export()`: the log, oldest first.
+    var log: String
 
     /// The platform, and on Linux which machine, for the name the server files it under.
     static var source: String {
@@ -46,7 +46,10 @@ struct LogReport: Sendable, Equatable {
         #else
         let platform = "macOS"
         #endif
-        return "\(platform) \(ProcessInfo.processInfo.operatingSystemVersionString)"
+        // Apple's reads "Version 27.0.1 (Build 24A446)", which made "iOS Version 27.0.1".
+        var version = ProcessInfo.processInfo.operatingSystemVersionString
+        if version.hasPrefix("Version ") { version.removeFirst("Version ".count) }
+        return "\(platform) \(version)"
     }
 
     /// The report as it is sent. Times are the device's own, with its zone named once at
@@ -71,7 +74,7 @@ struct LogReport: Sendable, Equatable {
         for section in sections where !section.rows.isEmpty {
             lines += ["", "\(section.title):"] + section.rows.map { "  \($0.label): \($0.value)" }
         }
-        lines += ["", "Recent failures, oldest first:", failures.isEmpty ? "  Nothing has failed." : failures]
+        lines += ["", "Log, oldest first:", log.isEmpty ? "  Nothing logged yet." : log]
         return lines.joined(separator: "\n") + "\n"
     }
 

@@ -411,7 +411,9 @@ final class DownloadCenter {
     /// A transfer cut off by the network rather than refused by the server: the song
     /// stays waiting, and is asked for again a minute from now (or on the next launch or
     /// return to the foreground), instead of quietly dropping out of its album or playlist.
-    func taskInterrupted(songID: String) {
+    func taskInterrupted(songID: String, reason: String) {
+        let title = catalog.pending[songID]?.song.title ?? songID
+        Task { await Diagnostics.shared.record("download", "“\(title)” (\(songID)) interrupted, trying again in a minute: \(reason)") }
         progress.removeValue(forKey: songID)
         isDownloading = !progress.isEmpty
         guard !retryScheduled else { return }
@@ -423,11 +425,12 @@ final class DownloadCenter {
         }
     }
 
-    func taskFailed(songID: String) {
+    /// `reason` is what went wrong, for the log: a title alone could not say.
+    func taskFailed(songID: String, reason: String) {
         let title = catalog.pending[songID]?.song.title ?? songID
         progress.removeValue(forKey: songID)
         Task {
-            await Diagnostics.shared.record("download", "failed: \(title)")
+            await Diagnostics.shared.record("download", "“\(title)” (\(songID)) failed: \(reason)")
             catalog = await store.cancelPending(songID: songID)
             isDownloading = !progress.isEmpty
         }
@@ -508,14 +511,15 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
         // would otherwise be filed as a music file that plays as silence.
         if let response = downloadTask.response as? HTTPURLResponse,
            !(200...299).contains(response.statusCode) {
-            MainActor.assumeIsolated { center?.taskFailed(songID: songID) }
+            let status = response.statusCode
+            MainActor.assumeIsolated { center?.taskFailed(songID: songID, reason: "HTTP \(status)") }
             return
         }
         // Navidrome answers a refused download — downloads disabled, a missing file —
         // with HTTP 200 and a JSON error. That is not music either.
         let type = downloadTask.response?.mimeType ?? ""
         if type.contains("json") || type.contains("xml") || DownloadSessionDelegate.isErrorBody(location) {
-            MainActor.assumeIsolated { center?.taskFailed(songID: songID) }
+            MainActor.assumeIsolated { center?.taskFailed(songID: songID, reason: "the server sent an error, not audio") }
             return
         }
 
@@ -537,7 +541,8 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
         do {
             try FileManager.default.moveItem(at: location, to: destination)
         } catch {
-            MainActor.assumeIsolated { target?.taskFailed(songID: songID) }
+            let reason = "couldn't keep the file: \(Diagnostics.describe(error))"
+            MainActor.assumeIsolated { target?.taskFailed(songID: songID, reason: reason) }
             return
         }
 
@@ -560,11 +565,12 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
         // by `resumeWaiting`.
         if (error as NSError).code == NSURLErrorCancelled { return }
         let interrupted = (error as? URLError).map { Self.isInterruption($0.code) } ?? false
+        let reason = Diagnostics.describe(error)
         MainActor.assumeIsolated {
             if interrupted {
-                center?.taskInterrupted(songID: songID)
+                center?.taskInterrupted(songID: songID, reason: reason)
             } else {
-                center?.taskFailed(songID: songID)
+                center?.taskFailed(songID: songID, reason: reason)
             }
         }
     }

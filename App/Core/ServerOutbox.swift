@@ -171,6 +171,9 @@ actor ServerOutbox {
         let name = "\(stamp)-\(UUID().uuidString).json"
         guard let data = try? JSONEncoder().encode(pending) else { return }
         try? data.write(to: directory.appendingPathComponent(name), options: .atomic)
+        let note = pending.unconfirmed == true ? ", sent once but unanswered" : ""
+        let message = "waiting to send: \(pending.kind.rawValue) of \(pending.songID)\(note)"
+        Task { await Diagnostics.shared.record("outbox", message) }
     }
 
     /// Submits everything, oldest first, and stops at the first network failure — there
@@ -199,6 +202,7 @@ actor ServerOutbox {
                 if pending.unconfirmed == true, try await isOnServer(pending, using: client) {
                     // The first send arrived and only its answer was lost. Sent again, the
                     // server would count the play twice: it can't tell a repeat.
+                    await Diagnostics.shared.record("outbox", "\(pending.kind.rawValue) of \(pending.songID) was on the server already; not sent again")
                 } else {
                     try await submit(pending, using: client)
                 }
@@ -210,6 +214,11 @@ actor ServerOutbox {
                     pending.unconfirmed = true
                 }
                 if pending.attempts >= maximumAttempts {
+                    // Lost for good, so it must be on record.
+                    await Diagnostics.shared.record(
+                        "outbox",
+                        "gave up on \(pending.kind.rawValue) of \(pending.songID) after \(pending.attempts) tries: \(Diagnostics.describe(error))"
+                    )
                     try? FileManager.default.removeItem(at: file)
                 } else if let updated = try? JSONEncoder().encode(pending) {
                     try? updated.write(to: file, options: .atomic)
@@ -222,6 +231,9 @@ actor ServerOutbox {
             }
         }
 
+        if sent > 0 {
+            await Diagnostics.shared.record("outbox", "sent \(sent) that were waiting")
+        }
         return sent
     }
 

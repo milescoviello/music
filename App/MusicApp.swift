@@ -11,6 +11,9 @@ struct MusicApp: App {
     init() {
         let appState = AppState()
         _appState = State(initialValue: appState)
+        // Where every stretch of the log starts: which build, on what.
+        let launched = "launched \(SettingsView.version) on \(LogReport.currentSystem)"
+        Task { await Diagnostics.shared.record("app", launched) }
         _remotePlayers = State(initialValue: RemotePlayers(appState: appState))
     }
 
@@ -46,6 +49,8 @@ struct MusicApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     switch phase {
                     case .active:
+                        // Whether the app was on screen when something went wrong.
+                        Task { await Diagnostics.shared.record("app", "foreground") }
                         // Some apps interrupt playback and then never release the
                         // session, so `.ended` never arrives and coming back here is the
                         // only signal that the interruption is over.
@@ -67,6 +72,7 @@ struct MusicApp: App {
                             )
                         }
                     case .background:
+                        Task { await Diagnostics.shared.record("app", "background") }
                         // Backgrounding does not kill the app while audio plays, but
                         // termination while paused is common and silent.
                         appState.player.persistNow()

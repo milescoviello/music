@@ -177,6 +177,16 @@ final class StreamCache {
         let songID = request.song.id
         let fileName = Self.fileName(for: request.song, variant: request.variant)
         let destination = directory.appendingPathComponent(fileName)
+        let started = Date.now
+        // Which file, at what quality, and how long it ran: "failed" and a title, all it
+        // once said, could not tell a song the server can't send from a network that
+        // gave out half an hour into a transfer.
+        func note(_ what: String) async {
+            let elapsed = Diagnostics.duration(Date.now.timeIntervalSince(started))
+            await Diagnostics.shared.record(
+                "cache", "“\(request.song.title)” (\(songID), \(request.variant.label)) \(what) after \(elapsed)"
+            )
+        }
 
         do {
             // The async API leaves the temporary file for the caller to move, unlike the
@@ -192,6 +202,7 @@ final class StreamCache {
                   !type.contains("json"), !type.contains("xml")
             else {
                 failed.insert(songID)
+                await note("refused: HTTP \(http?.statusCode ?? 0), \(type.isEmpty ? "no type" : type)")
                 return
             }
             guard !Task.isCancelled else { return }
@@ -201,13 +212,17 @@ final class StreamCache {
         } catch {
             if !Task.isCancelled {
                 failed.insert(songID)
-                await Diagnostics.shared.record("cache", "failed: \(request.song.title)")
+                await note("failed: \(Diagnostics.describe(error))")
             }
             return
         }
 
         let size = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?
             .int64Value ?? 0
+        // A slow one that worked is the warning before one that doesn't.
+        if Date.now.timeIntervalSince(started) > 60 {
+            await note("cached, \(size / 1_000_000) MB, slowly")
+        }
         let previous = withMutation(keyPath: \.index) {
             storage.insert(StreamCacheIndex.Entry(
                 songID: songID,
