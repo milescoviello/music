@@ -128,6 +128,7 @@ if __name__ == "__main__" and Path(sys.argv[0]).name in FAKES:
 
 import argparse  # noqa: E402
 import contextlib  # noqa: E402
+import fcntl  # noqa: E402
 import importlib.machinery  # noqa: E402
 import importlib.util  # noqa: E402
 import io  # noqa: E402
@@ -156,6 +157,8 @@ class Clock:
     def __init__(self, path: Path, end: float):
         self.path = path
         self.end = end
+        # Called with the new time after every sleep: what else happens as time passes.
+        self.hooks: list[Callable[[float], None]] = []
 
     def elapsed(self) -> float:
         return float(self.path.read_text())
@@ -168,6 +171,8 @@ class Clock:
         if t > self.end:
             raise Over
         self.path.write_text(repr(t))
+        for hook in self.hooks:
+            hook(t)
 
     def now(self) -> datetime:
         return datetime.fromtimestamp(self.time())
@@ -300,6 +305,23 @@ def scenarios() -> list[Scenario]:
             problems.append("did not say it was waiting for the other install")
         return problems
 
+    def lock_held(r: Run) -> list[str]:
+        problems = one_install(r, not_before=130)
+        if not r.logged("waiting for another xtool install"):
+            problems.append("did not say it was waiting for the other watcher's install")
+        if r.titled("may be stuck"):
+            problems.append("called a two-minute install stuck")
+        return problems
+
+    def stuck(r: Run) -> list[str]:
+        problems = one_install(r, not_before=900)
+        warnings = r.titled("may be stuck")
+        if len(warnings) != 1:
+            problems.append(f"{len(warnings)} 'may be stuck' notifications; want 1")
+        elif not 600 <= warnings[0][0] < 900:
+            problems.append(f"said it may be stuck at t+{warnings[0][0]:.0f}s; want after ten minutes of waiting")
+        return problems
+
     def new_build(r: Run) -> list[str]:
         problems = []
         if len(r.installed) != 2:
@@ -346,6 +368,10 @@ def scenarios() -> list[Scenario]:
                   "listed": [[2, 20], [26, 200], [262, 280], [286, END]]}, 600, replug),
         Scenario("other-install", "The JellyMC watcher's xtool install is running for the first two minutes.",
                  {"usb": usb, "listed": listed, "other_install": [[0, 130]]}, 400, other_install),
+        Scenario("lock-held", "The JellyMC watcher took the install lock in the same second, before its xtool showed.",
+                 {"usb": usb, "listed": listed, "lock_held_until": 130}, 400, lock_held),
+        Scenario("stuck", "The other watcher's install hangs for fifteen minutes, as JellyMC's did on 1 Nov.",
+                 {"usb": usb, "listed": listed, "lock_held_until": 900}, 1200, stuck),
         Scenario("new-build", "Build 150 is published five minutes after plugging in.",
                  {"usb": usb, "listed": listed, "releases": RELEASES + [[300, "150", "5b7d9e0", "2026-10-22T06:05:00Z"]]},
                  1200, new_build),
@@ -405,6 +431,21 @@ def run_scenario(scenario: Scenario, watcher_path: Path, keep: bool) -> Run:
         clock = Clock(root / "clock", scenario.end)
         watcher.time = clock
         watcher.datetime = clock
+        # Another watcher holding the shared install lock until then: an open file of the
+        # harness's own, which flock treats as a separate holder.
+        holder = None
+        if "lock_held_until" in scenario.spec:
+            until = scenario.spec["lock_held_until"]
+            lock_path = root / "home" / ".local" / "state" / "xtool-install.lock"
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            holder = lock_path.open("a")
+            fcntl.flock(holder, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+            def release(t: float) -> None:
+                if t >= until and not holder.closed:
+                    holder.close()
+
+            clock.hooks.append(release)
         timeouts: list[list[str]] = []
         real_run = subprocess.run
 
@@ -421,6 +462,8 @@ def run_scenario(scenario: Scenario, watcher_path: Path, keep: bool) -> Run:
             pass
         finally:
             subprocess.run = real_run
+            if holder is not None and not holder.closed:
+                holder.close()
 
         calls = [json.loads(line) for line in (root / "calls.jsonl").read_text().splitlines()]
         log_file = root / "home" / ".local" / "state" / "music-phone-refresh" / "log.txt"

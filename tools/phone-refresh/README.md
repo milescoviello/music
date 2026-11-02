@@ -20,6 +20,15 @@ the next one), and never alongside another app's `xtool install`, such as the Je
 watcher's. If it stalls at *Verifying*, the app is playing music — iOS will not replace
 an app holding an audio session.
 
+Never alongside means a lock, `~/.local/state/xtool-install.lock`, that this watcher and
+the JellyMC app's both hold for the whole of an install. Looking for a running
+`xtool install` first is not enough on its own: on 1 Nov the two looked in the same
+second, both saw none and both started, and JellyMC's hung at 38% for 78 minutes, through
+an unplug, with this one's next install waiting behind it. The kernel lets go of the lock
+when its holder exits, however it exits. An install started by hand takes no lock, so one
+is still looked for. Kept waiting ten minutes, the watcher says the other install may be
+stuck, and how to end it, rather than wait in silence.
+
 If the phone is on USB but `usbmuxd` has not listed it for a minute, the notification
 says so. That used to happen on most plug-ins until `usbmuxd` was set up as below. A
 phone that is locked, or waiting at *Trust This Computer?*, is listed but cannot be
@@ -93,6 +102,7 @@ No phone needed. It replays plug-ins against fake `lsusb`, `idevice_id`, `xtool`
 `pgrep`, `udevadm` and `notify-send` on a virtual clock, in a scratch home, and checks
 for one install per plug-in: a re-enumeration, `usbmuxd` losing the phone for two
 minutes, `usbmuxd` not listing it for five, a failed download, a locked phone, *Don't
-Trust*, a replug, JellyMC's install running, a new build, an install cut off part way,
+Trust*, a replug, JellyMC's install running, JellyMC's watcher holding the install lock,
+one of its installs stuck for fifteen minutes, a new build, an install cut off part way,
 and a second watcher started beside the first. `--watcher FILE` runs the same scenarios
 against another copy, such as an older one from git.

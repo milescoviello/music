@@ -18,15 +18,19 @@ Runs in the desktop session (KDE autostart), so it can notify and use the logged
 beside it. tools/phone-refresh/test-music-phone-refresh replays plug-ins against fake
 tools.
 
-Two things learned the hard way, from the app's own notes:
+Three things learned the hard way, from the app's own notes:
 - Never time out `xtool install`. A killed install leaves a session that collides with
   the next one ("Coordinator superseded"). It is run to completion here, however long.
+- Never two installs at once, from any app. Each watcher holds INSTALL_LOCK for its whole
+  install: looking for a running one and then starting let two through in the same
+  second, and the one that lost hung for over an hour.
 - If it stalls at [Verifying], the app is playing music: iOS will not replace an app
   holding an active audio session. The notification says so.
 """
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
@@ -42,6 +46,13 @@ STATE_DIR = Path.home() / ".local" / "state" / "music-phone-refresh"
 CACHE = Path.home() / ".cache" / "music-phone"
 STATE = STATE_DIR / "state.json"
 LOG = STATE_DIR / "log.txt"
+# One install on the phone at a time, across every app's watcher (the JellyMC app's takes
+# it too): each holds it for its whole `xtool install`. Looking for a running install and
+# then starting one is not enough. On 1 Nov the two watchers looked in the same second, both
+# saw none and both started; JellyMC's hung at 38% for 78 minutes, through an unplug, and
+# held this app's next install back behind it. The kernel drops the lock with its holder,
+# however that ends, so it never goes stale.
+INSTALL_LOCK = Path.home() / ".local" / "state" / "xtool-install.lock"
 
 POLL_SECONDS = 5
 # An iPhone re-enumerates by itself 20 to 35 seconds after it is plugged in: off USB for 3 to
@@ -52,6 +63,9 @@ UNPLUG_SECONDS = 15
 REENUMERATE_SECONDS = 60
 # And usbmuxd must have listed the phone this long, as the same USB device.
 SETTLE_SECONDS = 15
+# Waiting on another install this long, it is probably stuck, and the notification says so
+# rather than waiting in silence.
+STUCK_SECONDS = 10 * 60
 # On USB but not listed by usbmuxd this long, the notification says so. The usbmuxd
 # watchdog restarts usbmuxd after 30 s of that, which is usually enough.
 UNLISTED_WARN_SECONDS = 60
@@ -167,6 +181,33 @@ def other_install_running() -> bool:
     return result.returncode == 0
 
 
+def take_turn(lock) -> None:
+    """Returns holding INSTALL_LOCK, once no other install is running. One started by hand
+    takes no lock, so a running `xtool install` is still looked for, under the lock."""
+    waiting_since: float | None = None
+    warned = False
+    while True:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            pass
+        else:
+            if not other_install_running():
+                return
+            fcntl.flock(lock, fcntl.LOCK_UN)
+        now = time.time()
+        if waiting_since is None:
+            waiting_since = now
+            log("waiting for another xtool install to finish")
+        elif not warned and now - waiting_since >= STUCK_SECONDS:
+            warned = True
+            log(f"another install has run {int((now - waiting_since) / 60)} minutes; it may be stuck")
+            notify("Music: another install may be stuck",
+                   "One has been running for ten minutes, and this one waits behind it. Unplugging "
+                   "doesn't end it. If nothing is installing, end it: pkill -f 'xtool install'", urgent=True)
+        time.sleep(POLL_SECONDS)
+
+
 def install(udid: str, release: dict | None, announce: bool) -> tuple[str, str, str] | None:
     """Installs `latest` on the phone. None once it is installed, else (kind, title, body)
     for the notification; a retry that fails the same way has the same kind."""
@@ -179,23 +220,22 @@ def install(udid: str, release: dict | None, announce: bool) -> tuple[str, str, 
         log(f"download failed: {download.stderr.strip()[-300:]}")
         return "download", "Music: couldn't download the build", download.stderr.strip()[-200:] or "gh release download failed"
 
-    # Another app's install runs to completion first, as the JellyMC watcher lets this one's:
-    # two at once on the phone could collide like an interrupted one.
-    if other_install_running():
-        log("waiting for another xtool install to finish")
-        while other_install_running():
-            time.sleep(POLL_SECONDS)
+    # Another app's install runs to completion first, and none starts during this one: two
+    # at once on the phone collide like an interrupted one. Closing the file lets go.
+    INSTALL_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    with INSTALL_LOCK.open("a") as lock:
+        take_turn(lock)
 
-    build = release.get("build") if release else "?"
-    if announce:
-        notify("Music: installing build " + str(build), "Keep the phone plugged in. If it sits at Verifying, stop playback in Music.")
-    log(f"installing build {build} on {udid}")
+        build = release.get("build") if release else "?"
+        if announce:
+            notify("Music: installing build " + str(build), "Keep the phone plugged in. If it sits at Verifying, stop playback in Music.")
+        log(f"installing build {build} on {udid}")
 
-    # No timeout, deliberately — see the module docstring.
-    process = subprocess.run(
-        ["xtool", "install", "--usb", "--udid", udid, str(CACHE / "Music.ipa")],
-        capture_output=True, text=True,
-    )
+        # No timeout, deliberately — see the module docstring.
+        process = subprocess.run(
+            ["xtool", "install", "--usb", "--udid", udid, str(CACHE / "Music.ipa")],
+            capture_output=True, text=True,
+        )
     output = (process.stdout + process.stderr).strip()
     if process.returncode == 0:
         log(f"installed build {build}")
