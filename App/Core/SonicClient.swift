@@ -91,6 +91,10 @@ struct SonicClient: Sendable {
         let items: [LyricHit]
     }
 
+    private struct Kept: Decodable {
+        let name: String
+    }
+
     var configuration: Configuration
     var session: URLSession = .shared
 
@@ -161,7 +165,34 @@ struct SonicClient: Sendable {
         try await getIfPresent("v1/lyrics/search", ["q": query, "limit": String(limit)], as: LyricHits.self)?.items ?? []
     }
 
+    /// Hands a Send Logs report to the service, which keeps it as a file in its `data/logs`
+    /// on the server. Returns the file's name. A service too old to take one answers 404.
+    func sendLogs(_ text: String, source: String) async throws -> String {
+        guard let request = logsRequest(text, source: source) else { throw SonicError.badURL }
+        let (data, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(status) else { throw SonicError.status(status) }
+        return (try? JSONDecoder().decode(Kept.self, from: data))?.name ?? ""
+    }
+
+    func logsRequest(_ text: String, source: String) -> URLRequest? {
+        guard let url = url("v1/logs") else { return nil }
+        var request = URLRequest(url: url, timeoutInterval: 20)
+        request.httpMethod = "POST"
+        request.httpBody = Data(text.utf8)
+        request.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue(source, forHTTPHeaderField: "X-Log-Source")
+        authorise(&request)
+        return request
+    }
+
     // MARK: - Plumbing
+
+    private func authorise(_ request: inout URLRequest) {
+        if let token = configuration.token, !token.isEmpty {
+            request.setValue(token, forHTTPHeaderField: "X-Sonic-Token")
+        }
+    }
 
     /// Paths and queries, Foundation-only so they are tested.
     func url(_ path: String, _ query: [String: String] = [:]) -> URL? {
@@ -195,9 +226,7 @@ struct SonicClient: Sendable {
     private func getIfPresent<T: Decodable>(_ path: String, _ query: [String: String], as type: T.Type) async throws -> T? {
         guard let url = url(path, query) else { throw SonicError.badURL }
         var request = URLRequest(url: url, timeoutInterval: 10)
-        if let token = configuration.token, !token.isEmpty {
-            request.setValue(token, forHTTPHeaderField: "X-Sonic-Token")
-        }
+        authorise(&request)
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if status == 404 { return nil }

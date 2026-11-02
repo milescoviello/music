@@ -97,7 +97,7 @@ struct SettingsView: View {
             }
 
             Section("About") {
-                LabeledContent("Version", value: version)
+                LabeledContent("Version", value: Self.version)
             }
 
             Section {
@@ -148,8 +148,9 @@ struct SettingsView: View {
 
     /// Identifies the exact build, which the app previously could not do: the version
     /// read "1.0 (1)" forever, so there was no way to tell from the phone whether an
-    /// install had actually taken. CI stamps the run number and commit.
-    private var version: String {
+    /// install had actually taken. CI stamps the run number and commit. Diagnostics puts
+    /// it in a Send Logs report.
+    static var version: String {
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"

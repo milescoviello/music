@@ -13,9 +13,56 @@ struct DiagnosticsView: View {
     @State private var pending: [ServerOutbox.Kind: Int] = [:]
     @State private var lines: [Diagnostics.Line] = []
     @State private var isFlushing = false
+    @State private var note = ""
+    @State private var isSending = false
+    @State private var sent: Sent?
+
+    /// How the last Send Logs went. A report that didn't arrive is kept, to share instead.
+    private enum Sent {
+        case kept(String)
+        case failed(String, report: String)
+    }
 
     var body: some View {
         List {
+            Section {
+                TextField("What went wrong? (optional)", text: $note, axis: .vertical)
+                    .lineLimit(1...5)
+                Button {
+                    send()
+                } label: {
+                    HStack {
+                        Text("Send Logs")
+                        Spacer()
+                        if isSending { ProgressView().controlSize(.small) }
+                    }
+                }
+                .disabled(isSending)
+                switch sent {
+                case .kept(let name):
+                    Label(name.isEmpty ? "Sent." : "Sent. Kept on the server as \(name).", systemImage: "checkmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                case .failed(let message, let report):
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                    ShareLink(item: report) {
+                        Label("Share Instead", systemImage: "square.and.arrow.up")
+                    }
+                case nil:
+                    EmptyView()
+                }
+            } header: {
+                Text("Send Logs")
+            } footer: {
+                Text("""
+                Sends what's playing, what's waiting to sync and the failure log below to \
+                the sonic service on your server, which keeps it for looking into a bug. \
+                The password and sign-in aren't in it.
+                """)
+            }
+
             Section {
                 if pending.isEmpty {
                     LabeledContent("Waiting to sync", value: "Nothing")
@@ -158,6 +205,22 @@ struct DiagnosticsView: View {
         pending = await appState.outbox.summary()
         lines = await Diagnostics.shared.recent()
         exportText = await Diagnostics.shared.export()
+    }
+
+    private func send() {
+        isSending = true
+        sent = nil
+        Task {
+            let report = await appState.logReport(version: SettingsView.version, note: note)
+            do {
+                sent = .kept(try await appState.sendLogs(report))
+                note = ""
+            } catch {
+                sent = .failed(LogReport.failure(error), report: report.text())
+            }
+            isSending = false
+            await reload()
+        }
     }
 
     private func flush() {

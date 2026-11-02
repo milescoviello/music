@@ -106,6 +106,15 @@ enum SettingsPages {
         return stamped.isEmpty ? "Local build" : stamped
     }
 
+    /// For a Send Logs report: a local build says nothing about which code it is, and when
+    /// it was installed narrows that down to a commit.
+    static var logVersion: String {
+        guard let path = Bundle.main.executablePath,
+              let installed = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+        else { return version }
+        return "\(version), installed \(installed.formatted(date: .abbreviated, time: .shortened))"
+    }
+
     static func preferencesPage(_ title: String, _ page: PreferencesPage) -> NavigationPage {
         NavigationPage(ToolbarView(content: page).top(HeaderBar()), title: title)
     }
@@ -560,6 +569,8 @@ enum SettingsPages {
     static func diagnostics(_ env: Env) -> NavigationPage {
         let app = env.app
         let body = Box.vertical(spacing: 24).margin(horizontal: 12, vertical: 24)
+        // Outlives the page being refilled, so a note half written survives a refresh.
+        let draft = LogDraft()
         func reload() {
             Task { @MainActor in
                 let pending = await app.outbox.summary()
@@ -579,6 +590,27 @@ enum SettingsPages {
         }
         func fill(pending: [ServerOutbox.Kind: Int], lines: [Diagnostics.Line], export: String) {
             body.removeAll()
+            let send = PreferencesGroup("Send Logs", description: "Sends what's playing, what's waiting to sync and the failure log to the sonic service on your server, which keeps it for looking into a bug. The password and sign-in aren't in it.")
+            send.add(EntryRow("What went wrong? (optional)", text: draft.note).onChange { draft.note = $0 })
+            send.add(ButtonRow("Send Logs", icon: "mail-send-symbolic") {
+                guard !draft.isSending else { return }
+                draft.isSending = true
+                Task { @MainActor in
+                    let report = await app.logReport(version: logVersion, note: draft.note)
+                    do {
+                        _ = try await app.sendLogs(report)
+                        draft.note = ""
+                        env.toast("Sent the logs")
+                        reload()
+                    } catch {
+                        gdk_clipboard_set_text(gtk_widget_get_clipboard(body.widget), report.text())
+                        env.toast("\(LogReport.failure(error)) Copied the report instead.")
+                    }
+                    draft.isSending = false
+                }
+            })
+            body.append(send)
+
             let waiting = PreferencesGroup("Pending", description: "Plays, stars and ratings made while offline wait here and are sent when the server is reachable. They carry the time they actually happened, so a late one is still recorded correctly.")
             if pending.isEmpty {
                 waiting.add(ActionRow("Waiting to sync").suffix(Label("Nothing", "dim")))
@@ -650,6 +682,13 @@ enum SettingsPages {
             bar.end(Button(icon: "view-refresh-symbolic", "flat") { reload() }.tooltip("Refresh"))
         }
     }
+}
+
+/// What the Diagnostics page is in the middle of sending, kept across its refills.
+@MainActor
+private final class LogDraft {
+    var note = ""
+    var isSending = false
 }
 
 /// Stamped by the build script; empty for a plain `swift build`.
