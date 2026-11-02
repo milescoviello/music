@@ -69,10 +69,10 @@ struct PlayPlaylistIntent: AppIntent {
 
         // Through the cache, as the playlist screen does, so a playlist kept on the phone
         // plays offline too -- straight from the server, offline answered "is empty".
-        let client = appState.client
-        guard let detail: PlaylistDetail = await appState.cached(CacheKey.playlist(target.id), {
-            try await client.playlistDetail(id: target.id)
-        }) else {
+        // And from the saved copy, only the songs on the phone: one it would have to stream
+        // stops the queue when there is no server.
+        let (found, isSaved) = await appState.playlist(target.id)
+        guard let detail = found else {
             return .result(dialog: "I couldn't reach your library for \(target.name).")
         }
         guard !detail.songs.isEmpty else {
@@ -80,7 +80,7 @@ struct PlayPlaylistIntent: AppIntent {
         }
 
         appState.player.play(
-            songs: detail.songs,
+            songs: isSaved ? appState.playableHere(detail.songs) : detail.songs,
             startingAt: 0,
             source: target.name,
             shuffled: shuffled

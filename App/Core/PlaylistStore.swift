@@ -37,16 +37,23 @@ final class PlaylistStore {
     func load() async {
         guard let client, let appState else { return }
         isLoading = true
-        // Cached, so the list is there offline. The tracks themselves are too, because
+        // The list as last seen, at once: waiting for the server first meant a blank list
+        // for the whole request timeout away from home, where the server never answers.
+        if playlists.isEmpty, let saved = await appState.cache.load([Playlist].self, for: CacheKey.playlists) {
+            playlists = Self.sorted(saved)
+        }
+        // Then the server's, saved for next time. The tracks are on the phone too, because
         // playlists are kept downloaded by default.
         if let fetched: [Playlist] = await appState.cached(CacheKey.playlists, {
             try await client.playlists()
         }) {
-            playlists = fetched.sorted {
-                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-            }
+            playlists = Self.sorted(fetched)
         }
         isLoading = false
+    }
+
+    private static func sorted(_ playlists: [Playlist]) -> [Playlist] {
+        playlists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     /// Loads once. Used by menus, which must not re-fetch every time they open.

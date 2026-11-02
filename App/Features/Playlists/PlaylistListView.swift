@@ -140,23 +140,23 @@ struct PlaylistListView: View {
         }
     }
 
-    /// A row only has the playlist, not its tracks, so they are fetched first.
+    /// A row only has the playlist, not its tracks, so they are fetched first: from the
+    /// server, or the saved copy's songs on this phone when it doesn't answer.
     private func withSongs(_ playlist: Playlist, _ action: @escaping @MainActor ([Song]) -> Void) {
         Task {
-            guard let detail = try? await appState.client.playlistDetail(id: playlist.id),
-                  !detail.songs.isEmpty
-            else { return }
-            action(detail.songs)
+            let songs = await appState.playlistSongsToPlay(playlist.id)
+            guard !songs.isEmpty else { return }
+            action(songs)
         }
     }
 
+    /// Works offline: the saved playlist's songs that are on the phone.
     private func play(_ playlist: Playlist, shuffled: Bool = false) {
         Task {
-            guard let detail = try? await appState.client.playlistDetail(id: playlist.id),
-                  !detail.songs.isEmpty
-            else { return }
+            let songs = await appState.playlistSongsToPlay(playlist.id)
+            guard !songs.isEmpty else { return }
             appState.player.play(
-                songs: detail.songs, startingAt: 0, source: playlist.name, shuffled: shuffled
+                songs: songs, startingAt: 0, source: playlist.name, shuffled: shuffled
             )
         }
     }
@@ -424,11 +424,11 @@ struct PlaylistDetailView: View {
 
             PlayShuffleButtons(
                 onPlay: {
-                    appState.player.play(songs: songs, startingAt: 0, source: playlist.name)
+                    appState.player.play(songs: playable, startingAt: 0, source: playlist.name)
                 },
                 onShuffle: {
                     appState.player.play(
-                        songs: songs, startingAt: 0, source: playlist.name, shuffled: true
+                        songs: playable, startingAt: 0, source: playlist.name, shuffled: true
                     )
                 }
             )
@@ -441,6 +441,10 @@ struct PlaylistDetailView: View {
     @State private var editing: Playlist?
 
     private var songs: [Song] { detail?.songs ?? [] }
+    /// Shown from the saved copy because the server didn't answer.
+    @State private var isSaved = false
+    /// What Play and Shuffle start: without the server, the songs on this phone.
+    private var playable: [Song] { isSaved ? appState.playableHere(songs) : songs }
 
     /// Seeded from a random track in the playlist, so the mix differs each time rather
     /// than always radiating out from track one.
@@ -462,10 +466,17 @@ struct PlaylistDetailView: View {
         return parts.joined(separator: " · ")
     }
 
+    /// The last known state at once, from disk; then the server's, if it answers.
     private func load() async {
         let id = playlist.id
-        detail = await appState.cached(CacheKey.playlist(id)) { [client = appState.client] in
-            try await client.playlistDetail(id: id)
+        if detail == nil, let saved = await appState.savedPlaylist(id) {
+            detail = saved
+            isSaved = true
+        }
+        let (fresh, saved) = await appState.playlist(id)
+        if let fresh {
+            detail = fresh
+            isSaved = saved
         }
     }
 }

@@ -61,10 +61,13 @@ enum PlaylistList {
 
     static func menu(_ env: Env, _ playlist: Playlist) -> Menu {
         let app = env.app
+        // From the server, or the saved copy's songs on this computer when it doesn't answer:
+        // straight from the server, Play and Shuffle here did nothing offline.
         func withSongs(_ action: @escaping @MainActor ([Song]) -> Void) {
             Task {
-                guard let detail = try? await app.client.playlistDetail(id: playlist.id), !detail.songs.isEmpty else { return }
-                action(detail.songs)
+                let songs = await app.playlistSongsToPlay(playlist.id)
+                guard !songs.isEmpty else { return }
+                action(songs)
             }
         }
         let player = app.player
@@ -165,22 +168,23 @@ enum PlaylistPage {
         }
 
         func load() {
-            loader.run({ () -> PlaylistDetail? in
-                let id = playlist.id
-                let client = app.client
-                return await app.cached(CacheKey.playlist(id)) { try await client.playlistDetail(id: id) }
-            }) { detail in
-                songs = detail.songs
-                return content(env, playlist: playlist, detail: detail, reload: load)
+            loader.run({ () -> (detail: PlaylistDetail, isSaved: Bool)? in
+                let found = await app.playlist(playlist.id)
+                return found.detail.map { ($0, found.isSaved) }
+            }) { found in
+                songs = found.detail.songs
+                return content(env, playlist: playlist, detail: found.detail, isSaved: found.isSaved, reload: load)
             }
         }
         load()
         return page
     }
 
-    private static func content(_ env: Env, playlist: PlaylistRef, detail: PlaylistDetail, reload: @escaping @MainActor () -> Void) -> Widget {
+    private static func content(_ env: Env, playlist: PlaylistRef, detail: PlaylistDetail, isSaved: Bool, reload: @escaping @MainActor () -> Void) -> Widget {
         let app = env.app
         let songs = detail.songs
+        // Without the server, Play and Shuffle start the songs on this computer.
+        let playable = isSaved ? app.playableHere(songs) : songs
         let artwork = ArtworkView(app, size: .full, side: 200, shape: .player)
         artwork.root.observe {
             _ = app.playlistArtwork.generation
@@ -197,8 +201,8 @@ enum PlaylistPage {
                 if let comment = detail.comment, !comment.isEmpty { Label(comment, "dim").wrap() }
                 Label(subtitle.joined(separator: " · "), "caption", "dim")
                 Box.horizontal(spacing: 8) {
-                    Button("Play", icon: "media-playback-start-symbolic", "suggested-action", "pill") { env.play(songs, source: playlist.name) }
-                    Button("Shuffle", icon: "media-playlist-shuffle-symbolic", "pill") { env.play(songs, source: playlist.name, shuffled: true) }
+                    Button("Play", icon: "media-playback-start-symbolic", "suggested-action", "pill") { env.play(playable, source: playlist.name) }
+                    Button("Shuffle", icon: "media-playlist-shuffle-symbolic", "pill") { env.play(playable, source: playlist.name, shuffled: true) }
                 }.margins(top: 12)
             }.valign(GTK_ALIGN_END).hexpand()
         }
