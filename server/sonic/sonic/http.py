@@ -1,5 +1,6 @@
-"""The HTTP side: small, read-only, JSON. Standard library only, so the service has
-nothing to install beyond Essentia and NumPy."""
+"""The HTTP side: small, JSON, and read-only apart from the logs the app sends for
+fixing a bug. Standard library only, so the service has nothing to install beyond
+Essentia and NumPy."""
 
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .config import TAGS
+from .logs import LIMIT, LogBox
 
 log = logging.getLogger("sonic.http")
 
@@ -34,6 +36,7 @@ def _items(hits) -> dict | None:
 
 
 def make_handler(service):
+    logs = LogBox(service.config.data_dir / "logs")
     routes = [
         (re.compile(r"^/v1/status$"), lambda match, q: service.status()),
         (re.compile(r"^/v1/tracks/([^/]+)/levels$"),
@@ -87,6 +90,37 @@ def make_handler(service):
                     # Unknown or not yet analysed: 404, which the app reads as "fall back".
                     return self._send(404, {"error": "not analysed"}) if body is None else self._send(200, body)
             return self._send(404, {"error": "no such endpoint"})
+
+        def do_POST(self):  # noqa: N802 — the standard library's name
+            if service.config.token and self.headers.get("X-Sonic-Token") != service.config.token:
+                return self._send(401, {"error": "token required"})
+            if unquote(urlparse(self.path).path) != "/v1/logs":
+                return self._send(404, {"error": "no such endpoint"})
+            try:
+                length = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                return self._send(411, {"error": "length required"})
+            if length <= 0:
+                return self._send(400, {"error": "empty"})
+            if length > LIMIT:
+                # Read and dropped a piece at a time, never held: answering before the
+                # body is read breaks the sender's pipe, and it never sees the 413. One
+                # far too big is not worth reading, and only gets the connection closed.
+                if length <= 8 * LIMIT:
+                    while length > 0:
+                        chunk = self.rfile.read(min(length, 65536))
+                        if not chunk:
+                            break
+                        length -= len(chunk)
+                return self._send(413, {"error": f"at most {LIMIT} bytes"})
+            text = self.rfile.read(length).decode("utf-8", errors="replace")
+            try:
+                name = logs.save(text, self.headers.get("X-Log-Source"))
+            except OSError as error:
+                log.exception("could not keep the logs")
+                return self._send(500, {"error": str(error)})
+            log.info("logs received: %s, %d bytes", name, length)
+            return self._send(201, {"name": name})
 
         def _send(self, status: int, body: dict):
             data = json.dumps(body, separators=(",", ":")).encode()

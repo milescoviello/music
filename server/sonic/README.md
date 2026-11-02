@@ -19,8 +19,8 @@ runtime.
 - Keeps it all in `data/sonic.db` (SQLite), re-reads the library every six hours, and
   analyses whatever is new or changed. A first pass over ~26,000 tracks takes several
   hours; results are served as they land.
-- Answers on port 8650. Every endpoint is a GET returning JSON; a track not analysed yet
-  is a 404.
+- Answers on port 8650. Every endpoint but one is a GET returning JSON; a track not
+  analysed yet is a 404. The one write is the app's Send Logs (below).
 
 | Endpoint | Answers |
 |---|---|
@@ -37,6 +37,16 @@ runtime.
 
 Lists are `{"items": [{"id", "distance"}]}`, distances cosine (0 identical). Set
 `SONIC_TOKEN` to require an `X-Sonic-Token` header.
+
+`POST /v1/logs` takes the plain-text report from the app's Diagnostics → Send Logs and
+keeps it as `data/logs/<UTC time>-<source>-<random>.txt`, where `source` is the app's
+`X-Log-Source` ("ios", "linux-<host>"). It answers 201 with `{"name"}`. A report is at
+most 1 MB (413 beyond), and only the newest 100 are kept, so the folder stays under
+about 100 MB whoever sends to it. The newest report is the last name in sort order:
+
+```sh
+ls ~/sonic/data/logs | tail -1
+```
 
 ## Running it
 
