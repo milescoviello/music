@@ -21,6 +21,9 @@ struct ExperienceSettingsView: View {
                 Picker("Background", selection: $playerSettings.background) {
                     ForEach(PlayerSettings.Background.allCases) { Text($0.title).tag($0) }
                 }
+                Picker("Shuffle", selection: $playerSettings.shuffleStyle) {
+                    ForEach(PlayerSettings.ShuffleStyle.allCases) { Text($0.title).tag($0) }
+                }
                 Toggle("Keep Screen On", isOn: Binding(
                     get: { appState.screenAwake.isEnabled },
                     set: { appState.screenAwake.isEnabled = $0 }
@@ -32,7 +35,9 @@ struct ExperienceSettingsView: View {
                 Text("""
                 Show Full Player opens the player whenever something starts playing. The \
                 Smooth and Bars seekbars draw the track's loudness once it is on the phone. \
-                Keep Screen On stops the phone sleeping while the app is open. Higher \
+                Keep Screen On stops the phone sleeping while the app is open. Random \
+                shuffle makes every order equally likely; Smart puts songs not heard lately \
+                earlier, ones skipped lately later, and no artist twice running. Higher \
                 Quality Visualizers draws them at the screen's full resolution: higher \
                 quality, but more expensive.
                 """)

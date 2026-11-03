@@ -44,7 +44,7 @@ struct DiagnosticsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 case .failed(let message, let report):
-                    Text(message)
+                    Text("\(message) Kept, and it will be sent when the server can be reached.")
                         .font(.caption)
                         .foregroundStyle(.red)
                     ShareLink(item: report) {
@@ -64,6 +64,9 @@ struct DiagnosticsView: View {
             }
 
             Section {
+                if UnsentLogs.count > 0 {
+                    LabeledContent("Logs waiting to send", value: "\(UnsentLogs.count)")
+                }
                 if pending.isEmpty {
                     LabeledContent("Waiting to sync", value: "Nothing")
                 } else {
@@ -218,7 +221,7 @@ struct DiagnosticsView: View {
         Task {
             let report = await appState.logReport(version: SettingsView.version, note: note)
             do {
-                sent = .kept(try await appState.sendLogs(report))
+                sent = .kept(try await appState.sendOrKeepLogs(report) ?? "")
                 note = ""
             } catch {
                 sent = .failed(LogReport.failure(error), report: report.text())

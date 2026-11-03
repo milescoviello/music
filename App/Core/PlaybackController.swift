@@ -538,7 +538,8 @@ final class PlaybackController {
             shuffled: shuffled,
             source: source,
             repeatMode: queue.repeatMode,
-            station: station
+            station: station,
+            ordering: shuffleOrdering()
         )
         appState?.guestDJ.queueReplaced()
         recordStart(of: songs, source: source, station: station)
@@ -835,10 +836,26 @@ final class PlaybackController {
         if queue.isShuffled {
             queue.unshuffle()
         } else {
-            queue.shuffle(keepingCurrent: true)
+            queue.shuffle(keepingCurrent: true, ordering: shuffleOrdering())
         }
         refillWindow()
         persist()
+    }
+
+    /// `SmartShuffle`'s order when that is the setting, read from the play log and the
+    /// skips as they are now. Nil, the plain shuffle, otherwise.
+    private func shuffleOrdering() -> PlaybackQueue.Ordering? {
+        guard let appState, appState.playerSettings.shuffleStyle == .smart else { return nil }
+        var lastPlayed: [String: Date] = [:]
+        for play in appState.history.plays {
+            let key = MixEngine.identity(title: play.title, artist: play.artist)
+            if play.at > (lastPlayed[key] ?? .distantPast) { lastPlayed[key] = play.at }
+        }
+        let skipped = appState.skips.penalties()
+        return { indices, tracks in
+            var generator = SystemRandomNumberGenerator()
+            return SmartShuffle.order(indices, of: tracks, lastPlayed: lastPlayed, skipped: skipped, using: &generator)
+        }
     }
 
     func cycleRepeat() {
@@ -1082,6 +1099,7 @@ final class PlaybackController {
     private func tick(elapsed newElapsed: Double, isMoving: Bool) {
         guard remote == nil else { return }
         elapsed = newElapsed
+        if isMoving, Date.now.timeIntervalSince(lastPositionSave) >= 10 { savePosition() }
         // Only when it changes: this runs four times a second, and an observed property
         // assigned its own value can still count as a change to whatever reads it.
         if isBuffering != output.isBuffering {
@@ -1301,6 +1319,22 @@ final class PlaybackController {
         appState?.queueSync.push(queue: queue, elapsed: elapsed)
     }
 
+    @ObservationIgnored private var lastPositionSave = Date.distantPast
+
+    /// The position on disk, at most ten seconds old, while a track plays. Saved before
+    /// only at transitions and on going to the background, so a force-quit, which gives
+    /// no warning, brought the song back at the start (11-03, "Breathe in the Air").
+    /// Locally only: the server's copy follows the transitions as before.
+    private func savePosition() {
+        lastPositionSave = .now
+        // A debounced save still waiting holds an older snapshot.
+        saveTask?.cancel()
+        saveTask = nil
+        let snapshot = QueueSnapshot(queue: queue, positionSeconds: elapsed, savedAt: .now)
+        lastSavedAt = snapshot.savedAt
+        Task { [store] in await store.save(snapshot) }
+    }
+
     func persistNow() {
         guard remote == nil else { return }
         // A debounced save still waiting holds an older snapshot, and would land on top
@@ -1318,6 +1352,9 @@ final class PlaybackController {
         guard let snapshot = await store.load(), !snapshot.queue.isEmpty else { return }
         lastSavedAt = snapshot.savedAt
         queue = snapshot.queue
+        let title = queue.current?.title ?? "?"
+        let line = "restored the queue: #\(queue.position + 1) of \(queue.order.count), “\(title)” at \(LogReport.clock(snapshot.positionSeconds)), saved \(Diagnostics.duration(Date.now.timeIntervalSince(snapshot.savedAt))) ago"
+        Task { await Diagnostics.shared.record("playback", line) }
         rebuildOutput(startPlaying: false, seekTo: snapshot.positionSeconds)
     }
 }

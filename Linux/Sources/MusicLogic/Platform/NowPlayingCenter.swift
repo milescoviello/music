@@ -212,6 +212,11 @@ final class NowPlayingCenter {
     }
 
     private func call(_ method: String, _ parameters: OpaquePointer?) {
+        // Media keys, the desktop's player widget, KDE Connect: each in the log, so a
+        // control that does nothing can be told from one that never arrived.
+        if method != "Raise" {
+            Task { await Diagnostics.shared.record("controls", "\(method) from the desktop's media controls") }
+        }
         switch method {
         case "Raise": Desktop.raise()
         case "Quit":

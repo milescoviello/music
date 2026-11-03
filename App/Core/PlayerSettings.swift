@@ -18,6 +18,32 @@ final class PlayerSettings {
         static let background = "player.background"
         static let romanizesLyrics = "lyrics.romanize"
         static let translatesLyrics = "lyrics.translate"
+        static let shuffle = "player.shuffle"
+    }
+
+    /// Shuffle as random as ever, or weighted by `SmartShuffle`.
+    enum ShuffleStyle: String, CaseIterable, Identifiable, Sendable {
+        case random, smart
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .random: return "Random"
+            case .smart: return "Smart"
+            }
+        }
+        var detail: String {
+            switch self {
+            case .random: return "Every order equally likely."
+            case .smart: return "Songs not heard lately lean early, ones skipped lately lean late, and no artist twice running."
+            }
+        }
+    }
+
+    var shuffleStyle: ShuffleStyle {
+        didSet {
+            UserDefaults.standard.set(shuffleStyle.rawValue, forKey: Key.shuffle)
+            SettingsLog.changed("Shuffle", from: oldValue.title, to: shuffleStyle.title)
+        }
     }
 
     static let skipOptions = [10, 15, 30, 45]
@@ -97,5 +123,6 @@ final class PlayerSettings {
         skipForwardSeconds = defaults.object(forKey: Key.skipForward) as? Int ?? 30
         romanizesLyrics = defaults.bool(forKey: Key.romanizesLyrics)
         translatesLyrics = defaults.bool(forKey: Key.translatesLyrics)
+        shuffleStyle = defaults.string(forKey: Key.shuffle).flatMap(ShuffleStyle.init(rawValue:)) ?? .random
     }
 }

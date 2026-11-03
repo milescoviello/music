@@ -142,6 +142,57 @@ struct PlayFavouritesIntent: AppIntent {
     }
 }
 
+/// Heavy Rotation, today's: the songs played most lately. One press of the Action button.
+struct PlayHeavyRotationIntent: AppIntent {
+    static let title: LocalizedStringResource = "Play Heavy Rotation"
+    static let description = IntentDescription("Plays today's Heavy Rotation: the songs you play most lately.")
+    static let openAppWhenRun = true
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let appState = await MusicIntentBridge.state() else {
+            return .result(dialog: "Music isn't signed in yet.")
+        }
+        let said = await appState.quickPlay(.heavyRotation)
+        return .result(dialog: "\(said)")
+    }
+}
+
+/// One of today's Made for You mixes, by its place on the shelf.
+struct PlayMadeForYouIntent: AppIntent {
+    static let title: LocalizedStringResource = "Play Made for You"
+    static let description = IntentDescription("Plays one of today's Made for You mixes, the first unless told which.")
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Mix", description: "Which mix on the shelf, from 1.", default: 1, inclusiveRange: (1, 40))
+    var mix: Int
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let appState = await MusicIntentBridge.state() else {
+            return .result(dialog: "Music isn't signed in yet.")
+        }
+        let said = await appState.quickPlay(.madeForYou, mix: mix)
+        return .result(dialog: "\(said)")
+    }
+}
+
+/// The most-played downloads, shuffled: music with no signal at all.
+struct ShuffleMostPlayedIntent: AppIntent {
+    static let title: LocalizedStringResource = "Shuffle Most Played"
+    static let description = IntentDescription("Shuffles the most-played songs kept on the phone, which play offline.")
+    static let openAppWhenRun = true
+
+    @MainActor
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        guard let appState = await MusicIntentBridge.state() else {
+            return .result(dialog: "Music isn't signed in yet.")
+        }
+        let said = await appState.quickPlay(.mostPlayed)
+        return .result(dialog: "\(said)")
+    }
+}
+
 /// Continues whatever was left in the queue. The most useful one in a car.
 struct ResumeMusicIntent: AppIntent {
     static let title: LocalizedStringResource = "Resume Music"
@@ -225,6 +276,33 @@ struct MusicShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Resume",
             systemImageName: "play.fill"
+        )
+        AppShortcut(
+            intent: PlayHeavyRotationIntent(),
+            phrases: [
+                "Play Heavy Rotation in \(.applicationName)",
+                "Play my heavy rotation in \(.applicationName)",
+            ],
+            shortTitle: "Heavy Rotation",
+            systemImageName: "flame.fill"
+        )
+        AppShortcut(
+            intent: PlayMadeForYouIntent(),
+            phrases: [
+                "Play Made for You in \(.applicationName)",
+                "Play my mix in \(.applicationName)",
+            ],
+            shortTitle: "Made for You",
+            systemImageName: "sparkles.rectangle.stack"
+        )
+        AppShortcut(
+            intent: ShuffleMostPlayedIntent(),
+            phrases: [
+                "Shuffle my most played in \(.applicationName)",
+                "Play my most played in \(.applicationName)",
+            ],
+            shortTitle: "Most Played",
+            systemImageName: "arrow.down.circle.fill"
         )
         AppShortcut(
             intent: ShuffleLibraryIntent(),

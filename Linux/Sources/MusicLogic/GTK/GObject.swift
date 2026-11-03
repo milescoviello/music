@@ -148,6 +148,23 @@ enum Signal {
         return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
+    /// A pointer argument, returning an int: GApplication's `handle-local-options`, where
+    /// -1 means carry on and anything else is the exit status.
+    @discardableResult
+    static func connectStatus(
+        _ instance: GPointer,
+        _ name: String,
+        pointer handler: @escaping @MainActor (UnsafeMutableRawPointer?) -> Int32
+    ) -> gulong {
+        typealias H = @MainActor (UnsafeMutableRawPointer?) -> Int32
+        let trampoline: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> gint = { _, argument, data in
+            let handler = unbox(data, as: H.self)
+            nonisolated(unsafe) let argument = argument
+            return MainActor.assumeIsolated { handler(argument) }
+        }
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
+    }
+
     /// Two ints: a drawing area's `resize(width, height)`.
     @discardableResult
     static func connect(

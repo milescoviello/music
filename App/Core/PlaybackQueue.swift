@@ -105,13 +105,18 @@ struct PlaybackQueue: Codable, Sendable {
         return orderIndex
     }
 
+    /// How a shuffle orders the indices it is given: `SmartShuffle`, when that is the
+    /// setting. Nil is the plain random shuffle.
+    typealias Ordering = (_ indices: [Int], _ tracks: [Song]) -> [Int]
+
     static func make(
         tracks: [Song],
         startingAt index: Int,
         shuffled: Bool,
         source: String,
         repeatMode: RepeatMode = .off,
-        station: Station? = nil
+        station: Station? = nil,
+        ordering: Ordering? = nil
     ) -> PlaybackQueue {
         var queue = PlaybackQueue(
             tracks: tracks,
@@ -130,7 +135,7 @@ struct PlaybackQueue: Codable, Sendable {
         // always began with track 1 and only the rest was random. Toggling shuffle
         // *during* playback is the opposite case and still keeps the current track --
         // see `toggleShuffle`.
-        if shuffled { queue.shuffle(keepingCurrent: false) }
+        if shuffled { queue.shuffle(keepingCurrent: false, ordering: ordering) }
         return queue
     }
 
@@ -145,16 +150,18 @@ struct PlaybackQueue: Codable, Sendable {
     /// With `keepingCurrent`, what was added to come next stays next, in its order, and
     /// everything else is shuffled behind it. Shuffling it in with the rest scattered
     /// songs chosen to play next across the whole queue.
-    mutating func shuffle(keepingCurrent: Bool) {
+    mutating func shuffle(keepingCurrent: Bool, ordering: Ordering? = nil) {
         guard !order.isEmpty else { return }
 
+        let songs = tracks
+        let arrange = { (indices: [Int]) in ordering?(indices, songs) ?? indices.shuffled() }
         let currentTrackIndex = order.indices.contains(position) ? order[position] : nil
         if keepingCurrent, let currentTrackIndex {
             let kept = [currentTrackIndex] + addedUpNext
             let keptSet = Set(kept)
-            order = kept + tracks.indices.filter { !keptSet.contains($0) }.shuffled()
+            order = kept + arrange(tracks.indices.filter { !keptSet.contains($0) })
         } else {
-            order = Array(tracks.indices).shuffled()
+            order = arrange(Array(tracks.indices))
         }
         position = 0
         isShuffled = true

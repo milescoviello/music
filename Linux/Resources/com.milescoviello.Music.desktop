@@ -11,3 +11,16 @@ Keywords=Navidrome;Subsonic;Plexamp;Player;
 StartupNotify=true
 StartupWMClass=com.milescoviello.Music
 SingleMainWindow=true
+Actions=heavy-rotation;made-for-you;most-played;
+
+[Desktop Action heavy-rotation]
+Name=Play Heavy Rotation
+Exec=music --action=play-heavy-rotation
+
+[Desktop Action made-for-you]
+Name=Play Made for You
+Exec=music --action=play-made-for-you
+
+[Desktop Action most-played]
+Name=Shuffle Most Played
+Exec=music --action=shuffle-most-played

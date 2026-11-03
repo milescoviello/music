@@ -105,8 +105,9 @@ fi
 install -Dm755 "$binary" "$PREFIX/bin/music.new"
 mv -f "$PREFIX/bin/music.new" "$PREFIX/bin/music"
 # The launcher entry names the binary by path: ~/.local/bin is not on every session's PATH.
+# Its right-click actions too, which run the same binary with --action.
 mkdir -p "$PREFIX/share/applications"
-sed "s|^Exec=music$|Exec=$PREFIX/bin/music|" "Linux/Resources/$ID.desktop" > "$PREFIX/share/applications/$ID.desktop"
+sed "s|^Exec=music|Exec=$PREFIX/bin/music|" "Linux/Resources/$ID.desktop" > "$PREFIX/share/applications/$ID.desktop"
 for size in $SIZES; do
     install -Dm644 "Linux/Resources/icons/hicolor/${size}x$size/apps/$ID.png" "$PREFIX/share/icons/hicolor/${size}x$size/apps/$ID.png"
 done

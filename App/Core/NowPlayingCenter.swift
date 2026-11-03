@@ -26,27 +26,49 @@ final class NowPlayingCenter {
     /// `@MainActor` closure called from anywhere else is an immediate trap rather than
     /// a missed button press. The status has to be returned synchronously, so the
     /// action is dispatched and `.success` reported straight away.
+    /// Every command from the lock screen, Control Center, headphones or a car, in the
+    /// log: when they stopped working, nothing said whether they reached the app at all.
+    /// No line means iOS sent them somewhere else.
+    private static func heard(_ command: String, handled: Bool) {
+        Task { await Diagnostics.shared.record("controls", "\(command) from the lock screen or headphones\(handled ? "" : ", with nothing to handle it")") }
+    }
+
     private func registerCommands() {
         let center = MPRemoteCommandCenter.shared()
 
         center.playCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.onPlay?() }
+            Task { @MainActor in
+                Self.heard("play", handled: self?.onPlay != nil)
+                self?.onPlay?()
+            }
             return .success
         }
         center.pauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.onPause?() }
+            Task { @MainActor in
+                Self.heard("pause", handled: self?.onPause != nil)
+                self?.onPause?()
+            }
             return .success
         }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.onToggle?() }
+            Task { @MainActor in
+                Self.heard("play/pause", handled: self?.onToggle != nil)
+                self?.onToggle?()
+            }
             return .success
         }
         center.nextTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.onNext?() }
+            Task { @MainActor in
+                Self.heard("next", handled: self?.onNext != nil)
+                self?.onNext?()
+            }
             return .success
         }
         center.previousTrackCommand.addTarget { [weak self] _ in
-            Task { @MainActor in self?.onPrevious?() }
+            Task { @MainActor in
+                Self.heard("previous", handled: self?.onPrevious != nil)
+                self?.onPrevious?()
+            }
             return .success
         }
 
@@ -56,7 +78,10 @@ final class NowPlayingCenter {
                 return .commandFailed
             }
             let position = event.positionTime
-            Task { @MainActor in self?.onSeek?(position) }
+            Task { @MainActor in
+                Self.heard("seek to \(Int(position))s", handled: self?.onSeek != nil)
+                self?.onSeek?(position)
+            }
             return .success
         }
 

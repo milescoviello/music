@@ -383,11 +383,13 @@ enum SettingsPages {
         let page = PreferencesPage()
         let styles = PlayerSettings.SeekbarStyle.allCases
         let backgrounds = PlayerSettings.Background.allCases
+        let shuffles = PlayerSettings.ShuffleStyle.allCases
         let skips = PlayerSettings.skipOptions
         page.add(PreferencesGroup("Player", description: """
         Show Full Player opens the player whenever something starts playing. The Smooth and Bars \
         seekbars draw the track's loudness. Keep Screen On stops the screen blanking while the app \
-        is open.
+        is open. Random shuffle makes every order equally likely; Smart puts songs not heard lately \
+        earlier, ones skipped lately later, and no artist twice running.
         """) {
             SwitchRow("Show Full Player", isOn: settings.opensPlayerOnPlay) { settings.opensPlayerOnPlay = $0 }
             ComboRow("Seekbar Style", options: styles.map(\.title), selected: styles.firstIndex(of: settings.seekbarStyle) ?? 0) { index in
@@ -395,6 +397,9 @@ enum SettingsPages {
             }
             ComboRow("Background", options: backgrounds.map(\.title), selected: backgrounds.firstIndex(of: settings.background) ?? 0) { index in
                 if backgrounds.indices.contains(index) { settings.background = backgrounds[index] }
+            }
+            ComboRow("Shuffle", options: shuffles.map(\.title), selected: shuffles.firstIndex(of: settings.shuffleStyle) ?? 0) { index in
+                if shuffles.indices.contains(index) { settings.shuffleStyle = shuffles[index] }
             }
             SwitchRow("Keep Screen On", isOn: app.screenAwake.isEnabled) { app.screenAwake.isEnabled = $0 }
         })
@@ -616,13 +621,13 @@ enum SettingsPages {
                 Task { @MainActor in
                     let report = await app.logReport(version: logVersion, note: draft.note)
                     do {
-                        _ = try await app.sendLogs(report)
+                        _ = try await app.sendOrKeepLogs(report)
                         draft.note = ""
                         env.toast("Sent the logs")
                         reload()
                     } catch {
                         gdk_clipboard_set_text(gtk_widget_get_clipboard(body.widget), report.text())
-                        env.toast("\(LogReport.failure(error)) Copied the report instead.")
+                        env.toast("\(LogReport.failure(error)) Kept it to send when the server can be reached, and copied it.")
                     }
                     draft.isSending = false
                 }
@@ -630,6 +635,9 @@ enum SettingsPages {
             body.append(send)
 
             let waiting = PreferencesGroup("Pending", description: "Plays, stars and ratings made while offline wait here and are sent when the server is reachable. They carry the time they actually happened, so a late one is still recorded correctly.")
+            if UnsentLogs.count > 0 {
+                waiting.add(ActionRow("Logs waiting to send").suffix(Label("\(UnsentLogs.count)", "dim")))
+            }
             if pending.isEmpty {
                 waiting.add(ActionRow("Waiting to sync").suffix(Label("Nothing", "dim")))
             } else {

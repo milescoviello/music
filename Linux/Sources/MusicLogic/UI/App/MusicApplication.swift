@@ -9,6 +9,8 @@ import Foundation
 public enum MusicApplication {
     @MainActor private static var state: AppState?
     @MainActor private static var shell: Shell?
+    /// A quick start asked for on this launch's command line, run once the app is ready.
+    @MainActor private static var pendingAction: QuickPlay?
 
     @MainActor
     public static func run() {
@@ -21,6 +23,7 @@ public enum MusicApplication {
         let application = adw_application_new(Desktop.applicationID, GApplicationFlags(rawValue: 0))!
         Desktop.application = OpaquePointer(application)
         persistDefaults()
+        installQuickPlay(application)
         // Logging out or `kill` sends SIGTERM, which would otherwise end the process
         // without "shutdown" and lose the queue position and unsaved settings.
         for signal in [SIGTERM, SIGINT, SIGHUP] {
@@ -34,6 +37,7 @@ public enum MusicApplication {
             Style.install()
             BundledIcons.install()
             installAccelerators(application)
+            installQuickPlayActions(application)
         }
         Signal.connect(application, "activate") {
             if let shell {
@@ -51,6 +55,10 @@ public enum MusicApplication {
             // After the window, which a pairing code is shown over.
             RemotePairingPrompt.install()
             RemoteControlServer.shared.start(app: state)
+            if let action = pendingAction {
+                pendingAction = nil
+                run(action)
+            }
         }
         Signal.connect(application, "shutdown") {
             // The phone's backgrounding, which on a desktop is quitting: termination while
@@ -69,6 +77,65 @@ public enum MusicApplication {
         let status = g_application_run(application.cast(), Int32(pointers.count), &pointers)
         pointers.forEach { free($0) }
         exit(status)
+    }
+
+    /// `music --action=play-heavy-rotation` and the others in `QuickPlay`: the launcher's
+    /// right-click menu, the desktop's Shortcuts. A second launch hands the action to the
+    /// running app and exits; a first one starts the app and runs it once it is ready.
+    @MainActor
+    private static func installQuickPlay(_ application: UnsafeMutablePointer<AdwApplication>) {
+        let names = QuickPlay.allCases.map(\.rawValue).joined(separator: ", ")
+        g_application_add_main_option(
+            application.cast(), "action", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
+            "Start playing: \(names)", "NAME"
+        )
+        Signal.connectStatus(application, "handle-local-options", pointer: { options in
+            guard let options else { return -1 }
+            let type = g_variant_type_new("s")
+            defer { g_variant_type_free(type) }
+            guard let value = g_variant_dict_lookup_value(options.cast(), "action", type) else { return -1 }
+            defer { g_variant_unref(value) }
+            let name = String(cString: g_variant_get_string(value, nil))
+            guard let action = QuickPlay(rawValue: name) else {
+                FileHandle.standardError.write("Unknown action \(name). One of: \(names)\n".data(using: .utf8)!)
+                return 2
+            }
+            guard g_application_register(application.cast(), nil, nil) != 0 else { return 1 }
+            if g_application_get_is_remote(application.cast()) != 0 {
+                g_action_group_activate_action(application.opaque, action.rawValue, nil)
+                if let bus = g_application_get_dbus_connection(application.cast()) {
+                    g_dbus_connection_flush_sync(bus, nil, nil)
+                }
+                return 0
+            }
+            pendingAction = action
+            return -1
+        })
+    }
+
+    @MainActor
+    private static func installQuickPlayActions(_ application: UnsafeMutablePointer<AdwApplication>) {
+        for action in QuickPlay.allCases {
+            let simple = g_simple_action_new(action.rawValue, nil)!
+            Signal.connect(simple, "activate", pointer: { _ in run(action) })
+            g_action_map_add_action(application.opaque, simple)
+        }
+    }
+
+    @MainActor
+    private static func run(_ action: QuickPlay) {
+        guard let state else {
+            pendingAction = action
+            return
+        }
+        shell?.present()
+        Task {
+            for _ in 0..<100 where state.phase != .ready {
+                try? await Task.sleep(nanoseconds: 200_000_000)
+            }
+            let said = await state.quickPlay(action)
+            await Diagnostics.shared.record("app", "\(action.title): \(said)")
+        }
     }
 
     /// Foundation on Linux keeps UserDefaults in memory until told to write them out (to

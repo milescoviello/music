@@ -232,6 +232,7 @@ final class AppState {
     func flushOutbox() async {
         guard credentials != nil else { return }
         _ = await outbox.flush(using: client)
+        await flushUnsentLogs()
     }
 
     /// Fetch-with-fallback, used by every library screen. Online the server always wins,
