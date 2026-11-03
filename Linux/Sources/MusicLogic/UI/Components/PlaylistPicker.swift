@@ -141,16 +141,17 @@ enum PlaylistPicker {
     }
 
     /// A row follows the pointer up or down the list, moving a place at a time as it
-    /// crosses the next one, and is put down where it is let go. Past GTK's drag
-    /// threshold only, so a click still ticks the row. A gesture on the list rather than
+    /// crosses the next one, and is put down where it is let go. Only once it has moved a
+    /// few pixels, so a click still ticks the row. A gesture on the list rather than
     /// drag and drop: this never leaves the dialog, and the row stays itself throughout.
     private static func reorderByDragging(
         _ list: ListBox, _ choice: Choice,
         moved: @escaping @MainActor (_ from: Int, _ to: Int, _ before: [Playlist]) -> Void
     ) {
+        // In the list's own phase, beside its click gesture, not ahead of it: claiming in
+        // the capture phase kept the release from the list, which then ignored the next
+        // click, still waiting on the dragged one to end.
         let drag = gtk_gesture_drag_new()!
-        // Ahead of the rows' own clicks, which it takes over once it is a drag.
-        gtk_event_controller_set_propagation_phase(drag.cast(), GTK_PHASE_CAPTURE)
         let reference = WeakReference(list)
         var pressY = 0.0
         var start: (index: Int, before: [Playlist])?
@@ -168,7 +169,9 @@ enum PlaylistPicker {
             guard let list = reference.value, choice.order.count > 1 else { return }
             let box: OpaquePointer = list.widget.cast()
             if start == nil {
-                guard gtk_drag_check_threshold(list.widget, 0, 0, Int32(dx), Int32(dy)) != 0,
+                // Sooner than GTK's drag threshold: the dialog moves the whole window when
+                // dragged, from just past that threshold, and the first to claim wins.
+                guard (dx * dx + dy * dy).squareRoot() >= 4,
                       let pressed = gtk_list_box_get_row_at_y(box, Int32(pressY))
                 else { return }
                 let index = Int(gtk_list_box_row_get_index(pressed))
