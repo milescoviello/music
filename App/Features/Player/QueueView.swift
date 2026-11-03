@@ -23,11 +23,12 @@ struct QueueView: View {
     private var player: PlaybackController { appState.player }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-                .padding(.horizontal, 24)
-                .padding(.bottom, 8)
-
+        // The header is each list's own pinned section header, not a view above the
+        // list. Reordering only scrolls while the dragged row is inside the list, so
+        // with the header outside, dragging a song "all the way up" put the finger over
+        // the header, outside the list, and the scrolling stopped -- it moved only while
+        // held a little lower. Inside, the top of the list is the top of the header.
+        Group {
             switch tab {
             case .upNext: upNextList
             case .earlier: earlierList
@@ -52,6 +53,16 @@ struct QueueView: View {
         } message: {
             Text("The track playing keeps playing.")
         }
+    }
+
+    /// Each list's section header. Pinned, as a plain list's headers are, so it stays at
+    /// the top while the rows scroll under it.
+    private var pinnedHeader: some View {
+        header
+            .padding(.horizontal, 24)
+            .padding(.bottom, 8)
+            .listRowInsets(EdgeInsets())
+            .textCase(nil)
     }
 
     private var header: some View {
@@ -98,54 +109,58 @@ struct QueueView: View {
 
     private var upNextList: some View {
         List {
-            if !player.queue.sourceDescription.isEmpty, player.queue.hasUpNext {
-                Text("Playing from \(player.queue.sourceDescription)")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.6))
-                    .lineLimit(1)
-                    .listRowBackground(Color.clear)
-                    .moveDisabled(true)
-            }
+            Section {
+                if !player.queue.sourceDescription.isEmpty, player.queue.hasUpNext {
+                    Text("Playing from \(player.queue.sourceDescription)")
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.6))
+                        .lineLimit(1)
+                        .listRowBackground(Color.clear)
+                        .moveDisabled(true)
+                }
 
-            // Swipe left to remove, right to play next. Neither works while the drag
-            // handles show (Edit), so the long-press menu has both too.
-            ForEach(upNextWithIndices, id: \.orderIndex) { entry in
-                row(entry)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) {
-                            remove(entry)
-                        } label: {
-                            Label("Remove", systemImage: "minus.circle")
-                        }
-                    }
-                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                        if entry.orderIndex > player.queue.position + 1 {
-                            Button {
-                                playNext(entry)
+                // Swipe left to remove, right to play next. Neither works while the drag
+                // handles show (Edit), so the long-press menu has both too.
+                ForEach(upNextWithIndices, id: \.orderIndex) { entry in
+                    row(entry)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                remove(entry)
                             } label: {
-                                Label("Play Next", systemImage: "text.insert")
+                                Label("Remove", systemImage: "minus.circle")
                             }
-                            .tint(.appTint)
                         }
-                    }
-            }
-            // Reordering is local, so it is free here -- unlike a server playlist,
-            // where the API has no move operation at all.
-            .onMove { source, destination in
-                guard let from = source.first else { return }
-                let start = player.queue.position + 1
-                player.moveInQueue(
-                    from: start + from,
-                    to: start + destination
-                )
-            }
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            if entry.orderIndex > player.queue.position + 1 {
+                                Button {
+                                    playNext(entry)
+                                } label: {
+                                    Label("Play Next", systemImage: "text.insert")
+                                }
+                                .tint(.appTint)
+                            }
+                        }
+                }
+                // Reordering is local, so it is free here -- unlike a server playlist,
+                // where the API has no move operation at all.
+                .onMove { source, destination in
+                    guard let from = source.first else { return }
+                    let start = player.queue.position + 1
+                    player.moveInQueue(
+                        from: start + from,
+                        to: start + destination
+                    )
+                }
 
-            if autoplay.isActive, !autoplay.options.isEmpty {
-                AutoplayCarousel()
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-                    .moveDisabled(true)
-                    .deleteDisabled(true)
+                if autoplay.isActive, !autoplay.options.isEmpty {
+                    AutoplayCarousel()
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
+                        .moveDisabled(true)
+                        .deleteDisabled(true)
+                }
+            } header: {
+                pinnedHeader
             }
         }
         .listStyle(.plain)
@@ -165,24 +180,28 @@ struct QueueView: View {
     private var earlierList: some View {
         ScrollViewReader { proxy in
             List {
-                ForEach(earlierWithIndices, id: \.orderIndex) { entry in
-                    row(entry)
-                        .id(entry.orderIndex)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                remove(entry)
-                            } label: {
-                                Label("Remove", systemImage: "minus.circle")
+                Section {
+                    ForEach(earlierWithIndices, id: \.orderIndex) { entry in
+                        row(entry)
+                            .id(entry.orderIndex)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                Button(role: .destructive) {
+                                    remove(entry)
+                                } label: {
+                                    Label("Remove", systemImage: "minus.circle")
+                                }
                             }
-                        }
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            Button {
-                                playNext(entry)
-                            } label: {
-                                Label("Play Next", systemImage: "text.insert")
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                Button {
+                                    playNext(entry)
+                                } label: {
+                                    Label("Play Next", systemImage: "text.insert")
+                                }
+                                .tint(.appTint)
                             }
-                            .tint(.appTint)
-                        }
+                    }
+                } header: {
+                    pinnedHeader
                 }
             }
             .listStyle(.plain)
