@@ -49,9 +49,16 @@ struct LibraryScopeStoreTests {
         #expect(store.scope(forFolderID: 1) == .folder(id: 1, name: "My Music"))
     }
 
-    @Test func aFirstLaunchKnowsNoFolders() {
-        let store = LibraryScopeStore(defaults: defaults())
+    @Test func aFirstLaunchTakesAChosenMixLibraryAtItsWord() {
+        let saved = defaults()
+        saved.set(2, forKey: LibraryScopeStore.mixesKey)
+        let store = LibraryScopeStore(defaults: saved)
         #expect(store.folders.isEmpty)
         #expect(store.scope == .all)
+        #expect(store.mixScope.cacheKey == "2")
+
+        // Named once the server answers, and still the same library to the mixes.
+        store.adopt(folders: folders)
+        #expect(store.mixScope == .folder(id: 2, name: "Music"))
     }
 }

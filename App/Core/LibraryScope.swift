@@ -89,9 +89,14 @@ final class LibraryScopeStore {
     }
 
     /// The library for a folder id as stored by a picker, where -1 means all of them. An
-    /// id the server no longer has means all, rather than an empty answer.
+    /// id the server no longer has means all, rather than an empty answer. Before any
+    /// folder list is known — a first launch, until the server answers — the id is taken
+    /// at its word, unnamed: reading it as all built a round of mixes from both libraries
+    /// only to throw them away a few seconds later.
     func scope(forFolderID id: Int) -> LibraryScope {
-        guard id != -1, let folder = folders.first(where: { $0.id == id }) else { return .all }
+        guard id != -1 else { return .all }
+        guard !folders.isEmpty else { return .folder(id: id, name: "") }
+        guard let folder = folders.first(where: { $0.id == id }) else { return .all }
         return .folder(id: folder.id, name: folder.name)
     }
 
