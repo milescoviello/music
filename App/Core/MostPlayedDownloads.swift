@@ -75,7 +75,7 @@ final class MostPlayedDownloads {
         observers.append(NotificationCenter.default.addObserver(
             forName: UIDevice.batteryStateDidChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.advance() }
+            MainActor.assumeIsolated { _ = self?.advance() }
         })
         #else
         // No notification for the charger here: a look every few minutes is plenty.
