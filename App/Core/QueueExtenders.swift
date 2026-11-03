@@ -52,6 +52,7 @@ final class AutoplayService {
     var isEnabled: Bool {
         didSet {
             UserDefaults.standard.set(isEnabled, forKey: Key.enabled)
+            SettingsLog.changed("Autoplay", from: oldValue, to: isEnabled)
             queueKey = nil
             queueChanged()
         }

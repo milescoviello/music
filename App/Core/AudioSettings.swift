@@ -37,16 +37,25 @@ final class AudioSettings {
     let dsp = DSPSettingsStore()
 
     var loudnessLeveling: Bool {
-        didSet { save(loudnessLeveling, Key.leveling) }
+        didSet {
+            save(loudnessLeveling, Key.leveling)
+            SettingsLog.changed("Loudness leveling", from: oldValue, to: loudnessLeveling)
+        }
     }
 
     /// Decibels above the −18 LUFS reference. One of `LoudnessLeveling.preampOptions`.
     var preamp: Double {
-        didSet { save(preamp, Key.preamp) }
+        didSet {
+            save(preamp, Key.preamp)
+            SettingsLog.changed("Leveling preamp", from: oldValue, to: preamp)
+        }
     }
 
     var limiter: Bool {
-        didSet { save(limiter, Key.limiter) }
+        didSet {
+            save(limiter, Key.limiter)
+            SettingsLog.changed("Limiter", from: oldValue, to: limiter)
+        }
     }
 
     /// Plexamp's smart crossfade: every transition fades except within an album played in
@@ -54,6 +63,7 @@ final class AudioSettings {
     var sweetFades: Bool {
         didSet {
             UserDefaults.standard.set(sweetFades, forKey: Key.sweetFades)
+            SettingsLog.changed("Sweet Fades", from: oldValue, to: sweetFades)
             onTransitionsChange?()
         }
     }
@@ -64,6 +74,7 @@ final class AudioSettings {
     var beatMatchedFades: Bool {
         didSet {
             UserDefaults.standard.set(beatMatchedFades, forKey: Key.beatMatchedFades)
+            SettingsLog.changed("Beat-matched fades", from: oldValue, to: beatMatchedFades)
             onTransitionsChange?()
         }
     }
@@ -74,20 +85,36 @@ final class AudioSettings {
     var onTransitionsChange: (() -> Void)?
 
     var equalizer: Bool {
-        didSet { save(equalizer, Key.equalizer) }
+        didSet {
+            save(equalizer, Key.equalizer)
+            SettingsLog.changed("Equalizer", from: oldValue, to: equalizer)
+        }
     }
 
     /// Decibels, one per `Equalizer.frequencies` band.
     private(set) var bands: [Float] {
-        didSet { save(bands, Key.bands) }
+        didSet {
+            save(bands, Key.bands)
+            SettingsLog.changed(
+                "Equalizer bands",
+                from: oldValue.map { String(format: "%.1f", $0) }.joined(separator: " "),
+                to: bands.map { String(format: "%.1f", $0) }.joined(separator: " ")
+            )
+        }
     }
 
     var equalizerPreamp: Float {
-        didSet { save(equalizerPreamp, Key.equalizerPreamp) }
+        didSet {
+            save(equalizerPreamp, Key.equalizerPreamp)
+            SettingsLog.changed("Equalizer preamp", from: oldValue, to: equalizerPreamp)
+        }
     }
 
     private(set) var presetName: String {
-        didSet { UserDefaults.standard.set(presetName, forKey: Key.preset) }
+        didSet {
+            UserDefaults.standard.set(presetName, forKey: Key.preset)
+            SettingsLog.changed("Equalizer preset", from: oldValue, to: presetName)
+        }
     }
 
     /// Curves the user saved under their own names.

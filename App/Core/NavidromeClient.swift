@@ -303,7 +303,9 @@ actor NavidromeClient {
             var request = URLRequest(url: url)
             request.setValue("Bearer \(bearer)", forHTTPHeaderField: "x-nd-authorization")
 
+            let started = Date.now
             let (data, response) = try await session.data(for: request)
+            await SubsonicClient.recordIfSlow(path, bytes: data.count, since: started)
             guard let http = response as? HTTPURLResponse else {
                 throw SubsonicClient.ClientError.transport("No response from Navidrome.")
             }

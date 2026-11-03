@@ -104,6 +104,8 @@ final class DailyMixes {
     }
 
     private var context: Context?
+    /// The library the last build or top-up was asked for.
+    @ObservationIgnored private var requestedScope: LibraryScope?
     private var used: Set<String> = []
     private var identities: Set<String> = []
     /// The next recipe to try. Persisted, so a relaunch resumes rather than repeating.
@@ -177,11 +179,15 @@ final class DailyMixes {
     private func start(appState: AppState, scope: LibraryScope, wanted: Int) {
         let today = Calendar.current.startOfDay(for: .now)
 
+        // Every picker for it, on both apps, comes through here, so a change of the
+        // library is logged as the setting it is.
+        if let previous = requestedScope, previous.cacheKey != scope.cacheKey {
+            SettingsLog.changed("Made for You", from: previous.logName, to: scope.logName)
+        }
+        requestedScope = scope
+
         // A new day, or a different folder scope, means starting over.
         if builtDay != nil, builtDay != today || builtScope != scope.cacheKey {
-            if builtDay == today {
-                Task { await Diagnostics.shared.record("mixes", "library is now \(scope.logName), starting over") }
-            }
             forgetToday()
         }
         guard buildTask == nil, mixes.count < Self.maximumMixes else { return }

@@ -59,6 +59,7 @@ final class LibraryScopeStore {
         didSet {
             guard scope != oldValue else { return }
             generation += 1
+            if !isRestoring { SettingsLog.changed("Browsing", from: oldValue.logName, to: scope.logName) }
             // Written by hand rather than with @AppStorage: that is a
             // DynamicProperty and only works inside a View.
             defaults.set(scope.folderID ?? 0, forKey: Self.defaultsKey)
@@ -66,6 +67,8 @@ final class LibraryScopeStore {
     }
 
     private let defaults: UserDefaults
+    /// Set while a saved choice is put back, which is not a change anyone made.
+    @ObservationIgnored private var isRestoring = false
 
     /// Starts from the folders the server last named. The server's list arrives near the
     /// end of launch, and until then every library choice read as "all": Home built the
@@ -88,7 +91,9 @@ final class LibraryScopeStore {
         if let data = try? JSONEncoder().encode(folders) {
             defaults.set(data, forKey: Self.foldersKey)
         }
+        isRestoring = true
         scope = Self.restored(defaults.integer(forKey: Self.defaultsKey), in: folders)
+        isRestoring = false
     }
 
     private static func restored(_ savedID: Int, in folders: [MusicFolder]) -> LibraryScope {

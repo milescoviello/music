@@ -12,6 +12,7 @@ final class StreamingSettings {
     var policy: StreamingPolicy {
         didSet {
             guard policy != oldValue else { return }
+            SettingsLog.changedFields("Streaming", from: oldValue, to: policy)
             if let data = try? JSONEncoder().encode(policy) {
                 UserDefaults.standard.set(data, forKey: Self.key)
             }

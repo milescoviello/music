@@ -704,6 +704,7 @@ final class PlaybackController {
 
     func next() {
         if let remote { remote.send(RemoteCommand(.next)); return }
+        logSkip("skipped")
         guard queue.advance() else {
             pause()
             return
@@ -722,7 +723,19 @@ final class PlaybackController {
             seek(to: 0)
             return
         }
+        logSkip("went back from")
         rebuildOutput(startPlaying: isPlaying, seekTo: 0)
+    }
+
+    /// A skip, in the log: which track, how far into it, by hand. Five songs starting
+    /// three seconds apart could otherwise be skips or five failures, and the log could
+    /// not say which. Only these commands log one: the app moving on by itself, at a
+    /// track's end or past one that would not play, goes through the output instead.
+    private func logSkip(_ what: String, to target: String? = nil) {
+        guard let song = currentSong else { return }
+        var line = "\(what) “\(song.title)” (\(song.id)) at \(LogReport.clock(elapsed)) of \(LogReport.clock(duration))"
+        if let target { line += ", to \(target)" }
+        Task { await Diagnostics.shared.record("playback", line) }
     }
 
     /// Playback speed, pitch preserved. Plexamp's 0.5–2× in tenths; not remembered
@@ -760,6 +773,7 @@ final class PlaybackController {
 
     func jump(toOrderIndex index: Int) {
         if let remote { remote.send(.at(.jump, index)); return }
+        if index != queue.position { logSkip("jumped from", to: "#\(index + 1) of \(queue.order.count)") }
         queue.jump(toOrderIndex: index)
         rebuildOutput(startPlaying: true, seekTo: 0)
     }

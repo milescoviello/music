@@ -170,7 +170,7 @@ final class QueuePlayerOutput: AudioOutput {
             forName: AVPlayerItem.playbackStalledNotification, object: nil, queue: .main
         ) { [weak self] notification in
             let item = (notification.object as AnyObject?).map { ObjectIdentifier($0) }
-            MainActor.assumeIsolated { self?.logTrouble(item, "stalled, out of data") }
+            MainActor.assumeIsolated { self?.stalled(item) }
         })
         troubleObservers.append(center.addObserver(
             forName: AVPlayerItem.newErrorLogEntryNotification, object: nil, queue: .main
@@ -191,6 +191,34 @@ final class QueuePlayerOutput: AudioOutput {
             .compactMap { $0 }
             .joined(separator: ", ")
         logTrouble(id, "network error: \(detail)")
+    }
+
+    /// A stall, held until its track plays again or is left behind: "stalled" alone never
+    /// said whether the music came back, or after how long. The ticks that would notice
+    /// stop while a track is stuck, so this is checked on the first tick after.
+    private var stall: (item: ObjectIdentifier, songID: String, title: String, at: Date)?
+
+    private func stalled(_ id: ObjectIdentifier?) {
+        logTrouble(id, "stalled, out of data")
+        guard let id, let songID = itemToSongID[id] else { return }
+        let title = window.first { $0.id == songID }?.title ?? "A track"
+        stall = (id, songID, title, .now)
+    }
+
+    private func checkStall(_ player: AVQueuePlayer) {
+        guard let stall else { return }
+        let lasted = Diagnostics.duration(Date.now.timeIntervalSince(stall.at))
+        let what: String
+        if player.currentItem.map({ ObjectIdentifier($0) }) != stall.item {
+            what = "stalled for \(lasted), then another track"
+        } else if player.timeControlStatus == .playing {
+            what = "playing again after \(lasted) stalled"
+        } else {
+            return
+        }
+        self.stall = nil
+        let line = "“\(stall.title)” (\(stall.songID)) \(what)"
+        Task { await Diagnostics.shared.record("playback", line) }
     }
 
     private func logTrouble(_ id: ObjectIdentifier?, _ what: String) {
@@ -847,6 +875,7 @@ final class QueuePlayerOutput: AudioOutput {
         // The player fading out ticks too, and has nothing to say.
         guard index == active else { return }
         let player = players[active]
+        checkStall(player)
 
         if player.currentItem !== expectedItem {
             expectedItem = player.currentItem

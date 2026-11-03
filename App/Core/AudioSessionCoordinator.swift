@@ -1,4 +1,5 @@
 import AVFoundation
+import CallKit
 import Foundation
 
 /// Owns the `AVAudioSession` and the notifications that go with it.
@@ -17,6 +18,11 @@ final class AudioSessionCoordinator {
     /// Latched when an interruption arrives while playing, and the only thing that
     /// authorises an automatic resume.
     private var wasInterruptedWhilePlaying = false
+    /// When the interruption began, for how long it lasted.
+    private var interruptedAt: Date?
+    /// Asked at an interruption whether a call is under way: the session itself says
+    /// only that something else took the audio.
+    private let calls = CXCallObserver()
     private var observers: [NSObjectProtocol] = []
 
     func configure() {
@@ -59,9 +65,10 @@ final class AudioSessionCoordinator {
             let info = notification.userInfo
             let rawType = info?[AVAudioSessionInterruptionTypeKey] as? UInt
             let rawOptions = info?[AVAudioSessionInterruptionOptionKey] as? UInt
+            let rawReason = info?[AVAudioSessionInterruptionReasonKey] as? UInt
 
             MainActor.assumeIsolated {
-                self?.handleInterruption(rawType: rawType, rawOptions: rawOptions)
+                self?.handleInterruption(rawType: rawType, rawOptions: rawOptions, rawReason: rawReason)
             }
         })
 
@@ -78,7 +85,7 @@ final class AudioSessionCoordinator {
         })
     }
 
-    private func handleInterruption(rawType: UInt?, rawOptions: UInt?) {
+    private func handleInterruption(rawType: UInt?, rawOptions: UInt?, rawReason: UInt?) {
         guard let rawType,
               let type = AVAudioSession.InterruptionType(rawValue: rawType)
         else { return }
@@ -93,7 +100,8 @@ final class AudioSessionCoordinator {
             // No special case for `.appWasSuspended`: it was never followed by `.ended`
             // and iOS 16 stopped sending it at all.
             wasInterruptedWhilePlaying = isPlaying
-            log("interrupted\(isPlaying ? " while playing" : "")")
+            interruptedAt = .now
+            log("interrupted\(isPlaying ? " while playing" : ""), by \(cause(rawReason))")
             onPause?()
 
         case .ended:
@@ -101,13 +109,31 @@ final class AudioSessionCoordinator {
                 .map(AVAudioSession.InterruptionOptions.init(rawValue:)) ?? []
 
             let resumes = options.contains(.shouldResume) && wasInterruptedWhilePlaying
-            log("interruption over: \(resumes ? "resuming" : options.contains(.shouldResume) ? "wasn't playing" : "iOS says don't resume")")
+            let lasted = interruptedAt.map { " after \(Diagnostics.duration(Date.now.timeIntervalSince($0)))" } ?? ""
+            interruptedAt = nil
+            log("interruption over\(lasted): \(resumes ? "resuming" : options.contains(.shouldResume) ? "wasn't playing" : "iOS says don't resume")")
             guard resumes else { return }
             resumeAfterInterruption()
 
         @unknown default:
             break
         }
+    }
+
+    /// What took the audio, as near as iOS will say. A call is asked of CallKit; the
+    /// session's own reason covers a muted mic or a lost device; anything else is either
+    /// another app's sound, if one is playing, or Siri, an alarm or a system sound.
+    private func cause(_ rawReason: UInt?) -> String {
+        if calls.calls.contains(where: { !$0.hasEnded }) { return "a call" }
+        if let rawReason, let reason = AVAudioSession.InterruptionReason(rawValue: rawReason) {
+            switch reason {
+            case .builtInMicMuted: return "the built-in mic being muted"
+            case .routeDisconnected: return "the audio device disconnecting"
+            default: break
+            }
+        }
+        return AVAudioSession.sharedInstance().isOtherAudioPlaying
+            ? "another app's audio" : "Siri, an alarm or a system sound"
     }
 
     private func handleRouteChange(rawReason: UInt?) {

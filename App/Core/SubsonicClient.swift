@@ -216,6 +216,7 @@ actor SubsonicClient {
         let started = Date.now
         do {
             let (data, _) = try await session.data(from: url)
+            await Self.recordIfSlow(endpoint, bytes: data.count, since: started)
             return data
         } catch {
             // Recorded rather than only thrown: most callers use `try?` so the screen
@@ -231,6 +232,17 @@ actor SubsonicClient {
         guard !isCancellation(error) else { return }
         let elapsed = Diagnostics.duration(Date.now.timeIntervalSince(started))
         await Diagnostics.shared.record(endpoint, "\(Diagnostics.describe(error)) after \(elapsed)")
+    }
+
+    /// Slower than this and an answer that worked goes in the log anyway: only failures
+    /// did, so a slow Home or a slow search left no trace.
+    static let slowRequest: TimeInterval = 3
+
+    static func recordIfSlow(_ endpoint: String, bytes: Int, since started: Date) async {
+        let elapsed = Date.now.timeIntervalSince(started)
+        guard elapsed > slowRequest else { return }
+        let size = bytes >= 1_000_000 ? "\(bytes / 1_000_000) MB" : "\(max(1, bytes / 1_000)) KB"
+        await Diagnostics.shared.record(endpoint, "slow: answered after \(Diagnostics.duration(elapsed)), \(size)")
     }
 
     /// A request its caller gave up on: a queue upload replaced by a newer one, a screen
@@ -284,6 +296,7 @@ actor SubsonicClient {
         let started = Date.now
         do {
             let (data, _) = try await session.data(for: request)
+            await Self.recordIfSlow(endpoint, bytes: data.count, since: started)
             return data
         } catch {
             await Self.recordFailure(endpoint, error, since: started)
