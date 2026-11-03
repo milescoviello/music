@@ -35,10 +35,14 @@ final class PlaylistArrangement {
         static let pinned = "playlists.pinned"
         static let custom = "playlists.custom"
         static let sort = "playlists.sort"
+        static let picker = "playlists.picker"
     }
 
     private(set) var pinned: [String]
     private(set) var custom: [String]
+    /// Add to Playlist's own order, apart from the Playlists tab's: the ones he adds to
+    /// most, at the top. Empty until he first moves one there.
+    private(set) var picker: [String]
     var sort: Sort {
         didSet { defaults.set(sort.rawValue, forKey: Key.sort) }
     }
@@ -49,6 +53,7 @@ final class PlaylistArrangement {
         self.defaults = defaults
         pinned = defaults.stringArray(forKey: Key.pinned) ?? []
         custom = defaults.stringArray(forKey: Key.custom) ?? []
+        picker = defaults.stringArray(forKey: Key.picker) ?? []
         sort = (defaults.string(forKey: Key.sort)).flatMap(Sort.init(rawValue:)) ?? .name
     }
 
@@ -60,6 +65,11 @@ final class PlaylistArrangement {
 
     func arranged(_ playlists: [Playlist]) -> (pinned: [Playlist], rest: [Playlist]) {
         Self.arrange(playlists, pinned: pinned, custom: custom, sort: sort)
+    }
+
+    /// The playlists as Add to Playlist lists them.
+    func forPicker(_ playlists: [Playlist]) -> [Playlist] {
+        Self.pickerOrder(playlists, picker: picker, pinned: pinned, custom: custom, sort: sort)
     }
 
     // MARK: - Changing
@@ -88,7 +98,27 @@ final class PlaylistArrangement {
         if sort != .custom { sort = .custom }
     }
 
+    /// `shown` is the picker's list as it is on screen; offsets are SwiftUI's `onMove`.
+    func movePicker(from source: IndexSet, to destination: Int, shown: [Playlist]) {
+        picker = Self.moved(shown.map(\.id), from: source, to: destination)
+        defaults.set(picker, forKey: Key.picker)
+    }
+
     // MARK: - The rules, Foundation-only so they are tested
+
+    /// Until he orders the picker it follows the Playlists tab, pinned ones first, so his
+    /// main ones are already at the top. After that his order, then any playlist made
+    /// since, in the tab's order, at the end.
+    static func pickerOrder(
+        _ playlists: [Playlist], picker: [String], pinned: [String], custom: [String], sort: Sort
+    ) -> [Playlist] {
+        let tab = arrange(playlists, pinned: pinned, custom: custom, sort: sort)
+        let base = tab.pinned + tab.rest
+        guard !picker.isEmpty else { return base }
+        let place = Dictionary(picker.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let known = base.filter { place[$0.id] != nil }.sorted { place[$0.id]! < place[$1.id]! }
+        return known + base.filter { place[$0.id] == nil }
+    }
 
     static func arrange(
         _ playlists: [Playlist], pinned: [String], custom: [String], sort: Sort

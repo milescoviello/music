@@ -29,6 +29,9 @@ enum Style {
 
     .accent { color: var(--accent-color); }
 
+    /* A row being dragged to a new place in its list. */
+    row.dragging { background-color: alpha(var(--accent-bg-color), 0.18); }
+
     /* The visualiser's name, shown briefly when it changes. */
     .visualizer-name {
         background: alpha(black, 0.45);

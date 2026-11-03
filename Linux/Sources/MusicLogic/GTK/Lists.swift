@@ -161,6 +161,19 @@ final class ListBox: Widget {
         activations.removeAll()
     }
 
+    /// Moves a row, and what activating it does, which is kept by position.
+    func move(from source: Int, to destination: Int) {
+        guard source != destination, activations.indices.contains(source), activations.indices.contains(destination),
+              let row = gtk_list_box_get_row_at_index(widget.cast(), Int32(source))
+        else { return }
+        // Held across the move: the list lets go of a row it removes.
+        g_object_ref(row)
+        gtk_list_box_remove(widget.cast(), row.cast())
+        gtk_list_box_insert(widget.cast(), row.cast(), Int32(destination))
+        g_object_unref(row)
+        activations.insert(activations.remove(at: source), at: destination)
+    }
+
     /// Shown when the list has no rows.
     @discardableResult
     func placeholder(_ child: Widget) -> Self {

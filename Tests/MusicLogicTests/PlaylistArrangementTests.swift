@@ -100,4 +100,52 @@ struct PlaylistArrangementTests {
         #expect(again.pinned == ["c"])
         #expect(again.sort == .mostSongs)
     }
+
+    // MARK: - Add to Playlist's own order
+
+    /// Before he orders it, the picker lists them as the Playlists tab does, pinned first.
+    @Test func thePickerStartsWithTheTabsOrder() {
+        let arrangement = fresh()
+        arrangement.togglePin(library[3])
+        #expect(arrangement.forPicker(library).map(\.id) == ["d", "a", "b", "c", "e", "f"])
+    }
+
+    @Test func movingOneInThePickerKeepsThatOrder() {
+        let arrangement = fresh()
+        // Echo, his most used, dragged to the top.
+        arrangement.movePicker(from: [4], to: 0, shown: arrangement.forPicker(library))
+        #expect(arrangement.forPicker(library).map(\.id) == ["e", "a", "b", "c", "d", "f"])
+        // And Alpha below Delta.
+        arrangement.movePicker(from: [1], to: 5, shown: arrangement.forPicker(library))
+        #expect(arrangement.forPicker(library).map(\.id) == ["e", "b", "c", "d", "a", "f"])
+    }
+
+    /// Its own order: the Playlists tab, and its pins, are left as they were.
+    @Test func thePickersOrderLeavesTheTabAlone() {
+        let arrangement = fresh()
+        arrangement.movePicker(from: [5], to: 0, shown: arrangement.forPicker(library))
+        #expect(arrangement.sort == .name)
+        #expect(arrangement.custom.isEmpty)
+        #expect(arrangement.arranged(library).rest.map(\.id) == ["a", "b", "c", "d", "e", "f"])
+        // Pinning one later does not move it in an order he has already set.
+        arrangement.togglePin(library[3])
+        #expect(arrangement.forPicker(library).map(\.id) == ["f", "a", "b", "c", "d", "e"])
+    }
+
+    /// A playlist made since goes at the end; one deleted on the server is left out.
+    @Test func thePickerTakesNewPlaylistsAtTheEnd() {
+        let order = PlaylistArrangement.pickerOrder(
+            [playlist("g", "Golf"), playlist("z", "Aardvark")] + library.dropFirst(),
+            picker: ["e", "gone", "c", "b"], pinned: [], custom: [], sort: .name
+        )
+        #expect(order.map(\.id) == ["e", "c", "b", "z", "d", "f", "g"])
+    }
+
+    @Test func thePickersOrderIsRemembered() {
+        let suite = "test-\(UUID().uuidString)"
+        let first = PlaylistArrangement(defaults: UserDefaults(suiteName: suite)!)
+        first.movePicker(from: [2], to: 0, shown: first.forPicker(library))
+        let again = PlaylistArrangement(defaults: UserDefaults(suiteName: suite)!)
+        #expect(again.forPicker(library).map(\.id) == ["c", "a", "b", "d", "e", "f"])
+    }
 }

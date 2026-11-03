@@ -53,8 +53,10 @@ struct PlaylistPickerHost: ViewModifier {
 
 /// Every playlist that can take the songs, each saying how much of them it already has,
 /// ticked as many as wanted. One that has them all is shown ticked and cannot be chosen;
-/// one that has some is given only the rest.
+/// one that has some is given only the rest. Listed in an order of his own, apart from the
+/// Playlists tab's, so the ones he adds to most are at the top: Edit, then drag.
 struct AddToPlaylistSheet: View {
+    @Environment(AppState.self) private var appState
     @Environment(PlaylistStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
@@ -67,12 +69,17 @@ struct AddToPlaylistSheet: View {
     @State private var unreadable: Set<String> = []
     @State private var isNaming = false
     @State private var isAdding = false
+    /// Drag handles showing.
+    @State private var isArranging = false
+
+    private var arrangement: PlaylistArrangement { appState.playlistArrangement }
 
     private var subject: String {
         pick.songs.count == 1 ? "“\(pick.songs[0].title)”" : "\(pick.songs.count) songs"
     }
 
     var body: some View {
+        let shown = arrangement.forPicker(store.writable)
         NavigationStack {
             List {
                 Section {
@@ -83,17 +90,31 @@ struct AddToPlaylistSheet: View {
                         Text(store.isLoading ? "Loading playlists…" : "No playlists yet.")
                             .foregroundStyle(.secondary)
                     }
-                    ForEach(store.writable) { playlist in
+                    ForEach(shown) { playlist in
                         row(playlist)
                     }
+                    .onMove { arrangement.movePicker(from: $0, to: $1, shown: shown) }
                 } header: {
-                    Text("Add \(subject) to")
+                    HStack {
+                        Text("Add \(subject) to")
+                            .lineLimit(1)
+                        Spacer()
+                        if shown.count > 1 {
+                            Button(isArranging ? "Done" : "Edit") {
+                                withAnimation { isArranging.toggle() }
+                            }
+                            .font(.footnote.weight(.semibold))
+                            .textCase(nil)
+                            .accessibilityLabel(isArranging ? "Done reordering" : "Reorder playlists")
+                        }
+                    }
                 } footer: {
                     if store.playlists.count > store.writable.count {
                         Text("Smart playlists fill themselves, so they are not listed.")
                     }
                 }
             }
+            .environment(\.editMode, .constant(isArranging ? .active : .inactive))
             .navigationTitle("Add to Playlist")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -125,6 +146,7 @@ struct AddToPlaylistSheet: View {
         let isFull = held?.hasAll == true
         let isOn = isFull || chosen.contains(playlist.id)
         return Button {
+            guard !isFull, !isAdding else { return }
             if !chosen.insert(playlist.id).inserted { chosen.remove(playlist.id) }
         } label: {
             HStack(spacing: 12) {
@@ -143,7 +165,8 @@ struct AddToPlaylistSheet: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(isFull || isAdding)
+        // Not while arranging: a disabled row could not be moved either.
+        .disabled(!isArranging && (isFull || isAdding))
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 
@@ -173,7 +196,7 @@ struct AddToPlaylistSheet: View {
 
     private func add() {
         isAdding = true
-        let targets = store.writable.filter { chosen.contains($0.id) }
+        let targets = arrangement.forPicker(store.writable).filter { chosen.contains($0.id) }
         Task {
             await store.add(pick.songs, to: targets)
             store.picking = nil
