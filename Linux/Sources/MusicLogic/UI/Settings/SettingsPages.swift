@@ -339,6 +339,22 @@ enum SettingsPages {
                 if prefer.indices.contains(index) { settings.policy.preferDownloads = prefer[index] }
             }
         })
+        let mostPlayed = app.mostPlayed
+        let keep = MostPlayedDownloads.choices
+        let onDevice = ActionRow("On This Computer")
+        let onDeviceValue = Label("", "dim")
+        onDevice.suffix(onDeviceValue)
+        page.add(PreferencesGroup("Most Played", description: """
+        Your most-played songs, kept downloaded in their original quality so they play from this \
+        computer. Fetched only while it is plugged in and nothing is streaming. A song that falls \
+        out of the top is removed, unless another download has it.
+        """) {
+            ComboRow("Keep Downloaded", options: keep.map { $0 == 0 ? "Off" : "Top \($0)" }, selected: keep.firstIndex(of: mostPlayed.count) ?? 0) { index in
+                if keep.indices.contains(index) { mostPlayed.count = keep[index] }
+            }
+            onDevice
+        })
+
         let network = ActionRow("Network")
         let networkValue = Label("", "dim")
         network.suffix(networkValue)
@@ -346,6 +362,8 @@ enum SettingsPages {
 
         page.observe {
             inUseValue.text = cache.totalBytes.asFileSize
+            onDevice.isVisible = mostPlayed.count > 0
+            onDeviceValue.text = "\(mostPlayed.downloadedCount) of \(mostPlayed.wanted.count) · \(mostPlayed.downloadedBytes.asFileSize)"
             fetching.isVisible = cache.fetchingSongID != nil
             delete.isSensitive = cache.totalBytes > 0
             switch app.reachability.network {

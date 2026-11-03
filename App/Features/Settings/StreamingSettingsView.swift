@@ -5,6 +5,7 @@ struct StreamingSettingsView: View {
     @Environment(StreamingSettings.self) private var settings
     @Environment(StreamCache.self) private var cache
     @Environment(Reachability.self) private var reachability
+    @Environment(AppState.self) private var appState
 
     @State private var isConfirmingDelete = false
 
@@ -85,6 +86,8 @@ struct StreamingSettingsView: View {
                 """)
             }
 
+            mostPlayedSection
+
             Section {
                 LabeledContent("Network", value: networkLabel)
             }
@@ -98,6 +101,32 @@ struct StreamingSettingsView: View {
             Button("Delete Caches", role: .destructive) { cache.removeAll() }
         } message: {
             Text("Downloads are not affected.")
+        }
+    }
+
+    private var mostPlayedSection: some View {
+        let mostPlayed = appState.mostPlayed
+        return Section {
+            Picker("Keep Most Played", selection: Binding(
+                get: { mostPlayed.count },
+                set: { mostPlayed.count = $0 }
+            )) {
+                ForEach(MostPlayedDownloads.choices, id: \.self) { count in
+                    Text(count == 0 ? "Off" : "Top \(count)").tag(count)
+                }
+            }
+            if mostPlayed.count > 0 {
+                LabeledContent(
+                    "On This Phone",
+                    value: "\(mostPlayed.downloadedCount) of \(mostPlayed.wanted.count) · \(mostPlayed.downloadedBytes.asFileSize)"
+                )
+            }
+        } footer: {
+            Text("""
+            Your most-played songs, kept downloaded in their original quality so they play \
+            from the phone. Fetched only while it is charging and nothing is streaming. A \
+            song that falls out of the top is removed, unless another download has it.
+            """)
         }
     }
 

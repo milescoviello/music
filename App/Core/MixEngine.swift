@@ -75,10 +75,12 @@ enum MixEngine {
     /// logarithmically and fade with that date: 135 plays two months ago still ranks, and
     /// does not drown out this week. The phone's own log knows each play, so a song on
     /// repeat this month counts every day it was played, up to `dailyCap` a day, fading
-    /// with the same half-life as the artist scores.
+    /// with the same half-life as the artist scores. Early skips, from `SkipMemory`, count
+    /// against a song at two points each.
     static func heavyRotation(
         counted: [Counted],
         plays samples: [Sample],
+        skipped: [String: Double] = [:],
         now: Date = .now,
         calendar: Calendar = .current
     ) -> [Played] {
@@ -115,7 +117,7 @@ enum MixEngine {
                 artist: first.artist,
                 plays: plays,
                 lastPlayed: last,
-                score: log2(1 + Double(plays)) * fade(last) + (local[key] ?? 0)
+                score: log2(1 + Double(plays)) * fade(last) + (local[key] ?? 0) - 2 * (skipped[key] ?? 0)
             )))
         }
         return played
@@ -148,6 +150,78 @@ enum MixEngine {
             chosen.append(entry)
         }
         return chosen
+    }
+
+    // MARK: - Radio, to taste
+
+    /// An artist as the taste scores key it.
+    static func artistKey(_ artist: String?) -> String {
+        (artist ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Radio for the mixes: among the nearest-sounding candidates, artists already played
+    /// first, and no more than `unknownShare` of the batch from artists never played.
+    ///
+    /// The server's similar songs come from Last.fm listeners, which is why one artist's
+    /// radio was right and the next was full of things never listened to; the sound
+    /// analysis finds what sounds alike, and this keeps it near what is actually played.
+    static func pickRadio(
+        _ candidates: [Song],
+        affinity: [String: Double],
+        limit: Int,
+        perArtist: Int,
+        unknownShare: Double = 1.0 / 3,
+        excluding used: Set<String>,
+        usedIdentities: Set<String>,
+        using generator: inout DayRandom
+    ) -> [Song] {
+        var seen = usedIdentities
+        var nearest: [Song] = []
+        for song in candidates where !used.contains(song.id) && seen.insert(identity(song)).inserted {
+            nearest.append(song)
+            if nearest.count >= limit * 3 { break }
+        }
+        let isKnown = { (song: Song) in (affinity[artistKey(song.artist)] ?? 0) > 0 }
+        let known = nearest.filter(isKnown).shuffled(using: &generator)
+        let unknown = nearest.filter { !isKnown($0) }.shuffled(using: &generator)
+        let unknownCap = Int((Double(limit) * unknownShare).rounded(.down))
+
+        var perArtistCount: [String: Int] = [:]
+        var chosen: [Song] = []
+        var unknownTaken = 0
+        for song in known + unknown {
+            guard chosen.count < limit else { break }
+            let artist = artistKey(song.artist)
+            guard perArtistCount[artist, default: 0] < perArtist else { continue }
+            if !isKnown(song) {
+                guard unknownTaken < unknownCap else { continue }
+                unknownTaken += 1
+            }
+            perArtistCount[artist, default: 0] += 1
+            chosen.append(song)
+        }
+        return chosen.shuffled(using: &generator)
+    }
+
+    /// How much each artist is played, by `artistKey`: the play log's scores and the
+    /// ranked songs', less their early skips.
+    static func affinity(
+        samples: [Sample],
+        played: [Played],
+        skipped: [String: Double],
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> [String: Double] {
+        var totals: [String: Double] = [:]
+        for (artist, score) in artistScores(samples, now: now, calendar: calendar) {
+            totals[artistKey(artist), default: 0] += score
+        }
+        for entry in played { totals[artistKey(entry.artist), default: 0] += entry.score }
+        for (recording, penalty) in skipped {
+            let artist = String(recording.split(separator: "|", maxSplits: 1).first ?? "")
+            totals[artist, default: 0] -= penalty
+        }
+        return totals
     }
 
     static func genreScores(

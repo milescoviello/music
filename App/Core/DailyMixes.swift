@@ -101,6 +101,8 @@ final class DailyMixes {
         var artistCandidates: [Song]
         /// Every song played, ranked by how much lately. Heavy Rotation is drawn from it.
         var played: [MixEngine.Played]
+        /// How much each artist is played, by `MixEngine.artistKey`, for radio to taste.
+        var affinity: [String: Double]
     }
 
     private var context: Context?
@@ -313,7 +315,8 @@ final class DailyMixes {
         // Not Heavy Rotation: it is the songs actually played, and padding it out with
         // radio is how it came to be full of things never listened to. It ends when the
         // played songs do.
-        let seed = mix.id == "heavy" ? nil : mix.songs.suffix(8).randomElement()
+        let seeds = mix.id == "heavy" ? [] : Array(mix.songs.suffix(8).shuffled().prefix(3))
+        let seedIDs = Set(seeds.map(\.id))
 
         // Both sources are started **together**, not one after the other. Sequentially
         // this waited for the recipe -- up to nine requests for a decade mix -- decided it
@@ -322,19 +325,20 @@ final class DailyMixes {
         async let fromRecipe = recipeExtension(
             mix: mix, appState: appState, scope: scope, day: seedDay
         )
-        async let fromRadio = radioExtension(seed: seed, appState: appState, scope: scope)
+        async let fromRadio = radioExtension(seeds: seeds, appState: appState, scope: scope)
 
         var addition = await fromRecipe
         let radio = await fromRadio
 
         if addition.count < Self.extensionSize, !radio.isEmpty {
             var generator = MixEngine.DayRandom(day: seedDay, salt: UInt64(before))
-            addition += MixEngine.choose(
-                from: radio.filter { $0.id != seed?.id },
+            addition += MixEngine.pickRadio(
+                radio.filter { !seedIDs.contains($0.id) },
+                affinity: context?.affinity ?? [:],
                 limit: Self.extensionSize - addition.count,
                 perArtist: 3,
                 excluding: used.union(addition.map(\.id)),
-                usedIdentities: identities.union(addition.map(MixEngine.identity)),
+                usedIdentities: identities.union(addition.map(MixEngine.identity)).union(appState.skips.avoided()),
                 using: &generator
             )
         }
@@ -374,13 +378,18 @@ final class DailyMixes {
         return built?.songs ?? []
     }
 
+    /// More like the end of the mix: by sound, from a few of its last tracks together,
+    /// or the server's similar songs to one of them when the analysis cannot answer.
     private func radioExtension(
-        seed: Song?,
+        seeds: [Song],
         appState: AppState,
         scope: LibraryScope
     ) async -> [Song] {
-        guard let seed else { return [] }
-        return await appState.radio.mix(seed: seed, scope: scope, size: 80)
+        guard let first = seeds.first else { return [] }
+        if let sonic = await appState.sonic.radio(seeds: seeds.map(\.id), limit: 150) {
+            return await appState.radio.keeping(sonic, in: scope)
+        }
+        return await appState.radio.mix(seed: first, scope: scope, size: 80)
     }
 
     private func persist(appState: AppState, scope: LibraryScope) async {
@@ -433,6 +442,9 @@ final class DailyMixes {
         scope: LibraryScope,
         day: Date
     ) async -> Mix? {
+        // Songs skipped early, and not played through since, are left out of every mix
+        // as if already used.
+        let identities = identities.union(appState.skips.avoided())
         switch recipe {
         case .heavy:
             if context.played.count >= Self.playedForHeavy {
@@ -485,7 +497,7 @@ final class DailyMixes {
             guard context.artists.indices.contains(position) else { return nil }
             return await artistRadio(
                 appState: appState, artist: context.artists[position], index: index,
-                scope: scope, day: day, used: used, identities: identities
+                context: context, scope: scope, day: day, used: used, identities: identities
             )
 
         case let .decade(position):
@@ -531,7 +543,8 @@ final class DailyMixes {
             appState: appState, samples: samples, candidates: candidates,
             scope: scope, limit: 16
         )
-        let played = await rankedPlays(appState: appState, samples: samples)
+        let played = await appState.rankPlays()
+        let affinity = MixEngine.affinity(samples: samples, played: played, skipped: appState.skips.penalties())
 
         let built = Context(
             samples: samples,
@@ -539,7 +552,8 @@ final class DailyMixes {
             genres: genres,
             recent: recent,
             artistCandidates: candidates,
-            played: played
+            played: played,
+            affinity: affinity
         )
         context = built
         return built
@@ -602,11 +616,38 @@ final class DailyMixes {
         appState: AppState,
         artist: String,
         index: Int,
+        context: Context,
         scope: LibraryScope,
         day: Date,
         used: Set<String>,
         identities: Set<String>
     ) async -> Mix? {
+        // From the sound analysis first, seeded with this artist's songs played most, and
+        // picked to taste. The server's similar songs, below, are what it falls back to.
+        let seeds = context.played
+            .filter { MixEngine.artistKey($0.artist) == MixEngine.artistKey(artist) }
+            .prefix(3)
+            .compactMap(\.ids.first)
+        if !seeds.isEmpty, let sonic = await appState.sonic.radio(seeds: Array(seeds), limit: 150) {
+            let pool = await appState.radio.keeping(sonic, in: scope)
+            var generator = MixEngine.DayRandom(day: day, salt: UInt64(400 + index))
+            let chosen = MixEngine.pickRadio(
+                pool, affinity: context.affinity, limit: 25, perArtist: 3,
+                excluding: used, usedIdentities: identities, using: &generator
+            )
+            await Diagnostics.shared.record(
+                "mixes", "radio “\(artist)”: sonic, \(pool.count) candidates, \(chosen.count) chosen"
+            )
+            if chosen.count >= Self.minimumTracks {
+                return Mix(
+                    id: "radio-\(index)",
+                    title: "\(artist) Radio",
+                    subtitle: "Sounds like them, from what you play",
+                    songs: chosen
+                )
+            }
+        }
+
         let top = (try? await appState.client.topSongs(artist: artist, count: 4)) ?? []
         guard let seed = top.first else { return nil }
 
@@ -830,33 +871,6 @@ final class DailyMixes {
             subtitle: artists.prefix(3).joined(separator: ", "),
             songs: chosen
         )
-    }
-
-    /// Every song with a play, from the server's counts across all devices, ranked with the
-    /// phone's own log. Two lists, the most played and the most recently played, so a song
-    /// on repeat this week is in even before it has many plays.
-    private func rankedPlays(appState: AppState, samples: [MixEngine.Sample]) async -> [MixEngine.Played] {
-        async let most = appState.native.mostPlayed(limit: 500)
-        async let recent = appState.native.recentlyPlayed(limit: 500)
-        let counted = ((try? await most) ?? []) + ((try? await recent) ?? [])
-        // Only the log's own plays: on a cold start the samples also hold the server's
-        // counts, which are already in `counted`.
-        let local = samples.filter { $0.weight == 1 }
-        let ranked = await Task.detached(priority: .userInitiated) {
-            MixEngine.heavyRotation(
-                counted: counted.map {
-                    MixEngine.Counted(
-                        id: $0.id, title: $0.title, artist: $0.artist,
-                        plays: $0.playCount ?? 0, lastPlayed: $0.playDate
-                    )
-                },
-                plays: local
-            )
-        }.value
-        await Diagnostics.shared.record(
-            "mixes", "played: \(counted.count) counted copies, \(ranked.count) songs ranked"
-        )
-        return ranked
     }
 
     /// The playable song for each pick, in this library, in the picks' order.

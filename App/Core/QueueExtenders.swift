@@ -284,7 +284,12 @@ final class AutoplayService {
                     return false
                 }
                 let queued = Set(appState.player.queue.tracks.map(\.id))
-                let fresh = songs.filter { !queued.contains($0.id) }.prefix(option.choice.trackCount)
+                // Songs skipped early lately stay out of radio; an album is kept whole.
+                let isAlbum = [.previousAlbum, .nextAlbum, .similarAlbum].contains(option.choice)
+                let avoided: Set<String> = isAlbum ? [] : appState.skips.avoided()
+                let fresh = songs
+                    .filter { !queued.contains($0.id) && !avoided.contains(MixEngine.identity($0)) }
+                    .prefix(option.choice.trackCount)
                 guard !fresh.isEmpty else {
                     await Diagnostics.shared.record("autoplay", "\(option.choice.title) had nothing new (\(songs.count) found)")
                     continue

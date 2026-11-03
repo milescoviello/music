@@ -123,8 +123,16 @@ final class PlaybackController {
         }
     }
 
+    /// Whether what is playing is coming over the network right now, rather than from a
+    /// file here. The most-played downloads wait for it, so as never to compete with it.
+    var isStreaming: Bool {
+        guard isPlaying, let song = currentSong, let source = sources[song.id] else { return false }
+        return source.hasPrefix("a stream")
+    }
+
     private func logStart(_ song: Song, from source: String) {
         unannouncedSongID = nil
+        appState?.mostPlayed.advance()
         let line = "“\(song.title)” (\(song.id)) from \(source)"
         Task { await Diagnostics.shared.record("playback", line) }
     }
@@ -705,6 +713,7 @@ final class PlaybackController {
     func next() {
         if let remote { remote.send(RemoteCommand(.next)); return }
         logSkip("skipped")
+        noteSkip()
         guard queue.advance() else {
             pause()
             return
@@ -725,6 +734,15 @@ final class PlaybackController {
         }
         logSkip("went back from")
         rebuildOutput(startPlaying: isPlaying, seekTo: 0)
+    }
+
+    /// A skip the mixes learn from: by hand, early, and of a track that was playing. One
+    /// stuck waiting for data is skipped because of the network, not the song.
+    private func noteSkip() {
+        guard let song = currentSong, isPlaying, !isBuffering,
+              SkipMemory.isEarly(position: elapsed, duration: duration)
+        else { return }
+        appState?.skips.record(song, at: elapsed)
     }
 
     /// A skip, in the log: which track, how far into it, by hand. Five songs starting
@@ -773,7 +791,10 @@ final class PlaybackController {
 
     func jump(toOrderIndex index: Int) {
         if let remote { remote.send(.at(.jump, index)); return }
-        if index != queue.position { logSkip("jumped from", to: "#\(index + 1) of \(queue.order.count)") }
+        if index != queue.position {
+            logSkip("jumped from", to: "#\(index + 1) of \(queue.order.count)")
+            noteSkip()
+        }
         queue.jump(toOrderIndex: index)
         rebuildOutput(startPlaying: true, seekTo: 0)
     }

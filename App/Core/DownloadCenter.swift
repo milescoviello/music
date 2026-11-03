@@ -419,6 +419,7 @@ final class DownloadCenter {
         Task {
             catalog = await store.complete(songID: songID, byteCount: byteCount)
             isDownloading = !progress.isEmpty
+            appState?.mostPlayed.advance()
         }
     }
 
@@ -447,6 +448,7 @@ final class DownloadCenter {
             await Diagnostics.shared.record("download", "“\(title)” (\(songID)) failed: \(reason)")
             catalog = await store.cancelPending(songID: songID)
             isDownloading = !progress.isEmpty
+            appState?.mostPlayed.advance()
         }
     }
 
@@ -455,7 +457,12 @@ final class DownloadCenter {
     /// The session says when it is done, so this is the only correct place to release
     /// the handler iOS gave the app delegate.
     func sessionDidFinishEvents() {
-        BackgroundSessionBridge.finish()
+        // Woken in the background because a batch finished: queue the next before giving
+        // the time back, which is how the most-played downloads carry on overnight.
+        Task {
+            await appState?.mostPlayed.advance()?.value
+            BackgroundSessionBridge.finish()
+        }
     }
 }
 

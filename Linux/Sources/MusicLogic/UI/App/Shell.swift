@@ -257,6 +257,7 @@ final class Shell {
         Task { await app.sonic.refreshStatus() }
         Task { await app.playlistSync.sync() }
         app.downloads.resumeWaiting()
+        Task { await app.mostPlayed.refresh() }
         Task { await app.queueSync.check(localSavedAt: app.player.lastSavedAt) }
     }
 

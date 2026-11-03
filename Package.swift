@@ -117,6 +117,7 @@ func logicPackage() -> Package {
                     "PlaylistMembership.swift",
                     "FetchRetry.swift",
                     "SettingsLog.swift",
+                    "SkipMemory.swift",
                     "LibraryScope.swift",
                     "RecentPlays.swift",
                     "SonicClient.swift",

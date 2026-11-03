@@ -33,6 +33,8 @@ final class AppState {
     let cache = LibraryCache()
     let playlistArtwork = PlaylistArtwork()
     let history = ListeningHistory()
+    let skips = SkipLog()
+    let mostPlayed = MostPlayedDownloads()
     let mixes = DailyMixes()
     let hermes = HermesAsk()
     let recentSearches = RecentSearches()
@@ -68,6 +70,7 @@ final class AppState {
         // Directories must exist before anything touches disk, and before a
         // background download session can be relaunched into.
         Paths.bootstrap()
+        skips.history = history
         userState.configure(client: client, outbox: outbox)
         resume.configure(client: client, outbox: outbox)
         playlistStore.configure(client: client, appState: self)
@@ -79,6 +82,7 @@ final class AppState {
             cache: cache, folders: downloadFolders
         )
         downloads.attach(appState: self)
+        mostPlayed.attach(self)
         downloadFolders.configure(downloads: downloads, cache: cache)
         autoplay.configure(appState: self)
         guestDJ.configure(appState: self)
@@ -147,6 +151,11 @@ final class AppState {
         artwork.configure(signer: signer)
         downloads.resumeWaiting()
         phase = .ready
+        // Once a day, and not in the launch's own rush of requests.
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 20 * 1_000_000_000)
+            await self?.mostPlayed.refresh()
+        }
 
         // Before the queue is rebuilt, so the restored track is found in Downloads. A
         // few milliseconds of disk; without it, launch raced the catalog and lost.
