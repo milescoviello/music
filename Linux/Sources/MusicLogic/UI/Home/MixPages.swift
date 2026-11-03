@@ -5,12 +5,11 @@ import Foundation
 /// "mixes.folderID", -1 for all of them.
 @MainActor
 enum MixScope {
-    static let key = "mixes.folderID"
+    static let key = LibraryScopeStore.mixesKey
 
+    /// The store's answer, which the player also uses to grow a mix.
     static func current(_ app: AppState) -> LibraryScope {
-        let id = UserDefaults.standard.object(forKey: key) as? Int ?? -1
-        guard id != -1, let folder = app.scope.folders.first(where: { $0.id == id }) else { return .all }
-        return .folder(id: folder.id, name: folder.name)
+        app.scope.mixScope
     }
 
     static func menuItem(_ app: AppState) -> Menu.Item? {

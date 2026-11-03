@@ -13,6 +13,27 @@ import Foundation
 /// key.
 struct RadioBuilder: Sendable {
     let client: SubsonicClient
+    /// For `keeping(_:in:)`. Without it nothing is filtered.
+    var native: NavidromeClient?
+
+    /// `songs` less any outside `scope`, in their order.
+    ///
+    /// `getTopSongs` and `getSimilarSongs2` ignore the folder they are given, so a mix set
+    /// to one library was half the other one. Every caller of those two passes the answer
+    /// through here. If the server cannot say, everything is kept and the log says so: a
+    /// mix with some of the other library beats no mix at all.
+    func keeping(_ songs: [Song], in scope: LibraryScope) async -> [Song] {
+        guard let libraryID = scope.folderID, let native, !songs.isEmpty else { return songs }
+        do {
+            let inside = try await native.songIDs(songs.map(\.id), inLibrary: libraryID)
+            return songs.filter { inside.contains($0.id) }
+        } catch {
+            await Diagnostics.shared.record(
+                "library", "could not check which library songs are in: \(error.localizedDescription)"
+            )
+            return songs
+        }
+    }
 
     /// A mix around one track: the seed first, then what the server thinks goes with
     /// it, then random padding if similarity came back thin.
@@ -20,7 +41,9 @@ struct RadioBuilder: Sendable {
         var songs = [seed]
         var seen: Set<String> = [seed.id]
 
-        let similar = (try? await client.similarSongs(toSongID: seed.id, count: size)) ?? []
+        let similar = await keeping(
+            (try? await client.similarSongs(toSongID: seed.id, count: size)) ?? [], in: scope
+        )
         for song in similar where !seen.contains(song.id) {
             songs.append(song)
             seen.insert(song.id)
@@ -78,7 +101,9 @@ struct RadioBuilder: Sendable {
         // Extend past the artist's own catalogue, which is what makes it a mix rather
         // than a shuffle of one discography.
         if let seed = songs.first, songs.count < size {
-            let similar = (try? await client.similarSongs(toSongID: seed.id, count: size)) ?? []
+            let similar = await keeping(
+                (try? await client.similarSongs(toSongID: seed.id, count: size)) ?? [], in: scope
+            )
             for song in similar where !seen.contains(song.id) && songs.count < size {
                 songs.append(song)
                 seen.insert(song.id)

@@ -237,6 +237,30 @@ actor NavidromeClient {
         response.value(forHTTPHeaderField: "X-Total-Count").flatMap(Int.init)
     }
 
+    /// Which of `ids` are in library `libraryID`.
+    ///
+    /// For the Subsonic calls that ignore `musicFolderId`. On this server (0.64.2)
+    /// `getTopSongs` and `getSimilarSongs2` answer from every library whichever folder is
+    /// asked for (folder 2 got 20 of 50 top songs and 21 of 50 similar ones from folder 1),
+    /// and a Subsonic song does not say which library it is in. The native API does, and
+    /// takes a list of ids with a `library_id` filter: one request per hundred songs.
+    func songIDs(_ ids: [String], inLibrary libraryID: Int) async throws -> Set<String> {
+        struct Row: Decodable { let id: String }
+        let unique = Array(Set(ids))
+        var found: Set<String> = []
+        for start in stride(from: 0, to: unique.count, by: 100) {
+            let chunk = unique[start..<min(start + 100, unique.count)]
+            let items = chunk.map { URLQueryItem(name: "id", value: $0) } + [
+                URLQueryItem(name: "library_id", value: String(libraryID)),
+                URLQueryItem(name: "_start", value: "0"),
+                URLQueryItem(name: "_end", value: String(chunk.count)),
+            ]
+            let (rows, _): ([Row], HTTPURLResponse) = try await request(path: "api/song", items: items)
+            found.formUnion(rows.map(\.id))
+        }
+        return found
+    }
+
     private func request<T: Decodable>(path: String, query: [String: String]) async throws -> T {
         let (decoded, _): (T, HTTPURLResponse) = try await request(path: path, query: query)
         return decoded
@@ -245,6 +269,14 @@ actor NavidromeClient {
     private func request<T: Decodable>(
         path: String,
         query: [String: String]
+    ) async throws -> (T, HTTPURLResponse) {
+        try await request(path: path, items: query.map { URLQueryItem(name: $0.key, value: $0.value) })
+    }
+
+    /// Query items rather than a dictionary where a key repeats: `id=…&id=…`.
+    private func request<T: Decodable>(
+        path: String,
+        items: [URLQueryItem]
     ) async throws -> (T, HTTPURLResponse) {
         guard let credentials else { throw SubsonicClient.ClientError.notConfigured }
 
@@ -263,7 +295,7 @@ actor NavidromeClient {
                 url: credentials.baseURL.appendingPathComponent(path),
                 resolvingAgainstBaseURL: false
             )
-            components?.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) }
+            components?.queryItems = items
             guard let url = components?.url else {
                 throw SubsonicClient.ClientError.notConfigured
             }

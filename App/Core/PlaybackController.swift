@@ -873,7 +873,7 @@ final class PlaybackController {
         // Listening is the other trigger for more mixes, alongside scrolling to the end of
         // the shelf. Cheap: it does nothing once the shelf is deep enough for one session.
         if submission, let appState {
-            appState.mixes.topUpWhileListening(appState: appState, scope: appState.scope.scope)
+            appState.mixes.topUpWhileListening(appState: appState, scope: appState.scope.mixScope)
         }
 
         guard let appState else { return }
@@ -979,7 +979,7 @@ final class PlaybackController {
         else { return }
 
         appState.mixes.extend(
-            mixID: mix.id, appState: appState, scope: appState.scope.scope
+            mixID: mix.id, appState: appState, scope: appState.scope.mixScope
         )
     }
 

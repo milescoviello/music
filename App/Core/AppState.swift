@@ -207,7 +207,7 @@ final class AppState {
     }
 
     /// Radio needs no state of its own; it is a few calls in a known order.
-    var radio: RadioBuilder { RadioBuilder(client: client) }
+    var radio: RadioBuilder { RadioBuilder(client: client, native: native) }
 
     /// Starts a mix and plays it. Here rather than in a view because three different
     /// screens start radio and none of them should own the sequencing.

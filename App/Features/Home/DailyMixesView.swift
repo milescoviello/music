@@ -9,13 +9,10 @@ struct DailyMixesView: View {
     @Environment(LibraryScopeStore.self) private var scope
 
     /// Shared with Home's shelf, so the choice is the same in both places.
-    @AppStorage("mixes.folderID") private var mixFolderID = -1
+    @AppStorage(LibraryScopeStore.mixesKey) private var mixFolderID = -1
 
     private var mixScope: LibraryScope {
-        guard mixFolderID != -1,
-              let folder = scope.folders.first(where: { $0.id == mixFolderID })
-        else { return .all }
-        return .folder(id: folder.id, name: folder.name)
+        scope.scope(forFolderID: mixFolderID)
     }
 
     var body: some View {
@@ -81,7 +78,9 @@ struct DailyMixesView: View {
                 )
             }
         }
-        .task(id: mixFolderID) {
+        // Keyed on the library itself, not the stored id: on a first launch the server's
+        // folder list arrives after this does, and the id alone never changed when it did.
+        .task(id: mixScope) {
             appState.mixes.load(appState: appState, scope: mixScope)
         }
     }

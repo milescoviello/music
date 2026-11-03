@@ -36,7 +36,13 @@ enum HomePage {
             _ = app.scope.generation
             Task { await model.load(appState: app, scope: scope) }
         }
-        app.mixes.load(appState: app, scope: MixScope.current(app))
+        // Again when the folder list changes: on a first launch it arrives after Home, and
+        // until then a chosen library reads as all of them. Only the scope is read here;
+        // the load runs outside the observer, so the mixes' own changes do not re-run it.
+        body.observe {
+            let scope = MixScope.current(app)
+            Task { app.mixes.load(appState: app, scope: scope) }
+        }
 
         let page = Page.make("Home", content: body) { bar in
             bar.end(MenuButton(icon: "emblem-system-symbolic", "flat") {

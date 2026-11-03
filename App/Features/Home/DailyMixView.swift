@@ -12,15 +12,12 @@ struct DailyMixView: View {
 
     @Environment(LibraryScopeStore.self) private var scope
     /// The same setting the shelf uses, so an extension draws from the same libraries.
-    @AppStorage("mixes.folderID") private var mixFolderID = -1
+    @AppStorage(LibraryScopeStore.mixesKey) private var mixFolderID = -1
 
     private var mix: DailyMixes.Mix? { appState.mixes.mix(id: mixID) }
 
     private var mixScope: LibraryScope {
-        guard mixFolderID != -1,
-              let folder = scope.folders.first(where: { $0.id == mixFolderID })
-        else { return .all }
-        return .folder(id: folder.id, name: folder.name)
+        scope.scope(forFolderID: mixFolderID)
     }
 
     var body: some View {

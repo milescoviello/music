@@ -209,7 +209,7 @@ final class DailyMixes {
         isBuilding = true
         defer { isBuilding = false }
 
-        guard let context = await ensureContext(appState: appState) else { return }
+        guard let context = await ensureContext(appState: appState, scope: scope) else { return }
 
         var added = 0
         var attempts = 0
@@ -471,8 +471,9 @@ final class DailyMixes {
     }
 
     /// The expensive, once-a-day part: the play log, the artist ranking, and the eight
-    /// `getTopSongs` calls whose results the genre ranking also needs.
-    private func ensureContext(appState: AppState) async -> Context? {
+    /// `getTopSongs` calls whose results the genre ranking also needs. Per library: a
+    /// change of library forgets it with the rest of the day's mixes.
+    private func ensureContext(appState: AppState, scope: LibraryScope) async -> Context? {
         if let context { return context }
 
         let samples = await samples(appState: appState)
@@ -495,10 +496,12 @@ final class DailyMixes {
                 MixEngine.songIDs(samples, playedWithin: 7)
             )
         }.value
-        let candidates = await artistCandidates(appState: appState, artists: Array(artists.prefix(8)))
+        let candidates = await artistCandidates(
+            appState: appState, artists: Array(artists.prefix(8)), scope: scope
+        )
         let genres = await topGenres(
             appState: appState, samples: samples, candidates: candidates,
-            scope: appState.scope.scope, limit: 16
+            scope: scope, limit: 16
         )
 
         let built = Context(
@@ -577,8 +580,11 @@ final class DailyMixes {
         let top = (try? await appState.client.topSongs(artist: artist, count: 4)) ?? []
         guard let seed = top.first else { return nil }
 
+        // Neither call takes a folder: the seed may be the other library's copy, which is
+        // fine for finding what sounds like it, but nothing from there goes in the mix.
         var pool = top
         pool += (try? await appState.client.similarSongs(toSongID: seed.id, count: 60)) ?? []
+        pool = await appState.radio.keeping(pool, in: scope)
         guard pool.count > 4 else { return nil }
 
         var generator = MixEngine.DayRandom(day: day, salt: UInt64(400 + index))
@@ -731,19 +737,22 @@ final class DailyMixes {
     /// they carry the genre tags the next mix needs and were expensive to fetch.
     /// The top artists' best-known tracks. Fetched once per day and kept, because the
     /// genre ranking reads their tags and every later page would otherwise re-fetch them.
-    private func artistCandidates(appState: AppState, artists: [String]) async -> [Song] {
+    private func artistCandidates(appState: AppState, artists: [String], scope: LibraryScope) async -> [Song] {
         var candidates: [Song] = []
         // Eight artists at once rather than in turn: this is the first thing that happens
         // on a cold Home, so it is the wait people actually see.
         await withTaskGroup(of: [Song].self) { group in
             for artist in artists {
-                group.addTask { [client = appState.client] in
-                    var songs = (try? await client.topSongs(artist: artist, count: 8)) ?? []
+                group.addTask { [client = appState.client, radio = appState.radio] in
+                    // `getTopSongs` takes no folder, so the chart is cut to the library here.
+                    var songs = await radio.keeping(
+                        (try? await client.topSongs(artist: artist, count: 8)) ?? [], in: scope
+                    )
                     // `getTopSongs` is Last.fm's global chart, and Navidrome matches it to
                     // local files by title — badly. Nirvana has 67 tracks here and one
                     // matched. A thin answer means poor matching, not an unknown artist.
                     if songs.count < 3 {
-                        let extra = try? await client.search(query: artist, songCount: 12)
+                        let extra = try? await client.search(query: artist, songCount: 12, scope: scope)
                         songs += (extra?.songs ?? []).filter { $0.artist == artist }
                     }
                     return songs
@@ -892,7 +901,8 @@ final class DailyMixes {
             let similar = (try? await appState.client.similarSongs(toSongID: seed, count: 50)) ?? []
             pool += similar
         }
-        pool = pool.filter { ($0.playCount ?? 0) == 0 }
+        // `getSimilarSongs2` takes no folder, so the pool is cut to the library here.
+        pool = await appState.radio.keeping(pool.filter { ($0.playCount ?? 0) == 0 }, in: scope)
 
         // `getSimilarSongs2` gave 19 rows for a seed here, eleven of them unplayed, so
         // three seeds do not fill a mix on their own. Random songs do, and with 95% of the

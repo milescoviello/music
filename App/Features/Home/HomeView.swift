@@ -6,7 +6,7 @@ struct HomeView: View {
 
     @State private var model = HomeModel()
     /// -1 means both libraries. Its own setting, not the browsing scope.
-    @AppStorage("mixes.folderID") private var mixFolderID = -1
+    @AppStorage(LibraryScopeStore.mixesKey) private var mixFolderID = -1
     /// Plexamp's home editor: which shelves, in what order.
     @AppStorage("home.layout") private var layoutData: Data?
     @State private var isEditingLayout = false
@@ -85,7 +85,9 @@ struct HomeView: View {
             // Separate from the shelves above: this one is built from a dozen requests
             // and only once a day, so it must not hold up the rest of Home or be redone
             // by every pull-to-refresh.
-            .task(id: mixFolderID) {
+            // Keyed on the library itself, not the stored id: on a first launch the server's
+            // folder list arrives after Home does, and the id alone never changed when it did.
+            .task(id: mixScope) {
                 appState.mixes.load(appState: appState, scope: mixScope)
             }
         }
@@ -185,10 +187,7 @@ struct HomeView: View {
     /// toolbar: "recommend from both libraries while I browse just one" is a reasonable
     /// thing to want, and it is the mixes people care about scoping.
     private var mixScope: LibraryScope {
-        guard mixFolderID != -1,
-              let folder = scope.folders.first(where: { $0.id == mixFolderID })
-        else { return .all }
-        return .folder(id: folder.id, name: folder.name)
+        scope.scope(forFolderID: mixFolderID)
     }
 
     @ViewBuilder
