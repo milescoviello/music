@@ -442,6 +442,7 @@ final class PlaybackController {
     /// The network changed, so does what to cache and at what quality. Items already
     /// built play on as they are.
     func networkChanged() {
+        if appState?.reachability.network != .offline { appState?.streamCache.networkReturned() }
         planCache()
         // Back online with a try pending: now, not when its timer says.
         if retryTask != nil, appState?.reachability.network != .offline {

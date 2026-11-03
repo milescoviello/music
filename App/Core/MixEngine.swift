@@ -39,6 +39,117 @@ enum MixEngine {
         scores(samples, now: now, calendar: calendar) { $0.artist }
     }
 
+    // MARK: - Heavy Rotation
+
+    /// One copy's plays, as the server counts them.
+    struct Counted: Sendable {
+        let id: String
+        let title: String
+        let artist: String?
+        let plays: Int
+        let lastPlayed: Date?
+    }
+
+    /// A recording someone plays, with every copy of it that was found.
+    struct Played: Sendable {
+        /// Most-played copy first. The library has most songs twice, and each copy keeps
+        /// its own count, so "Laputa" can be 70 plays here and 65 there.
+        var ids: [String]
+        var title: String
+        var artist: String?
+        var plays: Int
+        var lastPlayed: Date?
+        var score: Double
+
+        var identity: String { MixEngine.identity(title: title, artist: artist) }
+    }
+
+    /// What someone plays most lately, best first, one entry per recording.
+    ///
+    /// Heavy Rotation used to be the server's top songs *by* the most-played artists:
+    /// Last.fm's chart for each, matched to the library, so it was full of songs never
+    /// once played, and every extension was mostly radio. This is the songs themselves.
+    ///
+    /// Two signals, added. The server's counts reach back through every device and the
+    /// Plex import, but only know when a song was last played, so they count
+    /// logarithmically and fade with that date: 135 plays two months ago still ranks, and
+    /// does not drown out this week. The phone's own log knows each play, so a song on
+    /// repeat this month counts every day it was played, up to `dailyCap` a day, fading
+    /// with the same half-life as the artist scores.
+    static func heavyRotation(
+        counted: [Counted],
+        plays samples: [Sample],
+        now: Date = .now,
+        calendar: Calendar = .current
+    ) -> [Played] {
+        var order: [String] = []
+        var groups: [String: [Counted]] = [:]
+        var seen: Set<String> = []
+        for copy in counted where copy.plays > 0 && seen.insert(copy.id).inserted {
+            let key = identity(title: copy.title, artist: copy.artist)
+            if groups[key] == nil { order.append(key) }
+            groups[key, default: []].append(copy)
+        }
+        var recordingOf: [String: String] = [:]
+        for (key, copies) in groups {
+            for copy in copies { recordingOf[copy.id] = key }
+        }
+        let local = scores(samples, now: now, calendar: calendar) { recordingOf[$0.songID] }
+
+        let today = calendar.startOfDay(for: now)
+        func fade(_ date: Date?) -> Double {
+            // A count with no date is an old import: weighed as half a year ago.
+            guard let date else { return pow(0.5, 180 / halfLifeDays) }
+            let elapsed = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: today).day ?? 0
+            return pow(0.5, Double(max(0, elapsed)) / halfLifeDays)
+        }
+
+        var played: [(offset: Int, entry: Played)] = []
+        for (offset, key) in order.enumerated() {
+            guard let copies = groups[key]?.sorted(by: { $0.plays > $1.plays }), let first = copies.first else { continue }
+            let plays = copies.reduce(0) { $0 + $1.plays }
+            let last = copies.compactMap(\.lastPlayed).max()
+            played.append((offset, Played(
+                ids: copies.map(\.id),
+                title: first.title,
+                artist: first.artist,
+                plays: plays,
+                lastPlayed: last,
+                score: log2(1 + Double(plays)) * fade(last) + (local[key] ?? 0)
+            )))
+        }
+        return played
+            .sorted { $0.entry.score != $1.entry.score ? $0.entry.score > $1.entry.score : $0.offset < $1.offset }
+            .map(\.entry)
+    }
+
+    /// A day's pick from the ranking: shuffled among the best `reach` not yet in a mix,
+    /// so the mix changes from day to day but never reaches far down, and each extension
+    /// carries on from where the last one stopped rather than starting again at the top.
+    static func pickPlayed(
+        _ ranked: [Played],
+        limit: Int,
+        reach: Int,
+        perArtist: Int,
+        excludingIDs used: Set<String>,
+        excludingIdentities identities: Set<String>,
+        using generator: inout DayRandom
+    ) -> [Played] {
+        let fresh = ranked.filter { entry in
+            !identities.contains(entry.identity) && !entry.ids.contains(where: used.contains)
+        }
+        var perArtistCount: [String: Int] = [:]
+        var chosen: [Played] = []
+        for entry in fresh.prefix(reach).shuffled(using: &generator) {
+            guard chosen.count < limit else { break }
+            let artist = entry.artist ?? ""
+            guard perArtistCount[artist, default: 0] < perArtist else { continue }
+            perArtistCount[artist, default: 0] += 1
+            chosen.append(entry)
+        }
+        return chosen
+    }
+
     static func genreScores(
         _ samples: [Sample],
         now: Date = .now,
@@ -130,8 +241,12 @@ enum MixEngine {
     /// 4,957 title-and-artist groups are duplicated. Without collapsing them a mix shows
     /// the same song twice, which reads as carelessness rather than as a library problem.
     static func identity(_ song: Song) -> String {
-        let title = (song.title).lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let artist = (song.artist ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        identity(title: song.title, artist: song.artist)
+    }
+
+    static func identity(title: String, artist: String?) -> String {
+        let title = title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let artist = (artist ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
         return "\(artist)|\(title)"
     }
 

@@ -115,6 +115,7 @@ func logicPackage() -> Package {
                     "SleepTimer.swift",
                     "PlaylistArrangement.swift",
                     "PlaylistMembership.swift",
+                    "FetchRetry.swift",
                     "LibraryScope.swift",
                     "RecentPlays.swift",
                     "SonicClient.swift",

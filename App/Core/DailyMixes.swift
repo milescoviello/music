@@ -96,8 +96,11 @@ final class DailyMixes {
         var artists: [String]
         var genres: [String]
         var recent: Set<String>
-        /// Kept from Heavy Rotation: these carry the genre tags and cost eight requests.
+        /// The top artists' best-known tracks: they carry the genre tags and cost eight
+        /// requests, and are Heavy Rotation's fallback before there are plays to rank.
         var artistCandidates: [Song]
+        /// Every song played, ranked by how much lately. Heavy Rotation is drawn from it.
+        var played: [MixEngine.Played]
     }
 
     private var context: Context?
@@ -176,6 +179,9 @@ final class DailyMixes {
 
         // A new day, or a different folder scope, means starting over.
         if builtDay != nil, builtDay != today || builtScope != scope.cacheKey {
+            if builtDay == today {
+                Task { await Diagnostics.shared.record("mixes", "library is now \(scope.logName), starting over") }
+            }
             forgetToday()
         }
         guard buildTask == nil, mixes.count < Self.maximumMixes else { return }
@@ -186,11 +192,18 @@ final class DailyMixes {
         }
     }
 
+    /// The second version: Heavy Rotation changed from the top artists' charts to the
+    /// songs actually played, and a day's mixes kept from before would hide that until
+    /// tomorrow.
+    private static func cacheKey(_ scopeKey: String) -> String {
+        "daily-mixes-2-\(scopeKey)"
+    }
+
     // MARK: - Paging
 
     private func page(appState: AppState, scope: LibraryScope, day: Date, wanted: Int) async {
         let scopeKey = scope.cacheKey
-        let key = "daily-mixes-\(scopeKey)"
+        let key = Self.cacheKey(scopeKey)
 
         // First call of the session: adopt whatever was built earlier today, including how
         // far down the recipe list it got, so scrolling back is free and paging resumes.
@@ -291,7 +304,10 @@ final class DailyMixes {
         let seedDay = Calendar.current.date(
             byAdding: .day, value: before / Self.extensionSize, to: builtDay ?? .now
         ) ?? .now
-        let seed = mix.songs.suffix(8).randomElement()
+        // Not Heavy Rotation: it is the songs actually played, and padding it out with
+        // radio is how it came to be full of things never listened to. It ends when the
+        // played songs do.
+        let seed = mix.id == "heavy" ? nil : mix.songs.suffix(8).randomElement()
 
         // Both sources are started **together**, not one after the other. Sequentially
         // this waited for the recipe -- up to nine requests for a decade mix -- decided it
@@ -365,7 +381,7 @@ final class DailyMixes {
         guard let day = builtDay else { return }
         await appState.cache.store(
             Stored(day: day, scope: scope.cacheKey, mixes: mixes, nextRecipe: nextRecipe),
-            for: "daily-mixes-\(scope.cacheKey)"
+            for: Self.cacheKey(scope.cacheKey)
         )
     }
 
@@ -413,7 +429,13 @@ final class DailyMixes {
     ) async -> Mix? {
         switch recipe {
         case .heavy:
-            return await heavyRotation(
+            if context.played.count >= Self.playedForHeavy {
+                return await heavyRotation(
+                    appState: appState, played: context.played, scope: scope, day: day,
+                    used: used, identities: identities
+                )
+            }
+            return await chartRotation(
                 appState: appState, artists: context.artists, recent: context.recent,
                 candidates: context.artistCandidates, day: day,
                 used: used, identities: identities
@@ -485,7 +507,7 @@ final class DailyMixes {
         }
         await Diagnostics.shared.record(
             "mixes",
-            "\(samples.count) samples (\(appState.history.plays.count) local plays)"
+            "\(samples.count) samples (\(appState.history.plays.count) local plays), from \(scope.logName)"
         )
 
         // Off the main actor: every sample through the calendar, up to 20,000 of them, and
@@ -503,13 +525,15 @@ final class DailyMixes {
             appState: appState, samples: samples, candidates: candidates,
             scope: scope, limit: 16
         )
+        let played = await rankedPlays(appState: appState, samples: samples)
 
         let built = Context(
             samples: samples,
             artists: artists,
             genres: genres,
             recent: recent,
-            artistCandidates: candidates
+            artistCandidates: candidates,
+            played: played
         )
         context = built
         return built
@@ -763,7 +787,110 @@ final class DailyMixes {
         return candidates
     }
 
+    /// Played songs needed before Heavy Rotation is drawn from them, rather than from the
+    /// favourite artists' charts: a new library has a few dozen plays and no rotation yet.
+    private static let playedForHeavy = 40
+
+    /// The songs played most lately: a day's 25 from the best 60 not yet used, by
+    /// `MixEngine.pickPlayed`, and each extension the next 25 from further down.
     private func heavyRotation(
+        appState: AppState,
+        played: [MixEngine.Played],
+        scope: LibraryScope,
+        day: Date,
+        used: Set<String>,
+        identities: Set<String>
+    ) async -> Mix? {
+        var generator = MixEngine.DayRandom(day: day, salt: 1)
+        // A few spare: a copy may be missing from this library, or fail to load.
+        let picked = MixEngine.pickPlayed(
+            played, limit: 30, reach: 60, perArtist: 3,
+            excludingIDs: used, excludingIdentities: identities, using: &generator
+        )
+        let chosen = Array(await songs(for: picked, in: scope, appState: appState).prefix(25))
+
+        await Diagnostics.shared.record(
+            "mixes", "heavy: \(played.count) played songs ranked, \(picked.count) picked, \(chosen.count) chosen"
+        )
+        guard chosen.count >= Self.minimumTracks || (!used.isEmpty && !chosen.isEmpty) else { return nil }
+
+        var artists: [String] = []
+        for artist in chosen.compactMap(\.artist) where !artists.contains(artist) {
+            artists.append(artist)
+        }
+        return Mix(
+            id: "heavy",
+            title: "Heavy Rotation",
+            subtitle: artists.prefix(3).joined(separator: ", "),
+            songs: chosen
+        )
+    }
+
+    /// Every song with a play, from the server's counts across all devices, ranked with the
+    /// phone's own log. Two lists, the most played and the most recently played, so a song
+    /// on repeat this week is in even before it has many plays.
+    private func rankedPlays(appState: AppState, samples: [MixEngine.Sample]) async -> [MixEngine.Played] {
+        async let most = appState.native.mostPlayed(limit: 500)
+        async let recent = appState.native.recentlyPlayed(limit: 500)
+        let counted = ((try? await most) ?? []) + ((try? await recent) ?? [])
+        // Only the log's own plays: on a cold start the samples also hold the server's
+        // counts, which are already in `counted`.
+        let local = samples.filter { $0.weight == 1 }
+        let ranked = await Task.detached(priority: .userInitiated) {
+            MixEngine.heavyRotation(
+                counted: counted.map {
+                    MixEngine.Counted(
+                        id: $0.id, title: $0.title, artist: $0.artist,
+                        plays: $0.playCount ?? 0, lastPlayed: $0.playDate
+                    )
+                },
+                plays: local
+            )
+        }.value
+        await Diagnostics.shared.record(
+            "mixes", "played: \(counted.count) counted copies, \(ranked.count) songs ranked"
+        )
+        return ranked
+    }
+
+    /// The playable song for each pick, in this library, in the picks' order.
+    ///
+    /// The plays may all be on the other library's copy, so in one library the copy is
+    /// looked up: first among the copies already known, then by name.
+    private func songs(
+        for picked: [MixEngine.Played], in scope: LibraryScope, appState: AppState
+    ) async -> [Song] {
+        var copies: [String?] = picked.map { $0.ids.first }
+        if let libraryID = scope.folderID {
+            let inside = (try? await appState.native.songIDs(picked.flatMap(\.ids), inLibrary: libraryID)) ?? []
+            copies = picked.map { entry in entry.ids.first(where: inside.contains) }
+        }
+        let ids = copies
+
+        var found: [Int: Song] = [:]
+        await withTaskGroup(of: (Int, Song?).self) { group in
+            for (index, entry) in picked.enumerated() {
+                group.addTask { [client = appState.client] in
+                    if let id = ids[index] {
+                        return (index, try? await client.song(id: id))
+                    }
+                    // Not among the copies counted: this library's copy, by name.
+                    let query = [entry.title, entry.artist ?? ""].joined(separator: " ")
+                    let results = try? await client.search(
+                        query: query, artistCount: 0, albumCount: 0, songCount: 8, scope: scope
+                    )
+                    let match = results?.songs.first { MixEngine.identity($0) == entry.identity }
+                    return (index, match)
+                }
+            }
+            for await (index, song) in group { found[index] = song }
+        }
+        return picked.indices.compactMap { found[$0] }
+    }
+
+    /// Heavy Rotation before there are plays enough to rank: the favourite artists'
+    /// best-known tracks.
+    private func chartRotation(
         appState: AppState,
         artists: [String],
         recent: Set<String>,

@@ -67,6 +67,8 @@ extension AppState {
             .init(label: "Loudness leveling", value: on(audio.loudnessLeveling)),
             .init(label: "Equalizer", value: audio.equalizer ? "on, \(audio.presetName)" : "off"),
             .init(label: "Autoplay", value: on(autoplay.isEnabled)),
+            .init(label: "Made for You", value: scope.mixScope.logName),
+            .init(label: "Browsing", value: scope.scope.logName),
         ]
 
         return LogReport(

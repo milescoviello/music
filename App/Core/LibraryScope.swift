@@ -21,6 +21,14 @@ enum LibraryScope: Hashable, Sendable {
         folderID.map(String.init)
     }
 
+    /// As a log line says it, so a report shows which library a mix was built from.
+    var logName: String {
+        switch self {
+        case .all: return "both libraries"
+        case let .folder(id, name): return name.isEmpty ? "library \(id)" : name
+        }
+    }
+
     var shortName: String {
         if case let .folder(_, name) = self { return name }
         return "All"

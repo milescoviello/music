@@ -54,9 +54,14 @@ final class StreamCache {
     @ObservationIgnored private var plan: [Request] = []
     /// The current track and the ones planned after it: never evicted.
     @ObservationIgnored private var protected: Set<String> = []
-    /// Failed this session. Not retried until the app restarts, so a track the server
-    /// cannot send does not become a loop of requests.
+    /// Refused by the server this session. Not retried until the app restarts, so a track
+    /// the server cannot send does not become a loop of requests.
     @ObservationIgnored private var failed: Set<String> = []
+    /// Lost to the connection rather than refused: tried again later. See `FetchRetry`.
+    @ObservationIgnored private var retries = FetchRetry()
+    /// The last plan asked for, to come back to when a retry is due.
+    @ObservationIgnored private var lastRequests: [Request] = []
+    @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var fetchTask: Task<Void, Never>?
     /// What the fetch under way will bring, while it is still wanted.
     @ObservationIgnored private var fetchingVariant: StreamVariant?
@@ -115,9 +120,12 @@ final class StreamCache {
     /// if not — a skip past three tracks should not finish downloading the three.
     func prefetch(_ requests: [Request]) {
         protected = Set(requests.map(\.song.id))
+        lastRequests = requests
+        let now = Date.now
         let wanted = requests.filter { request in
             storage.entry(for: request.song.id, satisfying: request.variant) == nil
                 && !failed.contains(request.song.id)
+                && !retries.isWaiting(request.song.id, at: now)
         }
 
         if let fetching = fetchingSongID, !wanted.contains(where: { $0.song.id == fetching }) {
@@ -130,6 +138,7 @@ final class StreamCache {
             !(request.song.id == fetchingSongID && fetchingVariant?.satisfies(request.variant) == true)
         }
         startNext()
+        scheduleRetry()
     }
 
     /// Stops fetching. The network went away, or nothing is playing.
@@ -137,6 +146,29 @@ final class StreamCache {
         plan = []
         fetchTask?.cancel()
         fetchingVariant = nil
+        retryTask?.cancel()
+        retryTask = nil
+    }
+
+    /// The network is back: songs that failed while it was going may be tried at once.
+    func networkReturned() {
+        retries.networkReturned()
+    }
+
+    /// Plans again when the first song waiting to be retried is due. Nothing else would:
+    /// the next plan otherwise comes with the next track, minutes away, and a connection
+    /// that drops and comes back never registers as a change of network at all.
+    private func scheduleRetry() {
+        retryTask?.cancel()
+        retryTask = nil
+        guard let due = retries.nextTry(among: lastRequests.map(\.song.id)) else { return }
+        retryTask = Task { [weak self] in
+            let wait = max(0, due.timeIntervalSinceNow)
+            try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000) + 500_000_000)
+            guard !Task.isCancelled, let self else { return }
+            retryTask = nil
+            prefetch(lastRequests)
+        }
     }
 
     func removeAll() {
@@ -211,11 +243,18 @@ final class StreamCache {
             try FileManager.default.moveItem(at: temporary, to: destination)
         } catch {
             if !Task.isCancelled {
-                failed.insert(songID)
-                await note("failed: \(Diagnostics.describe(error))")
+                if FetchRetry.isTransient(error) {
+                    let delay = retries.failed(songID)
+                    await note("failed: \(Diagnostics.describe(error)); trying again in \(Diagnostics.duration(delay))")
+                    scheduleRetry()
+                } else {
+                    failed.insert(songID)
+                    await note("failed: \(Diagnostics.describe(error))")
+                }
             }
             return
         }
+        retries.succeeded(songID)
 
         let size = (try? FileManager.default.attributesOfItem(atPath: destination.path)[.size] as? NSNumber)?
             .int64Value ?? 0
