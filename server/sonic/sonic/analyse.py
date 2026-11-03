@@ -28,6 +28,12 @@ import numpy as np
 
 LEVEL_FLOOR = -40.0
 LEVEL_HOP = 0.1
+# Essentia's BS.1770 meter diverges at 96 kHz: an infinite reading a few windows in, and
+# every one after it not a number. Measured on 25 of the library's 2,887 such tracks: all
+# 96 kHz, while 44.1 and 88.2 kHz files measure cleanly, and the same 96 kHz file
+# resampled to 48 kHz reads 0% NaN and −19.2 LUFS. BS.1770 is specified at 48 kHz, so
+# anything faster is measured there; nothing a meter of 400 ms windows reads is above it.
+LOUDNESS_MAX_RATE = 48000
 # Above this the whole stereo signal at its own rate would not fit comfortably in memory
 # several times over, so a long mix is read at 16 kHz mono and measured from that.
 LONG_TRACK_SECONDS = 20 * 60
@@ -59,13 +65,35 @@ def levels_from_momentary(momentary: np.ndarray, duration: float) -> np.ndarray:
     as the track has whole tenths of a second.
 
     Essentia's first reading (with `startAtZero`) is Plex's second: Plex leads with one
-    reading of the silence before the first window, which is put back here."""
-    readings = np.maximum(np.asarray(momentary, dtype=np.float32), LEVEL_FLOOR)
+    reading of the silence before the first window, which is put back here.
+
+    A reading that is not a finite number is floored too. `np.maximum` alone passes NaN
+    straight through, and one NaN in a bucket makes the bucket NaN, which is not JSON."""
+    readings = np.asarray(momentary, dtype=np.float32)
+    readings = np.maximum(np.where(np.isfinite(readings), readings, LEVEL_FLOOR), LEVEL_FLOOR)
     readings = np.concatenate([[LEVEL_FLOOR], readings]).astype(np.float32)
     count = max(1, int(math.floor(duration / LEVEL_HOP + 1e-6)))
     if len(readings) >= count:
         return readings[:count]
     return np.concatenate([readings, np.full(count - len(readings), LEVEL_FLOOR, np.float32)])
+
+
+def _loudness(es, audio: np.ndarray, rate: float):
+    """BS.1770 momentary and integrated loudness of a stereo signal, at no more than
+    `LOUDNESS_MAX_RATE`. Each channel is resampled on its own, into one array, so a long
+    96 kHz track costs half its decoded size again rather than twice it."""
+    if rate > LOUDNESS_MAX_RATE:
+        resample = es.Resample(inputSampleRate=rate, outputSampleRate=LOUDNESS_MAX_RATE, quality=1)
+        first = resample(np.ascontiguousarray(audio[:, 0]))
+        signal = np.empty((len(first), 2), np.float32)
+        signal[:, 0] = first
+        del first
+        signal[:, 1] = resample(np.ascontiguousarray(audio[:, 1]))[:len(signal)]
+        rate = LOUDNESS_MAX_RATE
+    else:
+        signal = audio
+    momentary, _, integrated, lra = es.LoudnessEBUR128(sampleRate=rate, hopSize=LEVEL_HOP, startAtZero=True)(signal)
+    return momentary, integrated, lra
 
 
 def _rhythm(es, mono: np.ndarray, rate: float) -> dict:
@@ -105,7 +133,7 @@ def analyse(job: tuple[str, str, float]) -> dict:
         else:
             audio, rate, channels, *_ = es.AudioLoader(filename=path)()
             duration = len(audio) / rate
-            momentary, _, integrated, lra = es.LoudnessEBUR128(sampleRate=rate, hopSize=LEVEL_HOP, startAtZero=True)(audio)
+            momentary, integrated, lra = _loudness(es, audio, rate)
             mono = es.MonoMixer()(audio, channels)
             mono16 = es.Resample(inputSampleRate=rate, outputSampleRate=16000, quality=0)(mono)
             rhythm = _rhythm(es, mono, rate)

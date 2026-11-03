@@ -224,6 +224,16 @@ class Index:
         return hits
 
 
+def stored_levels(blob: bytes) -> np.ndarray | None:
+    """A track's stored readings, or None when any of them is not a finite number. Those
+    were measured by the meter that diverged at 96 kHz (see `analyse.LOUDNESS_MAX_RATE`)
+    and are no answer at all: served, the NaN made the reply invalid JSON, and the app
+    took that for the service being down and stopped asking about every track for two
+    minutes. None is a 404, which the app falls back from as for a track not analysed."""
+    readings = np.frombuffer(blob, dtype=np.float16).astype(np.float32)
+    return readings if np.isfinite(readings).all() else None
+
+
 def bucket_levels(levels: np.ndarray, points: int) -> list[float]:
     """The seekbar's subsampling, identical to the app's local fallback: readings already
     floored, bucket i is readings [i·n/points, (i+1)·n/points), the arithmetic mean of

@@ -14,7 +14,7 @@ import numpy as np
 from . import library
 from .analyse import analyse, init_worker
 from .config import ANALYSIS_VERSION, MODEL_NAME, MODEL_URL, Config
-from .index import Index, bucket_levels
+from .index import Index, bucket_levels, stored_levels
 from .lyrics import LyricIndex
 from .store import Store
 
@@ -50,9 +50,9 @@ class Service:
 
     def levels(self, track_id: str, points: int) -> dict | None:
         blob = self.store.levels(track_id)
-        if blob is None:
+        readings = None if blob is None else stored_levels(blob)
+        if readings is None:
             return None
-        readings = np.frombuffer(blob, dtype=np.float16).astype(np.float32)
         return {"id": track_id, "hop": 0.1, "levels": bucket_levels(readings, points)}
 
     def rhythm(self, track_id: str) -> dict | None:

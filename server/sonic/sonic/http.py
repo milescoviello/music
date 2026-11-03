@@ -123,7 +123,14 @@ def make_handler(service):
             return self._send(201, {"name": name})
 
         def _send(self, status: int, body: dict):
-            data = json.dumps(body, separators=(",", ":")).encode()
+            try:
+                data = json.dumps(body, separators=(",", ":"), allow_nan=False).encode()
+            except ValueError:
+                # NaN or an infinity somewhere. Python writes them as bare words, which
+                # are not JSON, and the app cannot read a word of a reply that has one —
+                # so it is a server error, said in JSON, and logged here where it is seen.
+                log.error("answer for %s had a value that is not a number", self.path)
+                status, data = 500, b'{"error":"a value was not a number"}'
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))

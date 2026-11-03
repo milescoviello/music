@@ -4,7 +4,7 @@ import numpy as np
 
 from sonic.analyse import LEVEL_FLOOR, levels_from_momentary
 from sonic.config import TAGS, _path_map, Config
-from sonic.index import Index, bucket_levels, clean_title
+from sonic.index import Index, bucket_levels, clean_title, stored_levels
 
 
 def vector(*hot, scale=1.0):
@@ -87,6 +87,19 @@ class LevelsTests(unittest.TestCase):
     def test_plex_shape_leads_with_the_floor_and_counts_tenths(self):
         levels = levels_from_momentary(np.array([-60, -20, -10, -12], np.float32), duration=0.45)
         self.assertEqual(levels.tolist(), [LEVEL_FLOOR, LEVEL_FLOOR, -20, -10])
+
+    def test_a_reading_that_is_not_a_number_is_floored(self):
+        # What the meter gave for every 96 kHz track: fine, then infinite, then NaN.
+        momentary = np.array([-20, np.inf, np.nan, np.nan, -np.inf], np.float32)
+        levels = levels_from_momentary(momentary, duration=0.6)
+        self.assertEqual(levels.tolist(), [LEVEL_FLOOR, -20, LEVEL_FLOOR, LEVEL_FLOOR, LEVEL_FLOOR, LEVEL_FLOOR])
+        self.assertTrue(all(np.isfinite(bucket_levels(levels, 2))))
+
+    def test_stored_readings_with_a_nan_are_no_answer(self):
+        good = np.array([-40, -12.5, -9], np.float16).tobytes()
+        self.assertEqual(stored_levels(good).tolist(), [-40, -12.5, -9])
+        self.assertIsNone(stored_levels(np.array([-40, np.nan, -9], np.float16).tobytes()))
+        self.assertIsNone(stored_levels(np.array([-40, np.inf], np.float16).tobytes()))
 
     def test_bucketing_matches_the_app(self):
         readings = np.array([-40, -40, -20, -10, -30, -30, -30, -10], np.float32)

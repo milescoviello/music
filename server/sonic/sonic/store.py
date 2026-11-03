@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from .config import ANALYSIS_VERSION
+from .index import stored_levels
 from .library import LibraryTrack
 
 SCHEMA = """
@@ -102,6 +103,19 @@ class Store:
                 "order by album_id, id",
                 (ANALYSIS_VERSION,),
             ))
+
+    def requeue_unreadable_levels(self) -> int:
+        """Marks every track whose stored loudness has a reading that is not a finite
+        number to be analysed again, and returns how many. Version 0 is older than any
+        analysis, so `pending` takes them up while the old vector, beats and key go on
+        being served; only the levels were wrong."""
+        with self._lock:
+            broken = [(track_id,) for track_id, blob in
+                      self._db.execute("select id, levels from tracks where levels is not null")
+                      if stored_levels(blob) is None]
+            self._db.executemany("update tracks set version = 0 where id = ?", broken)
+            self._db.commit()
+            return len(broken)
 
     def save(self, result: dict) -> None:
         with self._lock:
