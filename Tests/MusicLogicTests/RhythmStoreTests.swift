@@ -4,10 +4,10 @@ import Testing
 
 /// A stand-in for the sonic service: answers per song, and a record of what was asked.
 private actor Service {
-    var answers: [String: Result<SonicClient.Rhythm?, SonicError>] = [:]
+    var answers: [String: Result<SonicClient.Rhythm?, any Error>] = [:]
     private(set) var asked: [String] = []
 
-    func answer(_ songID: String, with result: Result<SonicClient.Rhythm?, SonicError>) {
+    func answer(_ songID: String, with result: Result<SonicClient.Rhythm?, any Error>) {
         answers[songID] = result
     }
 
@@ -65,7 +65,7 @@ struct RhythmStoreTests {
 
     @Test func anUnreachableServiceIsLeftAloneForAWhile() async {
         var time = clock
-        await service.answer("a", with: .failure(.status(503)))
+        await service.answer("a", with: .failure(SonicError.status(503)))
         let store = store { time }
         await store.load("a")
 
@@ -76,6 +76,21 @@ struct RhythmStoreTests {
         await service.answer("b", with: .success(rhythm("b")))
         time += RhythmStore.unreachableRetry
         #expect(await store.load("b"))
+    }
+
+    @Test func aReplyThatCannotBeReadHoldsBackOnlyItsOwnTrack() async {
+        var time = clock
+        await service.answer("a", with: .failure(unreadableReply))
+        await service.answer("b", with: .success(rhythm("b")))
+        let store = store { time }
+        #expect(await store.load("a") == false)
+        #expect(await store.load("b"))
+
+        #expect(await store.load("a") == false)
+        #expect(await service.asked == ["a", "b"])
+        await service.answer("a", with: .success(rhythm("a")))
+        time += RhythmStore.notAnalysedRetry
+        #expect(await store.load("a"))
     }
 
     @Test func onlyTheLatestTracksAreKept() async {

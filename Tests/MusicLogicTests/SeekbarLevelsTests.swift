@@ -4,10 +4,10 @@ import Testing
 
 /// A stand-in for the sonic service: answers per song, and a record of what was asked.
 private actor Service {
-    var answers: [String: Result<[Float]?, SonicError>] = [:]
+    var answers: [String: Result<[Float]?, any Error>] = [:]
     private(set) var asked: [String] = []
 
-    func answer(_ songID: String, with result: Result<[Float]?, SonicError>) {
+    func answer(_ songID: String, with result: Result<[Float]?, any Error>) {
         answers[songID] = result
     }
 
@@ -16,6 +16,12 @@ private actor Service {
         return try answers[songID, default: .success(nil)].get()
     }
 }
+
+/// What the decoder throws for a reply with `NaN` in it, as the service sent for every
+/// 96 kHz track: a reply that arrived, about one track, and could not be read.
+let unreadableReply: any Error = DecodingError.dataCorrupted(
+    .init(codingPath: [], debugDescription: "Unexpected character 'N'")
+)
 
 @MainActor
 struct SeekbarLevelsTests {
@@ -75,7 +81,7 @@ struct SeekbarLevelsTests {
 
     @Test func anUnreachableServiceIsLeftAloneForAWhile() async {
         var time = clock
-        await service.answer("a", with: .failure(.status(503)))
+        await service.answer("a", with: .failure(SonicError.status(503)))
         let store = store(measured: ["b": [-25]]) { time }
         await store.load("a")
         #expect(store.levels(for: "a") == nil)
@@ -89,6 +95,27 @@ struct SeekbarLevelsTests {
         time += SeekbarLevelsStore.unreachableRetry
         await store.load("b")
         #expect(store.levels(for: "b") == [-9])
+    }
+
+    @Test func aReplyThatCannotBeReadHoldsBackOnlyItsOwnTrack() async {
+        // What happened at 12:51 on 11-02: "Californication" answered with NaN, and
+        // "All I Need", a second later, was never asked about at all.
+        var time = clock
+        await service.answer("californication", with: .failure(unreadableReply))
+        await service.answer("all-i-need", with: .success([-11, -9]))
+        let store = store { time }
+        await store.load("californication")
+        await store.load("all-i-need")
+        #expect(store.levels(for: "all-i-need") == [-11, -9])
+
+        // The unreadable one is asked again later, like a track not analysed yet --
+        // by which time the service has analysed it again.
+        await store.load("californication")
+        #expect(await service.asked == ["californication", "all-i-need"])
+        await service.answer("californication", with: .success([-14, -8]))
+        time += SeekbarLevelsStore.notAnalysedRetry
+        await store.load("californication")
+        #expect(store.levels(for: "californication") == [-14, -8])
     }
 
     @Test func noReadingsIsNoLevels() async {

@@ -72,7 +72,15 @@ final class RhythmStore {
             }
             return true
         } catch {
-            unreachableUntil = now().addingTimeInterval(Self.unreachableRetry)
+            // Only a failure of the service as a whole stops the asking; one reply that
+            // could not be read is retried later, like a track not analysed yet.
+            if SonicError.isServiceWide(error) {
+                unreachableUntil = now().addingTimeInterval(Self.unreachableRetry)
+            } else {
+                notAnalysed[songID] = now()
+            }
+            let line = "rhythm for \(songID): \(error.localizedDescription)"
+            Task { await Diagnostics.shared.record("sonic", line) }
             return false
         }
     }

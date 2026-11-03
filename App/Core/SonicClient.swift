@@ -239,6 +239,24 @@ enum SonicError: Error, Equatable {
     case badURL
     case notFound
     case status(Int)
+
+    /// Whether a failure is the service's as a whole — not reached, not let in, or
+    /// failing — rather than about the one track asked after.
+    ///
+    /// A reply that arrived but could not be read is about that track alone. The service
+    /// once sent `NaN` in the levels of every 96 kHz track, 2,887 of them, and a reply
+    /// with `NaN` is not JSON; taken for the service being down, any one of those tracks
+    /// blanked every seekbar for the two minutes after it.
+    static func isServiceWide(_ error: any Error) -> Bool {
+        if let error = error as? URLError { return error.code != .cancelled }
+        if (error as NSError).domain == NSURLErrorDomain { return true }
+        guard let error = error as? SonicError else { return false }
+        switch error {
+        case .badURL: return true
+        case .notFound: return false
+        case .status(let code): return code >= 500 || code == 401 || code == 403
+        }
+    }
 }
 
 /// Plexamp's seekbar shape, from loudness readings in LUFS to bar heights in points —

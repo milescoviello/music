@@ -10,8 +10,9 @@ import Observation
 ///
 /// What the service gives is kept in memory and in a small file per track in Caches, so
 /// a track played again has its shape before it has started. A 404 — not analysed yet —
-/// is asked again after a while, and a service that cannot be reached is left alone for
-/// a couple of minutes rather than asked on every track change.
+/// is asked again after a while, as is a reply that could not be read; a service that
+/// cannot be reached is left alone for a couple of minutes rather than asked on every
+/// track change.
 @MainActor
 @Observable
 final class SeekbarLevelsStore {
@@ -89,7 +90,15 @@ final class SeekbarLevelsStore {
             fetched[songID] = levels
             write(levels, for: songID)
         } catch {
-            unreachableUntil = now().addingTimeInterval(Self.unreachableRetry)
+            if SonicError.isServiceWide(error) {
+                unreachableUntil = now().addingTimeInterval(Self.unreachableRetry)
+            } else {
+                // A reply about this track that could not be read: asked again later,
+                // like one not analysed, and no reason to stop asking about the rest.
+                notAnalysed[songID] = now()
+            }
+            let line = "levels for \(songID): \(error.localizedDescription)"
+            Task { await Diagnostics.shared.record("sonic", line) }
         }
     }
 

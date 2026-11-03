@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 @testable import MusicLogic
 
@@ -60,6 +63,25 @@ struct SonicClientTests {
         let threshold = SweetFades.threshold(loudness: -12)
         #expect(shape.outro.time(toReach: threshold) > shape.intro.time(toReach: threshold))
         #expect(TrackShape.fromLevels([-20], hop: 0.1) == nil)
+    }
+
+    @Test func onlyAFailureOfTheWholeServiceStopsTheAsking() {
+        #expect(SonicError.isServiceWide(URLError(.cannotConnectToHost)))
+        #expect(SonicError.isServiceWide(URLError(.timedOut)))
+        #expect(SonicError.isServiceWide(SonicError.status(503)))
+        #expect(SonicError.isServiceWide(SonicError.status(401)))
+        #expect(SonicError.isServiceWide(SonicError.badURL))
+        // About the one track: a reply that could not be read, or a refusal of it.
+        #expect(!SonicError.isServiceWide(unreadableReply))
+        #expect(!SonicError.isServiceWide(SonicError.status(400)))
+        #expect(!SonicError.isServiceWide(URLError(.cancelled)))
+    }
+
+    @Test func aReplyWithNaNIsNotReadable() {
+        // Python's json writes NaN as a bare word unless told not to; the server now
+        // never sends one, and this is why it must not.
+        let reply = Data(#"{"id":"a","hop":0.1,"levels":[NaN,-9.0]}"#.utf8)
+        #expect(throws: (any Error).self) { try JSONDecoder().decode(SonicClient.Levels.self, from: reply) }
     }
 
     @Test func aPlusInAQueryStaysAPlus() {
