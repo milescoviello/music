@@ -35,6 +35,29 @@ final class QueuePlayerOutput: AudioOutput {
     private(set) var duration: Double = 0
     private(set) var isBuffering = false
 
+    /// AVPlayer's own reason for waiting, short: "ToMinimizeStalls",
+    /// "WhileEvaluatingBufferingRate", "WithNoItemToPlay" — and whether the item had
+    /// opened at all, which is the difference between slow bytes and none.
+    var waitingReason: String? {
+        let player = players[active]
+        guard player.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return nil }
+        var parts: [String] = []
+        if var reason = player.reasonForWaitingToPlay?.rawValue {
+            if reason.hasPrefix("AVPlayerWaiting") { reason.removeFirst("AVPlayerWaiting".count) }
+            if reason.hasSuffix("Reason") { reason.removeLast("Reason".count) }
+            parts.append(reason)
+        }
+        switch player.currentItem?.status {
+        case .readyToPlay:
+            if player.currentItem?.isPlaybackBufferEmpty == true { parts.append("buffer empty") }
+        case .failed: parts.append("item failed")
+        case .unknown: parts.append("item not open yet")
+        case nil: parts.append("no item")
+        @unknown default: break
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: ", ")
+    }
+
     var volume: Float = 1 {
         didSet { applyVolumes() }
     }

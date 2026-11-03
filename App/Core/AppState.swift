@@ -148,6 +148,9 @@ final class AppState {
         downloads.resumeWaiting()
         phase = .ready
 
+        // Before the queue is rebuilt, so the restored track is found in Downloads. A
+        // few milliseconds of disk; without it, launch raced the catalog and lost.
+        await downloads.catalogLoaded()
         await player.restore()
         await sonic.refreshStatus(force: true)
         await flushOutbox()

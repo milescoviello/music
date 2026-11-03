@@ -106,6 +106,11 @@ final class PlaybackController {
     /// A track that has started but whose source the output has not asked for yet.
     @ObservationIgnored private var unannouncedSongID: String?
     @ObservationIgnored private var bufferingSince: Date?
+    /// The track that started waiting, and where: the wait is its, even if it ends
+    /// because another track was picked.
+    @ObservationIgnored private var bufferingSong: (id: String, title: String, at: Double)?
+    /// The output's reason, the latest it gave while the wait lasted.
+    @ObservationIgnored private var bufferingReason: String?
 
     /// The log's line for a track starting: which, and from where. The source is known
     /// once the output has asked where the track is, which can be just after.
@@ -133,16 +138,27 @@ final class PlaybackController {
 
     /// A wait for data that lasted: the start of a track buffers briefly as a matter of
     /// course, so only one of more than two seconds is worth a line.
+    ///
+    /// The line names the track that started waiting, not whichever is current when the
+    /// wait ends: a track that never played and was skipped used to hand its wait to the
+    /// next one ("Cigarette Daydreams … waited 30s", on 11-02, was "Weird Fishes"' wait).
     private func bufferingChanged() {
         if isBuffering {
             bufferingSince = .now
+            bufferingSong = currentSong.map { (id: $0.id, title: $0.title, at: elapsed) }
+            bufferingReason = output.waitingReason
             return
         }
         guard let since = bufferingSince else { return }
         bufferingSince = nil
         let waited = Date.now.timeIntervalSince(since)
-        guard waited > 2, let song = currentSong else { return }
-        let line = "“\(song.title)” (\(song.id)) waited \(Diagnostics.duration(waited)) for data at \(LogReport.clock(elapsed))"
+        let reason = bufferingReason
+        bufferingReason = nil
+        guard waited > 2, let song = bufferingSong else { return }
+        bufferingSong = nil
+        var line = "“\(song.title)” (\(song.id)) waited \(Diagnostics.duration(waited)) for data at \(LogReport.clock(song.at))"
+        if let reason { line += ", \(reason)" }
+        if currentSong?.id != song.id { line += ", until another track was picked" }
         Task { await Diagnostics.shared.record("playback", line) }
     }
     /// Seconds before each try: a blip — a server restarting, Wi-Fi rejoining — is ridden
@@ -1035,6 +1051,8 @@ final class PlaybackController {
         if isBuffering != output.isBuffering {
             isBuffering = output.isBuffering
             bufferingChanged()
+        } else if isBuffering, let reason = output.waitingReason {
+            bufferingReason = reason
         }
 
         // The queue's duration comes from the server and can be absent or wrong; the

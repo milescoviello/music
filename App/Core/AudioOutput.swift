@@ -25,6 +25,10 @@ protocol AudioOutput: AnyObject {
     /// Seconds, or 0 when not yet known.
     var duration: Double { get }
     var isBuffering: Bool { get }
+    /// Why, while `isBuffering`, in the platform's own words; nil when it does not say.
+    /// For the log: a stall at 0:00 on a file already on the phone is not a slow
+    /// network, and without this the log could not tell what it was.
+    var waitingReason: String? { get }
     /// Whether there is a current track to resume. False when nothing is loaded or the
     /// current track failed to load; resuming then is silence, so the controller loads
     /// it again instead.
@@ -66,4 +70,9 @@ protocol AudioOutput: AnyObject {
 
     /// Where to deliver PCM for the visualiser.
     func setSpectrumSink(_ buffer: AudioSampleBuffer?)
+}
+
+extension AudioOutput {
+    /// An output that cannot say why it waits says nothing.
+    var waitingReason: String? { nil }
 }

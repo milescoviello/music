@@ -49,6 +49,16 @@ final class DownloadCenter {
     private(set) var activeCount = 0
     /// Whether `catalog` has been read from disk yet. Until it has, it is empty.
     @ObservationIgnored private(set) var isCatalogLoaded = false
+    @ObservationIgnored private var catalogReading: Task<Void, Never>?
+
+    /// Returns once `catalog` has been read from disk. Until then every song looks not
+    /// downloaded, so whatever asks where a song is before this gets the cache or a
+    /// stream instead. The track restored at launch did, both times the app launched on
+    /// 11-02 ("from the cache", then "from the download" seconds later for the next ones),
+    /// which put the song most likely to be played straight away on the wrong copy.
+    func catalogLoaded() async {
+        await catalogReading?.value
+    }
     /// The songs with a transfer under way: `progress`'s keys, changed only when they do.
     private(set) var arriving: Set<String> = []
     private(set) var isDownloading = false
@@ -88,9 +98,13 @@ final class DownloadCenter {
 
     func attach(appState: AppState) {
         self.appState = appState
-        Task {
+        let reading = Task {
             catalog = await store.reconcile()
             isCatalogLoaded = true
+        }
+        catalogReading = reading
+        Task {
+            await reading.value
             await adoptRunningTasks()
             appState.playlistSync.catalogLoaded()
             resumeWaiting()
