@@ -75,7 +75,7 @@ struct RecapView: View {
         }
     }
 
-    private func list(_ title: String, _ entries: ArraySlice<Recap.Entry>, detail: (Recap.Entry) -> String, art: Bool) -> some View {
+    private func list(_ title: String, _ entries: ArraySlice<Recap.Entry>, detail: @escaping (Recap.Entry) -> String, art: Bool) -> some View {
         card {
             Text(title).font(.title.weight(.bold))
             VStack(alignment: .leading, spacing: 14) {
