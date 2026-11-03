@@ -101,6 +101,7 @@ struct HomeView: View {
         case .stations: StationsShelf()
         case .recentlyPlayed: albumShelf("Recently Played", model.recentlyPlayed, sort: .recent)
         case .recentlyAdded: albumShelf("Recently Added", model.recentlyAdded, sort: .newest)
+        case .newReleases: NewReleasesShelf()
         case .favourites: favoriteSongs
         case .mostPlayed: albumShelf("Most Played", model.mostPlayed, sort: .frequent)
         case .mostPlayedThisMonth:

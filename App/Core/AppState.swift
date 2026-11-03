@@ -35,6 +35,8 @@ final class AppState {
     let history = ListeningHistory()
     let skips = SkipLog()
     let mostPlayed = MostPlayedDownloads()
+    let taste = TasteSync()
+    let radar = ReleaseRadar()
     let mixes = DailyMixes()
     let hermes = HermesAsk()
     let recentSearches = RecentSearches()
@@ -83,6 +85,8 @@ final class AppState {
         )
         downloads.attach(appState: self)
         mostPlayed.attach(self)
+        taste.attach(self)
+        radar.attach(self)
         downloadFolders.configure(downloads: downloads, cache: cache)
         autoplay.configure(appState: self)
         guestDJ.configure(appState: self)
@@ -233,6 +237,7 @@ final class AppState {
         guard credentials != nil else { return }
         _ = await outbox.flush(using: client)
         await flushUnsentLogs()
+        await taste.sync()
     }
 
     /// Fetch-with-fallback, used by every library screen. Online the server always wins,

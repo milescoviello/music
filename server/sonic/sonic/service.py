@@ -16,7 +16,9 @@ from .analyse import analyse, init_worker
 from .config import ANALYSIS_VERSION, MODEL_NAME, MODEL_URL, Config
 from .index import Index, bucket_levels, stored_levels
 from .lyrics import LyricIndex
+from .radar import Radar
 from .store import Store
+from .taste import TasteStore
 
 log = logging.getLogger("sonic")
 
@@ -25,6 +27,8 @@ class Service:
     def __init__(self, config: Config):
         self.config = config
         self.store = Store(config.database)
+        self.taste = TasteStore(config.data_dir / "taste.db")
+        self.radar = Radar(config.navidrome_db, config.data_dir / "radar.json")
         self.index = Index(self.store.rows())
         # Filled by the first sync, a few seconds after start.
         self.lyrics = LyricIndex([])

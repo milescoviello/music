@@ -243,7 +243,12 @@ enum StatsPage {
         }
 
         let server = Box.vertical(spacing: 24)
+        let year = Calendar.current.component(.year, from: .now)
+        let recap = PreferencesGroup(description: "Your year so far: top songs, artists and albums, and how you listened.") {
+            ButtonRow("Your \(year) in Music", icon: "starred-symbolic", suggested: true) { env.open(.recap) }
+        }
         let body = Box.vertical(spacing: 24) {
+            recap
             switcher
             local
             server

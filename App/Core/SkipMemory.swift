@@ -9,6 +9,8 @@ import Foundation
 /// its last skip is forgiven: a mood is not a verdict.
 enum SkipMemory {
     struct Skip: Codable, Sendable, Equatable {
+        /// Its own, so the same skip arriving from another device is recognised.
+        var id = UUID()
         let songID: String
         let title: String
         let artist: String
@@ -48,5 +50,20 @@ enum SkipMemory {
     /// The recordings to leave out.
     static func avoided(_ penalties: [String: Double]) -> Set<String> {
         Set(penalties.filter { $0.value >= avoidAt }.keys)
+    }
+}
+
+extension SkipMemory.Skip {
+    private enum Keys: String, CodingKey { case id, songID, title, artist, at, position }
+
+    /// A skip kept before skips had ids gets one now.
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: Keys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        songID = try container.decode(String.self, forKey: .songID)
+        title = try container.decode(String.self, forKey: .title)
+        artist = try container.decode(String.self, forKey: .artist)
+        at = try container.decode(Date.self, forKey: .at)
+        position = try container.decode(Double.self, forKey: .position)
     }
 }

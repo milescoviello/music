@@ -1,5 +1,8 @@
 import CGtk
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Cover art, square and rounded, with the phone's placeholder: the album's initials when
 /// there is no cover — 274 albums in this library have none, and a grid of identical
@@ -83,6 +86,24 @@ final class ArtworkView {
         let size = size
         Task { @MainActor in
             let texture = await store.image(for: id, size: size)
+            guard let view = reference.value, view.token == current else { return }
+            view.picture.set(texture)
+        }
+    }
+
+    /// A cover from the web rather than the server: the release radar's, from the Cover
+    /// Art Archive, for releases the library does not have.
+    func showRemote(_ url: URL?, fallback: String?) {
+        token += 1
+        let current = token
+        shownID = nil
+        setFallback(fallback)
+        picture.set(nil)
+        guard let url else { return }
+        let reference = WeakReference(self)
+        Task { @MainActor in
+            guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+            let texture = await Task.detached { Texture(data: data) }.value
             guard let view = reference.value, view.token == current else { return }
             view.picture.set(texture)
         }

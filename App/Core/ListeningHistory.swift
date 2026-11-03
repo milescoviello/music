@@ -111,6 +111,21 @@ final class ListeningHistory {
         scheduleSave()
     }
 
+    /// Plays another device recorded, from `TasteSync`: each once, by its id, in time
+    /// order with the rest. Returns how many were new.
+    @discardableResult
+    func merge(_ incoming: [Play]) -> Int {
+        let known = Set(plays.map(\.id))
+        let fresh = incoming.filter { !known.contains($0.id) }
+        guard !fresh.isEmpty else { return 0 }
+        plays = (plays + fresh).sorted { $0.at < $1.at }
+        if plays.count > limit {
+            plays.removeFirst(plays.count - limit)
+        }
+        scheduleSave()
+        return fresh.count
+    }
+
     func clear() {
         plays = []
         if !isLoaded { discardsStored = true }
@@ -331,5 +346,16 @@ private actor HistoryWriter {
         guard generation > written else { return }
         written = generation
         try? FileManager.default.removeItem(at: url)
+    }
+}
+
+// MARK: - The year in music
+
+extension ListeningHistory {
+    func recap(year: Int = Calendar.current.component(.year, from: .now), limit: Int = 10) -> Recap {
+        Recap.make(plays.map {
+            Recap.Play(songID: $0.songID, title: $0.title, artist: $0.artist, album: $0.album, albumID: $0.albumID,
+                       coverArt: $0.coverArt, genre: $0.genre, duration: $0.duration, at: $0.at)
+        }, year: year, limit: limit)
     }
 }

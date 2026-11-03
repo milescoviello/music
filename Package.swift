@@ -119,6 +119,7 @@ func logicPackage() -> Package {
                     "SettingsLog.swift",
                     "SkipMemory.swift",
                     "SmartShuffle.swift",
+                    "Recap.swift",
                     "LibraryScope.swift",
                     "RecentPlays.swift",
                     "SonicClient.swift",

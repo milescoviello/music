@@ -29,9 +29,20 @@ struct StatsView: View {
     @State private var nowPlaying: [NowPlayingEntry] = []
     @State private var recentTracks: [NavidromeClient.Song] = []
     @State private var topTracks: [NavidromeClient.Song] = []
+    @State private var isShowingRecap = false
 
     var body: some View {
         List {
+            Section {
+                Button {
+                    isShowingRecap = true
+                } label: {
+                    Label("Your \(String(Calendar.current.component(.year, from: .now))) in Music", systemImage: "sparkles")
+                        .font(.headline)
+                }
+            } footer: {
+                Text("Your year so far: top songs, artists and albums, and how you listened.")
+            }
             listeningSection
             shapeSection
             topSection
@@ -41,6 +52,7 @@ struct StatsView: View {
             StorageSection()
         }
         .navigationTitle("Stats")
+        .sheet(isPresented: $isShowingRecap) { RecapView() }
         .playerClearance()
         .refreshable { await load() }
         .task { await load() }

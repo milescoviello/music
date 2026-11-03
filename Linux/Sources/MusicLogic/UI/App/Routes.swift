@@ -25,6 +25,7 @@ enum Destination: Hashable {
     case remoteControl
     case diagnostics
     case stats
+    case recap
     /// By id: the mix itself lives in `DailyMixes`, which is rebuilt daily.
     case dailyMix(String)
     case rediscover

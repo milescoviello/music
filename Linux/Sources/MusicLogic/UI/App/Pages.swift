@@ -60,6 +60,8 @@ enum Pages {
             return TripModePage.make(env)
         case .stats:
             return StatsPage.make(env)
+        case .recap:
+            return RecapPage.make(env)
         case .charts:
             return ChartsPage.make(env)
         case .downloads:

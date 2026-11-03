@@ -40,6 +40,18 @@ final class SkipLog {
         scheduleSave()
     }
 
+    /// Skips another device recorded, each once. Returns how many were new.
+    @discardableResult
+    func merge(_ incoming: [SkipMemory.Skip]) -> Int {
+        let known = Set(skips.map(\.id))
+        let fresh = incoming.filter { !known.contains($0.id) }
+        guard !fresh.isEmpty else { return 0 }
+        skips = (skips + fresh).sorted { $0.at < $1.at }
+        if skips.count > limit { skips.removeFirst(skips.count - limit) }
+        scheduleSave()
+        return fresh.count
+    }
+
     /// The faded skips per recording, a full play since forgiving them.
     func penalties(now: Date = .now) -> [String: Double] {
         let plays = (history?.plays ?? []).map { (identity: MixEngine.identity(title: $0.title, artist: $0.artist), at: $0.at) }

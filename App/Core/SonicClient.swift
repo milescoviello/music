@@ -186,6 +186,76 @@ struct SonicClient: Sendable {
         return request
     }
 
+    // MARK: - Taste, shared between devices
+
+    /// A play or a skip as one device recorded it, for the others. Times are seconds since
+    /// 1970, so the service needs no date format.
+    struct TasteEvent: Codable, Sendable, Equatable {
+        var id: String
+        var kind: String
+        var at: Double
+        var songID: String
+        var title: String
+        var artist: String
+        var album: String?
+        var genre: String?
+        var duration: Int?
+        var position: Double?
+        var albumID: String?
+        var artistID: String?
+        var coverArt: String?
+    }
+
+    struct TastePage: Decodable, Sendable {
+        var events: [TasteEvent]
+        var seq: Int
+    }
+
+    private struct TasteBatch: Encodable {
+        var device: String
+        var events: [TasteEvent]
+    }
+
+    func pushTaste(device: String, events: [TasteEvent]) async throws {
+        guard let url = url("v1/taste") else { throw SonicError.badURL }
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(TasteBatch(device: device, events: events))
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorise(&request)
+        let (_, response) = try await session.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(status) else { throw SonicError.status(status) }
+    }
+
+    /// The other devices' events after `since`.
+    func pullTaste(device: String, since: Int) async throws -> TastePage {
+        try await get("v1/taste", ["device": device, "since": String(since)], as: TastePage.self)
+    }
+
+    // MARK: - Release radar
+
+    struct RadarItem: Decodable, Sendable, Identifiable, Hashable {
+        var id: String
+        var artist: String
+        var title: String
+        var type: String
+        /// `yyyy-mm-dd`.
+        var date: String
+        var upcoming: Bool
+        var cover: URL?
+    }
+
+    struct Radar: Decodable, Sendable {
+        var items: [RadarItem]
+        var updated: Double?
+        var refreshing: Bool
+    }
+
+    func radar() async throws -> Radar {
+        try await get("v1/radar", as: Radar.self)
+    }
+
     // MARK: - Plumbing
 
     private func authorise(_ request: inout URLRequest) {

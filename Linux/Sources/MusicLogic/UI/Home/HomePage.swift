@@ -29,12 +29,15 @@ enum HomePage {
             _ = app.mixes.mixes
             _ = app.mixes.isBuilding
             _ = app.recentPlays.recent.origins
+            _ = app.radar.items
+            _ = app.radar.requested
             rebuild(env, model: model, into: shelves)
         }
         body.observe {
             let scope = app.scope.scope
             _ = app.scope.generation
             Task { await model.load(appState: app, scope: scope) }
+            Task { await app.radar.load() }
         }
         // Again when the folder list changes: on a first launch it arrives after Home, and
         // until then a chosen library reads as all of them. Only the scope is read here;
@@ -100,6 +103,8 @@ enum HomePage {
             return albums(env, "Recently Played", model.recentlyPlayed, more: .albums(.recent))
         case .recentlyAdded:
             return albums(env, "Recently Added", model.recentlyAdded, more: .albums(.newest))
+        case .newReleases:
+            return ReleaseShelf.make(env)
         case .mostPlayed:
             return albums(env, "Most Played", model.mostPlayed, more: .albums(.frequent))
         case .mostPlayedThisMonth:

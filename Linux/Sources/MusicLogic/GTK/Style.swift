@@ -29,6 +29,9 @@ enum Style {
 
     .accent { color: var(--accent-color); }
 
+    /* The recap's headline number. */
+    .recap-big { font-size: 56px; font-weight: 800; }
+
     /* A row being dragged to a new place in its list. */
     row.dragging { background-color: alpha(var(--accent-bg-color), 0.18); }
 

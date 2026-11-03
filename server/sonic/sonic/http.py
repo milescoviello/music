@@ -1,5 +1,5 @@
 """The HTTP side: small, JSON, and read-only apart from the logs the app sends for
-fixing a bug. Standard library only, so the service has nothing to install beyond
+fixing a bug and the plays and skips it shares between devices. Standard library only, so the service has nothing to install beyond
 Essentia and NumPy."""
 
 from __future__ import annotations
@@ -66,6 +66,10 @@ def make_handler(service):
          lambda match, q: _items(service.index.tagged(match[1], _int(q, "limit", 50, 1, 500)))),
         (re.compile(r"^/v1/lyrics/search$"),
          lambda match, q: _items(service.lyrics.search(q.get("q", [""])[0], _int(q, "limit", 20, 1, 100)))),
+        (re.compile(r"^/v1/taste$"),
+         lambda match, q: service.taste.since(_int(q, "since", 0, 0, 2**62), q.get("device", [""])[0],
+                                              _int(q, "limit", 5000, 1, 5000))),
+        (re.compile(r"^/v1/radar$"), lambda match, q: service.radar.answer()),
         (re.compile(r"^/healthz$"), lambda match, q: {"ok": True}),
     ]
 
@@ -94,7 +98,10 @@ def make_handler(service):
         def do_POST(self):  # noqa: N802 — the standard library's name
             if service.config.token and self.headers.get("X-Sonic-Token") != service.config.token:
                 return self._send(401, {"error": "token required"})
-            if unquote(urlparse(self.path).path) != "/v1/logs":
+            path = unquote(urlparse(self.path).path)
+            if path == "/v1/taste":
+                return self._taste()
+            if path != "/v1/logs":
                 return self._send(404, {"error": "no such endpoint"})
             try:
                 length = int(self.headers.get("Content-Length", ""))
@@ -121,6 +128,21 @@ def make_handler(service):
                 return self._send(500, {"error": str(error)})
             log.info("logs received: %s, %d bytes", name, length)
             return self._send(201, {"name": name})
+
+        def _taste(self):
+            """A device's new plays and skips: `{"device": id, "events": [...]}`."""
+            try:
+                length = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                return self._send(411, {"error": "length required"})
+            if not 0 < length <= 4 * 1024 * 1024:
+                return self._send(413 if length > 0 else 400, {"error": "between 1 byte and 4 MB"})
+            try:
+                body = json.loads(self.rfile.read(length))
+                result = service.taste.add(body.get("device"), body.get("events"))
+            except (ValueError, AttributeError) as error:
+                return self._send(400, {"error": str(error)})
+            return self._send(200, result)
 
         def _send(self, status: int, body: dict):
             try:

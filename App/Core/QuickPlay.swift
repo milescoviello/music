@@ -52,3 +52,22 @@ extension AppState {
         }
     }
 }
+
+extension AppState {
+    /// The year's top songs, as songs to play: each fetched by the id of the copy last
+    /// played, in the recap's order.
+    func playRecap(_ recap: Recap) async -> Bool {
+        let ids = history.recap(year: recap.year, limit: 50).topSongs.compactMap(\.songID)
+        var found: [Int: Song] = [:]
+        await withTaskGroup(of: (Int, Song?).self) { group in
+            for (index, id) in ids.enumerated() {
+                group.addTask { [client] in (index, try? await client.song(id: id)) }
+            }
+            for await (index, song) in group { found[index] = song }
+        }
+        let songs = ids.indices.compactMap { found[$0] }
+        guard !songs.isEmpty else { return false }
+        player.play(songs: songs, startingAt: 0, source: "Your \(recap.year)")
+        return true
+    }
+}
