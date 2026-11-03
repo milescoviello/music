@@ -58,7 +58,7 @@ struct SongMenu: View {
             }
         }
 
-        AddToPlaylistMenu(songs: [song], suggestedName: song.album ?? song.title)
+        AddToPlaylistButton(songs: [song], suggestedName: song.album ?? song.title)
 
         Divider()
 

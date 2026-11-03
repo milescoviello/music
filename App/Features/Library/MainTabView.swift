@@ -50,6 +50,8 @@ struct MainTabView: View {
             }
         }
         .overlay(alignment: .bottom) { toast }
+        // Over the player too, which is an overlay here rather than a modal.
+        .playlistPicker(host: "root")
         .safeAreaInset(edge: .top) { remoteQueueBanner }
         .animation(.snappy(duration: 0.25), value: playlistStore.lastMessage)
         .animation(.snappy(duration: 0.25), value: queueSync.available)

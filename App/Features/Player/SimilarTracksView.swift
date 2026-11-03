@@ -98,6 +98,8 @@ struct SimilarTracksView: View {
             }
         }
         .task { await load() }
+        // A sheet of its own, so the tab view underneath cannot present over it.
+        .playlistPicker(host: "similar")
     }
 
     private var footer: String {

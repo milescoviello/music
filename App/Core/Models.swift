@@ -224,6 +224,9 @@ struct Playlist: Codable, Identifiable, Hashable, Sendable {
     var duration: Int?
     var coverArt: String?
     var changed: String?
+    /// True for a smart playlist, which fills itself, and for someone else's: the server
+    /// refuses additions to both.
+    var readonly: Bool?
 }
 
 struct Genre: Codable, Hashable, Sendable, Identifiable {

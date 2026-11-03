@@ -41,6 +41,8 @@ struct SelectionToolbar: View {
     @Environment(AppState.self) private var appState
     @Environment(UserStateStore.self) private var userState
     @Environment(DownloadCenter.self) private var downloads
+    @Environment(PlaylistStore.self) private var playlists
+    @Environment(\.playlistPickerHost) private var pickerHost
 
     let selection: SongSelection
     let all: [Song]
@@ -65,12 +67,9 @@ struct SelectionToolbar: View {
                 }
             }
 
-            Menu {
-                AddToPlaylistMenu(songs: chosen)
-            } label: {
-                labelStack("Playlist", "text.badge.plus")
+            action("Playlist", "text.badge.plus") {
+                playlists.picking = .init(songs: chosen, suggestedName: "", host: pickerHost)
             }
-            .disabled(chosen.isEmpty)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)

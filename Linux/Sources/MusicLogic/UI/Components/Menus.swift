@@ -15,20 +15,9 @@ enum Menus {
         return items
     }
 
-    /// Add to Playlist, with New Playlist… first.
+    /// Add to Playlist…: a dialog, for more than one playlist at a time; see `PlaylistPicker`.
     static func playlistItem(_ env: Env, _ songs: [Song], suggestedName: String) -> Menu.Item {
-        let store = env.app.playlistStore
-        var existing: [Menu.Item] = store.playlists.map { playlist in
-            .action(playlist.name) { Task { await store.add(songs, to: playlist) } }
-        }
-        if existing.isEmpty, !store.isLoading {
-            Task { await store.loadIfNeeded() }
-            existing = [.action("Loading playlists…", enabled: false) {}]
-        }
-        return .submenu("Add to Playlist", [
-            [.action("New Playlist…") { newPlaylist(env, songs, suggested: suggestedName) }],
-            existing,
-        ])
+        .action("Add to Playlist…") { PlaylistPicker.show(env, songs, suggestedName: suggestedName) }
     }
 
     static func newPlaylist(_ env: Env, _ songs: [Song], suggested: String) {

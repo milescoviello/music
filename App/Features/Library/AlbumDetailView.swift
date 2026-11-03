@@ -113,7 +113,7 @@ struct AlbumDetailView: View {
                     Button("Start Radio", systemImage: "dot.radiowaves.left.and.right") {
                         startRadio()
                     }
-                    AddToPlaylistMenu(songs: songs, suggestedName: album.name)
+                    AddToPlaylistButton(songs: songs, suggestedName: album.name)
                     Divider()
                     Button("Select Tracks", systemImage: "checkmark.circle") {
                         selection.begin()

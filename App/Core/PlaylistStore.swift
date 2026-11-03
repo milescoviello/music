@@ -21,6 +21,22 @@ final class PlaylistStore {
     /// shows it.
     var lastMessage: String?
 
+    /// A request to show Add to Playlist. A menu cannot present a sheet of its own, so its
+    /// button sets this and the screen on top shows it — the phone only; the desktop's
+    /// menu item opens its dialog directly.
+    struct Pick: Identifiable, Sendable {
+        let id = UUID()
+        let songs: [Song]
+        let suggestedName: String
+        /// Which screen shows it: the tab view, or a sheet with song menus of its own.
+        let host: String
+    }
+
+    var picking: Pick?
+
+    /// The playlists songs can be added to: not the smart ones, nor anyone else's.
+    var writable: [Playlist] { playlists.filter { $0.readonly != true } }
+
     private weak var client: SubsonicClient?
     private weak var appState: AppState?
 
@@ -82,34 +98,90 @@ final class PlaylistStore {
         return created
     }
 
+    /// A playlist's songs, for saying what it already has: the server's, or the copy last
+    /// saved when the server does not answer. Nil when there is neither.
+    func entries(of playlist: Playlist) async -> [Song]? {
+        await appState?.playlist(playlist.id).detail?.songs
+    }
+
     /// Songs already on the playlist are left out, and the message says so. Adding a
     /// song from a long-press menu twice -- or an album that shares a track with it --
-    /// used to put a second copy in, found only when it played twice. If the playlist
-    /// cannot be read first, everything is added, as before.
+    /// used to put a second copy in, found only when it played twice. "Already on it"
+    /// includes the other library's copy of the same recording; see `PlaylistMembership`.
+    /// If the playlist cannot be read first, everything is added, as before.
     func add(_ songs: [Song], to playlist: Playlist) async {
-        guard let client, !songs.isEmpty else { return }
-        let present = Set((try? await client.playlistDetail(id: playlist.id))?.songs.map(\.id) ?? [])
-        var seen = present
-        let adding = songs.filter { seen.insert($0.id).inserted }
-        let skipped = songs.count - adding.count
-
-        guard !adding.isEmpty else {
+        guard !songs.isEmpty else { return }
+        let outcome = await insert(songs, into: playlist)
+        switch outcome {
+        case .alreadyThere:
             lastMessage = songs.count == 1
                 ? "Already in “\(playlist.name)”"
                 : "All \(songs.count) songs are already in “\(playlist.name)”"
-            return
+        case let .added(count, skipped):
+            let added = count == 1
+                ? "Added to “\(playlist.name)”"
+                : "Added \(count) songs to “\(playlist.name)”"
+            lastMessage = skipped == 0 ? added : "\(added) · \(skipped) already there"
+        case .failed:
+            lastMessage = "Could not add to “\(playlist.name)”"
         }
+        if case .added = outcome { await didAdd() }
+    }
+
+    /// The same songs into several playlists, each given only what it lacks, with one
+    /// message for the lot.
+    func add(_ songs: [Song], to chosen: [Playlist]) async {
+        guard !songs.isEmpty, !chosen.isEmpty else { return }
+        if chosen.count == 1 { return await add(songs, to: chosen[0]) }
+
+        var added: [String] = []
+        var failed: [String] = []
+        for playlist in chosen {
+            switch await insert(songs, into: playlist) {
+            case .added: added.append(playlist.name)
+            case .alreadyThere: break
+            case .failed: failed.append(playlist.name)
+            }
+        }
+
+        var parts: [String] = []
+        if !added.isEmpty { parts.append("Added to \(Self.naming(added))") }
+        if !failed.isEmpty { parts.append("Could not add to \(Self.naming(failed))") }
+        lastMessage = parts.isEmpty ? "Already in all of them" : parts.joined(separator: " · ")
+        if !added.isEmpty { await didAdd() }
+    }
+
+    private enum Outcome {
+        case added(Int, skipped: Int)
+        case alreadyThere
+        case failed
+    }
+
+    private func insert(_ songs: [Song], into playlist: Playlist) async -> Outcome {
+        guard let client else { return .failed }
+        let present = (try? await client.playlistDetail(id: playlist.id))?.songs ?? []
+        let adding = PlaylistMembership.missing(songs, from: present)
+        guard !adding.isEmpty else { return .alreadyThere }
         do {
             try await client.addToPlaylist(id: playlist.id, songIDs: adding.map(\.id))
-            let added = adding.count == 1
-                ? "Added to “\(playlist.name)”"
-                : "Added \(adding.count) songs to “\(playlist.name)”"
-            lastMessage = skipped == 0 ? added : "\(added) · \(skipped) already there"
-            // A downloaded playlist's download follows: the new songs come down too.
-            appState?.playlistSync.syncSoon()
-            await load()
+            return .added(adding.count, skipped: songs.count - adding.count)
         } catch {
-            lastMessage = "Could not add to “\(playlist.name)”"
+            return .failed
+        }
+    }
+
+    private func didAdd() async {
+        // A downloaded playlist's download follows: the new songs come down too.
+        appState?.playlistSync.syncSoon()
+        await load()
+    }
+
+    /// “A”, “A” and “B”, or “3 playlists”.
+    private static func naming(_ names: [String]) -> String {
+        switch names.count {
+        case 1: return "“\(names[0])”"
+        case 2: return "“\(names[0])” and “\(names[1])”"
+        default: return "\(names.count) playlists"
         }
     }
 
