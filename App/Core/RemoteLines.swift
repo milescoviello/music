@@ -66,6 +66,9 @@ enum RemoteLines {
         }
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            // Should the response callback above not be called (its signature differs a
+            // little between SDKs), the first data says the headers have come.
+            resolveHeaders(.success((dataTask.response as? HTTPURLResponse)?.statusCode ?? 0))
             lock.lock()
             buffer.append(data)
             var lines: [String] = []

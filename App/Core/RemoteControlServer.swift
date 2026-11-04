@@ -71,7 +71,11 @@ final class RemoteControlServer {
     @ObservationIgnored private var server: HTTPServer?
     @ObservationIgnored private var advertiser: (any RemoteAdvertising)?
     @ObservationIgnored private var streams: [ObjectIdentifier: HTTPConnection] = [:]
-    @ObservationIgnored private var observer: Observer?
+    @ObservationIgnored private var observer: ChangeTracker?
+    /// The app's own volume, 0...1, as the other device's slider sets it: the sound
+    /// server's stream on the desktop (set in `MusicApplication`). The phone's volume is
+    /// the system's, set by its buttons, so there it says full and leaves it.
+    @ObservationIgnored var volume: (read: @MainActor () -> Double, write: @MainActor (Double) -> Void) = ({ 1 }, { _ in })
     @ObservationIgnored private var pinger: Task<Void, Never>?
     @ObservationIgnored private var expiry: Task<Void, Never>?
     /// What the phones were last told, to say only what they could not work out.
@@ -303,7 +307,7 @@ final class RemoteControlServer {
             player.setSpeed(Float(value))
         case .volume:
             guard let value = command.value else { return false }
-            OutputVolume.shared.level = min(max(value, 0), 1)
+            volume.write(min(max(value, 0), 1))
         case .startOver:
             player.startOver()
         case .playSongs:
@@ -373,7 +377,7 @@ final class RemoteControlServer {
         sentWindow = nil
         sentState = nil
         if observer == nil {
-            observer = Observer { [weak self] in self?.publish() }
+            observer = ChangeTracker { [weak self] in self?.publish() }
         } else {
             publish()
         }
@@ -410,7 +414,7 @@ final class RemoteControlServer {
             elapsed: player.elapsed,
             duration: player.duration,
             speed: Double(player.speed),
-            volume: OutputVolume.shared.level,
+            volume: volume.read(),
             position: queue.position,
             repeatMode: queue.repeatMode,
             canAddToUpNext: player.canAddToUpNext
@@ -435,3 +439,30 @@ final class RemoteControlServer {
         String(decoding: encode(value), as: UTF8.self)
     }
 }
+
+/// Runs `body` now, and again each time anything it read changes: the server following
+/// the player. Observation's own tracking, so it is the same on the phone and the
+/// desktop, whose UI has an `Observer` of its own.
+@MainActor
+private final class ChangeTracker {
+    private var body: (@MainActor () -> Void)?
+
+    init(_ body: @escaping @MainActor () -> Void) {
+        self.body = body
+        run()
+    }
+
+    func cancel() {
+        body = nil
+    }
+
+    private func run() {
+        guard let body else { return }
+        withObservationTracking {
+            body()
+        } onChange: { [weak self] in
+            Task { @MainActor in self?.run() }
+        }
+    }
+}
+
