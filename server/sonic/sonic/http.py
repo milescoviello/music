@@ -113,6 +113,8 @@ def make_handler(service):
             path = unquote(urlparse(self.path).path)
             if path == "/v1/taste":
                 return self._taste()
+            if path in ("/v1/lyrics/readings", "/v1/lyrics/translate"):
+                return self._words(path)
             if path != "/v1/logs":
                 return self._send(404, {"error": "no such endpoint"})
             try:
@@ -155,6 +157,30 @@ def make_handler(service):
             except (ValueError, AttributeError) as error:
                 return self._send(400, {"error": str(error)})
             return self._send(200, result)
+
+        def _words(self, path: str):
+            """`{"lines": [...]}` (and `"language"` to translate): see `words`."""
+            try:
+                length = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                return self._send(411, {"error": "length required"})
+            if not 0 < length <= 256 * 1024:
+                return self._send(413 if length > 0 else 400, {"error": "between 1 byte and 256 KB"})
+            try:
+                body = json.loads(self.rfile.read(length))
+                lines = body.get("lines")
+                if not isinstance(lines, list) or not all(isinstance(line, str) for line in lines):
+                    raise ValueError("lines must be a list of strings")
+            except (ValueError, AttributeError) as error:
+                return self._send(400, {"error": str(error)})
+            try:
+                if path == "/v1/lyrics/readings":
+                    return self._send(200, service.readings.tokens(lines))
+                status, answer = service.translations.answer(str(body.get("language") or ""), lines)
+                return self._send(status, answer)
+            except Exception as error:  # noqa: BLE001
+                log.exception("request failed: %s", self.path)
+                return self._send(500, {"error": str(error)})
 
         def _send(self, status: int, body: dict):
             try:

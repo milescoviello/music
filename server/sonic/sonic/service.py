@@ -16,6 +16,7 @@ from .analyse import analyse, init_worker
 from .config import ANALYSIS_VERSION, MODEL_NAME, MODEL_URL, Config
 from .index import Index, bucket_levels, stored_levels
 from .lyrics import LyricIndex
+from .words import Readings, Translations
 from .radar import Radar
 from .store import Store
 from .taste import TasteStore
@@ -32,6 +33,8 @@ class Service:
         self.index = Index(self.store.rows())
         # Filled by the first sync, a few seconds after start.
         self.lyrics = LyricIndex([])
+        self.readings = Readings()
+        self.translations = Translations(config.data_dir, config.ollama, config.translate_model)
         self.analysing = False
         self.library_tracks = 0
         self.last_sync: float | None = None

@@ -38,7 +38,8 @@ enum Romanizer {
             #if canImport(Darwin)
             raw = joinJapanese(japaneseTokens(line))
             #else
-            // No Japanese tokenizer outside Apple's platforms; only the tests build here.
+            // No Japanese tokenizer outside Apple's platforms. The desktop asks the sonic
+            // service for tokens (`romanize(tokens:line:)`) and comes here only without it.
             raw = line.applyingTransform(.toLatin, reverse: false)
             #endif
         case .general:
@@ -75,10 +76,18 @@ enum Romanizer {
     // MARK: - Japanese
 
     /// One stretch of a Japanese line: a word, a particle, punctuation or the gap between.
-    struct Token: Equatable, Sendable {
+    struct Token: Equatable, Sendable, Codable {
         var text: String
         /// The tokenizer's Latin transcription, when it had one.
         var reading: String?
+    }
+
+    /// A Japanese line from tokens someone else made: the desktop has no tokenizer and
+    /// asks the sonic service, which reads with MeCab (`SonicClient.readings`). Joined
+    /// and tidied exactly as the phone's own, so both say the same.
+    static func romanize(tokens: [Token], line: String) -> String? {
+        let tidied = tidy(joinJapanese(tokens))
+        return tidied.isEmpty || tidied == line ? nil : tidied
     }
 
     /// Words romanized and separated by spaces; anything already Latin -- an English

@@ -7,8 +7,9 @@ services:
     container_name: sonic
     restart: unless-stopped
     user: "1000:1000"
-    ports:
-      - "8650:8650"
+    # The host's network, not a published port: the lyric translations ask Ollama, which
+    # listens on the host's loopback only. Still port 8650 for the apps.
+    network_mode: host
     environment:
       SONIC_DATA: /data
       SONIC_NAVIDROME_DB: /navidrome/navidrome.db

@@ -186,6 +186,68 @@ struct SonicClient: Sendable {
         return request
     }
 
+    // MARK: - Lyrics, for the desktop
+
+    private struct LyricLines: Encodable {
+        var lines: [String]
+        var language: String?
+    }
+
+    private struct ReadingLines: Decodable {
+        var lines: [[Romanizer.Token]]
+    }
+
+    private struct TranslatedLines: Decodable {
+        var lines: [String]?
+        var draft: Bool?
+        var error: String?
+    }
+
+    /// Japanese lines as words with their readings, for `Romanizer.romanize(tokens:)`.
+    func readings(_ lines: [String]) async throws -> [[Romanizer.Token]] {
+        let (data, status) = try await post("v1/lyrics/readings", LyricLines(lines: lines))
+        guard status == 200 else { throw status == 404 ? SonicError.notFound : SonicError.status(status) }
+        let readings = try JSONDecoder().decode(ReadingLines.self, from: data).lines
+        guard readings.count == lines.count else { throw SonicError.status(status) }
+        return readings
+    }
+
+    enum Translation: Equatable, Sendable {
+        /// `draft`: the quick offline model's, which the service replaces with its local
+        /// model's when the server is quiet. Shown, not kept.
+        case done([String], draft: Bool)
+        /// Started, or still going: ask again in a few seconds.
+        case translating
+        case failed(String)
+    }
+
+    /// One English line per line, from the service's local model. The first ask starts
+    /// the work; it can take a minute or two on a busy server, and is kept after.
+    func translate(_ lines: [String], language: String) async throws -> Translation {
+        let (data, status) = try await post("v1/lyrics/translate", LyricLines(lines: lines, language: language))
+        let answer = try? JSONDecoder().decode(TranslatedLines.self, from: data)
+        switch status {
+        case 200:
+            guard let english = answer?.lines, english.count == lines.count else { throw SonicError.status(status) }
+            return .done(english, draft: answer?.draft == true)
+        case 202: return .translating
+        case 503: return .failed(answer?.error ?? "The translator isn't working.")
+        case 404: throw SonicError.notFound
+        default: throw SonicError.status(status)
+        }
+    }
+
+    private func post<Body: Encodable>(_ path: String, _ body: Body) async throws -> (Data, Int) {
+        guard let url = url(path) else { throw SonicError.badURL }
+        var request = URLRequest(url: url, timeoutInterval: 20)
+        request.httpMethod = "POST"
+        request.httpBody = try JSONEncoder().encode(body)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        authorise(&request)
+        let (data, response) = try await session.data(for: request)
+        return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
+    }
+
     // MARK: - Taste, shared between devices
 
     /// A play or a skip as one device recorded it, for the others. Times are seconds since

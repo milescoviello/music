@@ -3,3 +3,9 @@
 # standard library.
 essentia-tensorflow==2.1b6.dev1389
 numpy>=1.26
+# Japanese readings for the desktop's lyrics: MeCab with a small UniDic. See words.py.
+cutlet==0.5.2
+fugashi[unidic-lite]==1.5.2
+# Draft lyric translations: Argos's OPUS models, without the rest of Argos.
+ctranslate2==4.8.5
+sentencepiece==0.2.2

@@ -48,6 +48,10 @@ class Config:
     host: str = field(default_factory=lambda: os.environ.get("SONIC_HOST", "0.0.0.0"))
     port: int = field(default_factory=lambda: int(os.environ.get("SONIC_PORT", "8650")))
     token: str = field(default_factory=lambda: os.environ.get("SONIC_TOKEN", ""))
+    # Lyric translations for the desktop app: a local model through Ollama.
+    ollama: str = field(default_factory=lambda: os.environ.get("SONIC_OLLAMA", "http://127.0.0.1:11434"))
+    translate_model: str = field(default_factory=lambda: os.environ.get(
+        "SONIC_TRANSLATE_MODEL", "huihui_ai/qwen3.5-abliterated:4b"))
     workers: int = field(default_factory=lambda: int(os.environ.get("SONIC_WORKERS", "8")))
     resync_hours: float = field(default_factory=lambda: float(os.environ.get("SONIC_RESYNC_HOURS", "6")))
 

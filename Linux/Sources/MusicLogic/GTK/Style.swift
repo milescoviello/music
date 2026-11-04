@@ -142,6 +142,7 @@ enum Style {
     .lyric-line { font-size: 1.5em; font-weight: 800; opacity: 0.35; }
     .lyric-line.current { opacity: 1; }
     .lyric-line.past { opacity: 0.55; }
+    .lyric-translation { font-size: 1.05em; font-style: italic; opacity: 0.6; }
 
     /* Rating stars and hearts. */
     .star { color: alpha(currentColor, 0.35); padding: 2px; min-width: 0; min-height: 0; }
