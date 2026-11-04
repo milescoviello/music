@@ -35,6 +35,10 @@ final class NowPlayingCenter {
     }
 
     private var state = State()
+    /// Volume, shuffle and repeat, watched so a change made in the app shows on the
+    /// desktop's controls. Made with the first update: the player is not there at init.
+    private var desktopControls: Observer?
+    private var published: (volume: Double, shuffle: Bool, loop: String)?
     private var connection: OpaquePointer?
     private var owner: guint = 0
 
@@ -97,6 +101,7 @@ final class NowPlayingCenter {
             changed["CanGoPrevious"] = g_variant_new_boolean(1)
         }
         emitChanged(changed)
+        if desktopControls == nil { watchDesktopControls() }
 
         // A position no extrapolation would have reached: a seek, or a resume elsewhere.
         if sameSong {
@@ -202,12 +207,65 @@ final class NowPlayingCenter {
         case (_, "MinimumRate"): return g_variant_new_double(Double(PlaybackController.speedRange.lowerBound))
         case (_, "MaximumRate"): return g_variant_new_double(Double(PlaybackController.speedRange.upperBound))
         case (_, "Metadata"): return metadata()
-        case (_, "Volume"): return g_variant_new_double(1)
+        case (_, "Volume"): return g_variant_new_double(OutputVolume.shared.level)
+        case (_, "Shuffle"): return g_variant_new_boolean(Self.player?.queue.isShuffled == true ? 1 : 0)
+        case (_, "LoopStatus"): return g_variant_new_string(Self.loopStatus(Self.player?.queue.repeatMode ?? .off))
         case (_, "Position"): return g_variant_new_int64(gint64(Self.position(state, at: .now) * 1_000_000))
         case (_, "CanGoNext"): return g_variant_new_boolean(canGoNext ? 1 : 0)
         case (_, "CanGoPrevious"), (_, "CanPlay"), (_, "CanPause"), (_, "CanSeek"), (_, "CanControl"):
             return g_variant_new_boolean(state.song == nil && name != "CanControl" ? 0 : 1)
         default: return nil
+        }
+    }
+
+    private static var player: PlaybackController? { MusicIntentBridge.appState?.player }
+
+    private static func loopStatus(_ mode: RepeatMode) -> String {
+        switch mode {
+        case .off: return "None"
+        case .all: return "Playlist"
+        case .one: return "Track"
+        }
+    }
+
+    /// The panel's volume slider, its shuffle and repeat buttons: they set the app's own,
+    /// as its controls would. Rate stays the player's menu's.
+    private func set(_ name: String, _ value: OpaquePointer) {
+        Task { await Diagnostics.shared.record("controls", "\(name) set from the desktop's media controls") }
+        switch name {
+        case "Volume":
+            OutputVolume.shared.level = min(max(g_variant_get_double(value), 0), 1)
+        case "Shuffle":
+            guard let player = Self.player else { return }
+            if (g_variant_get_boolean(value) != 0) != player.queue.isShuffled { player.toggleShuffle() }
+        case "LoopStatus":
+            guard let player = Self.player else { return }
+            let wanted = String(cString: g_variant_get_string(value, nil))
+            for _ in RepeatMode.allCases where Self.loopStatus(player.queue.repeatMode) != wanted {
+                player.cycleRepeat()
+            }
+        default:
+            break
+        }
+    }
+
+    private func watchDesktopControls() {
+        let reference = WeakReference(self)
+        desktopControls = Observer {
+            guard let center = reference.value, let player = Self.player else { return }
+            let now = (
+                volume: OutputVolume.shared.level,
+                shuffle: player.queue.isShuffled,
+                loop: Self.loopStatus(player.queue.repeatMode)
+            )
+            let before = center.published
+            center.published = now
+            guard let before else { return }
+            var changed: [String: OpaquePointer] = [:]
+            if abs(before.volume - now.volume) > 0.001 { changed["Volume"] = g_variant_new_double(now.volume) }
+            if before.shuffle != now.shuffle { changed["Shuffle"] = g_variant_new_boolean(now.shuffle ? 1 : 0) }
+            if before.loop != now.loop { changed["LoopStatus"] = g_variant_new_string(now.loop) }
+            center.emitChanged(changed)
         }
     }
 
@@ -268,9 +326,16 @@ final class NowPlayingCenter {
             let name = String(cString: property)
             return MainActor.assumeIsolated { Unchecked(center.property(interfaceName, name)) }.value
         }
-        // Volume, Rate and the rest are accepted and ignored: the phone's lock screen has
-        // no such controls either, and a client that writes one must not get an error.
-        table.set_property = { _, _, _, _, _, _, _, _ in 1 }
+        // Volume, Shuffle and LoopStatus are the app's own; Rate and anything else is
+        // accepted and ignored, since a client that writes one must not get an error.
+        table.set_property = { _, _, _, _, property, value, _, data in
+            guard let data, let property, let written = value else { return 1 }
+            let center = Unmanaged<NowPlayingCenter>.fromOpaque(data).takeUnretainedValue()
+            let name = String(cString: property)
+            nonisolated(unsafe) let pointer = written
+            MainActor.assumeIsolated { center.set(name, pointer) }
+            return 1
+        }
 
         let data = Unmanaged.passUnretained(self).toOpaque()
         for name in ["org.mpris.MediaPlayer2", "org.mpris.MediaPlayer2.Player"] {
@@ -339,6 +404,8 @@ final class NowPlayingCenter {
         <property name="Rate" type="d" access="readwrite"/>
         <property name="Metadata" type="a{sv}" access="read"/>
         <property name="Volume" type="d" access="readwrite"/>
+        <property name="Shuffle" type="b" access="readwrite"/>
+        <property name="LoopStatus" type="s" access="readwrite"/>
         <property name="Position" type="x" access="read"/>
         <property name="MinimumRate" type="d" access="read"/>
         <property name="MaximumRate" type="d" access="read"/>

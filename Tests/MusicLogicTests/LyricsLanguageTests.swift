@@ -63,4 +63,18 @@ struct LyricsLanguageTests {
         #expect(LyricsLanguage.linesToTranslate(lines) == [0, 1, 2])
         #expect(LyricsLanguage.resolve(lines: lines, tag: nil, detected: "es") == "es")
     }
+
+    @Test func cyrillicLettersTellTheLanguage() {
+        // Ukrainian: "Ще не вмерла України і слава, і воля".
+        #expect(LyricsLanguage.guess(["Ще не вмерла України і слава, і воля", "Ще нам, браття молодії, усміхнеться доля"]) == "uk")
+        // Russian: ы and э.
+        #expect(LyricsLanguage.guess(["Мы будем жить, и это наша песня", "Ты знаешь, что я здесь"]) == "ru")
+        // Bulgarian: ъ as a vowel, and no ы or э.
+        #expect(LyricsLanguage.guess(["Къде си ти, сърце мое, кажи ми път", "Във тъмнината съм сам"]) == "bg")
+    }
+
+    @Test func noGuessWithoutEnoughCyrillic() {
+        #expect(LyricsLanguage.guess(["Hello darkness my old friend"]) == nil)
+        #expect(LyricsLanguage.guess(["Да"]) == nil)
+    }
 }

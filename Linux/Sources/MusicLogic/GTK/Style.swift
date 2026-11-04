@@ -75,6 +75,8 @@ enum Style {
     .song-row .title.current { color: var(--accent-color); }
     .song-number { opacity: 0.45; font-feature-settings: "tnum"; min-width: 24px; }
     .song-meta { opacity: 0.45; font-size: 0.9em; font-feature-settings: "tnum"; }
+    .alphabet-rail { background-color: alpha(currentColor, 0.06); border-radius: 10px; padding: 4px 0; }
+    .alphabet-letter { min-width: 22px; min-height: 0; padding: 0 2px; font-size: 10px; font-weight: 700; color: var(--accent-color); }
 
     /* The mini player. */
     .mini-player { padding: 6px 12px; }
@@ -93,6 +95,10 @@ enum Style {
     .now-playing .np-codec { font-size: 10.5px; font-weight: 300; color: alpha(#ffffff, 0.6); }
     .now-playing .np-star { font-size: 11px; min-width: 0; min-height: 0; padding: 0 1px; color: alpha(#ffffff, 0.6); }
     .now-playing .np-star.filled { color: var(--accent-color); }
+    .now-playing .np-heart { min-width: 0; min-height: 0; padding: 0 2px; -gtk-icon-size: 12px; color: alpha(#ffffff, 0.6); }
+    .now-playing .np-heart.filled { color: var(--accent-color); }
+    .now-playing .np-source-heading { font-size: 9.5px; font-weight: 600; color: alpha(#ffffff, 0.5); }
+    .now-playing .np-source { font-size: 11px; font-weight: 500; color: alpha(#ffffff, 0.85); }
     .now-playing .desktop-seekbar .time { font-size: 10px; font-weight: 700; opacity: 1; }
     .np-transport button { color: #ffffff; }
     .np-transport .np-skip { min-width: 48px; min-height: 48px; padding: 0; border-radius: 24px; -gtk-icon-size: 16px; }

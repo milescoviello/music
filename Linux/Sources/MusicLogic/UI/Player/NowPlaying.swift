@@ -159,7 +159,7 @@ final class NowPlaying {
         }
         root.add(scroller)
 
-        let bar = Self.topBar()
+        let bar = Self.topBar(app)
         topBar = bar
         root.add(bar)
         // Draws nothing: there to be told the player's size, which decides the layout.
@@ -460,10 +460,23 @@ final class NowPlaying {
     /// The window's own buttons over the top of the player, on a strip that drags the
     /// window and maximizes it on a double click as a header bar does. Plexamp's desktop
     /// window has no title bar either.
-    private static func topBar() -> Widget {
+    /// The window's controls, and between them the phone's "Playing From" and where the
+    /// queue came from.
+    private static func topBar(_ app: AppState) -> Widget {
+        let source = Label("", "np-source").ellipsize().xalign(0.5).maxWidthChars(40)
+        let from = Box.vertical(spacing: 0) {
+            Label("Playing From", "np-source-heading").xalign(0.5)
+            source
+        }
+        from.hexpand().valign(GTK_ALIGN_CENTER)
+        from.observe {
+            let described = app.player.queue.sourceDescription
+            source.text = described.isEmpty ? "Queue" : described
+            from.isVisible = app.player.currentSong != nil
+        }
         let bar = Box.horizontal(spacing: 6) {
             Widget(gtk_window_controls_new(GTK_PACK_START)!)
-            Spacer()
+            from
             Widget(gtk_window_controls_new(GTK_PACK_END)!)
         }.margin(horizontal: 6, vertical: 4)
         let handle = Widget(gtk_window_handle_new()!)
@@ -589,9 +602,16 @@ final class NowPlaying {
         let format = Label("", "np-codec").xalign(1).hexpand()
         let detail = Label("", "np-codec").xalign(0).hexpand().ellipsize()
         let stars = Box.horizontal(spacing: 0)
+        // The phone's heart beside the title: one click, not a trip through the menu.
+        let heart = Button(icon: "music-heart-symbolic", "flat", "np-heart")
+        heart.onClicked {
+            guard let song = player.currentSong else { return }
+            app.userState.toggleStar(song)
+        }
         let row = Box.horizontal(spacing: 8) {
             format
             stars
+            heart
             detail
         }
         row.margin(horizontal: 12, vertical: 4)
@@ -601,10 +621,17 @@ final class NowPlaying {
             format.text = parts.first ?? ""
             var rest = Array(parts.dropFirst())
             if app.downloads.isDownloaded(song.id) { rest.append("Downloaded") }
+            if let count = song.playCount, count > 0 { rest.append("\(count) \(count == 1 ? "play" : "plays")") }
+            if player.queue.order.count > 1 { rest.append("\(player.queue.position + 1) of \(player.queue.order.count)") }
             if let dj = app.guestDJ.dj { rest.append("✦ \(dj.name)") }
             if player.speed != 1 { rest.append(String(format: "%.1f×", player.speed)) }
             if let timer = app.sleepTimer.label { rest.append("☾ \(timer)") }
+            if app.screenAwake.isEnabled { rest.append("☀ Screen on") }
             detail.text = rest.joined(separator: " · ")
+
+            let starred = app.userState.isStarred(song)
+            heart.setCSS("filled", starred)
+            heart.tooltip(starred ? "Remove Favourite" : "Favourite")
 
             let user = app.userState
             let rating = user.rating(id: song.id, serverValue: song.userRating)

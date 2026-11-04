@@ -128,8 +128,9 @@ final class LyricsPane {
         let reference = WeakReference(self)
         Task { @MainActor in
             let romanized = await Task.detached(priority: .userInitiated) { () -> [String?] in
-                // No language recognizer here; the script and the server's tag decide.
-                let language = LyricsLanguage.resolve(lines: text, tag: tag, detected: nil)
+                // No language recognizer here: the letters, the script and the server's
+                // tag decide. Enough for the Cyrillic spellings, which are what differ.
+                let language = LyricsLanguage.resolve(lines: text, tag: tag, detected: LyricsLanguage.guess(text))
                 return Romanizer.romanize(text, language: language)
             }.value
             guard let pane = reference.value, pane.songID == id, pane.labels.count == romanized.count else { return }

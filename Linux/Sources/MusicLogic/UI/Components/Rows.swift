@@ -147,6 +147,8 @@ final class AlbumCardView {
     private let artwork: ArtworkView
     private let title = Label("", "card-title").ellipsize()
     private let subtitle = Label("", "card-subtitle").ellipsize()
+    /// Set by `bind(_ album:)`, for a menu that follows whichever album the card shows.
+    private(set) var album: Album?
 
     static let side: Int32 = 160
 
@@ -173,6 +175,7 @@ final class AlbumCardView {
     }
 
     func bind(_ album: Album) {
+        self.album = album
         bind(title: album.name, subtitle: album.artist, cover: album.coverArt)
     }
 }
@@ -220,10 +223,17 @@ enum Cards {
         }
     }
 
-    /// A grid of album cards for thousands of albums, built only as it scrolls.
+    /// A grid of album cards for thousands of albums, built only as it scrolls. Each card
+    /// has the album menu, as the phone's grids do; a card is reused for other albums as
+    /// it scrolls, so the menu asks the card which one it holds now.
     static func albumGrid(_ env: Env) -> ItemList<Album, AlbumCardView> {
         ItemList(.grid(minColumns: 2, maxColumns: 12), setup: {
             let card = AlbumCardView(env)
+            let reference = WeakReference(card)
+            card.root.contextMenu {
+                guard let album = reference.value?.album else { return nil }
+                return Menus.album(env, album)
+            }
             return (card.root, card)
         }, bind: { card, album, _ in
             card.bind(album)

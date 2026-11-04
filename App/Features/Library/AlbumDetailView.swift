@@ -305,7 +305,7 @@ struct AlbumDetailView: View {
         if let labels = detail?.recordLabels?.map(\.name).filter({ !$0.isEmpty }), !labels.isEmpty {
             parts.append(labels.joined(separator: ", "))
         }
-        if let released = detail?.originalReleaseDate ?? detail?.releaseDate, let text = Self.describe(released) {
+        if let released = detail?.originalReleaseDate ?? detail?.releaseDate, let text = released.spelledOut {
             parts.append("Released \(text)")
         }
         if let genres = detail?.genres?.map(\.name).filter({ !$0.isEmpty }), !genres.isEmpty {
@@ -328,11 +328,4 @@ struct AlbumDetailView: View {
         return suffix
     }
 
-    private static func describe(_ date: ItemDate) -> String? {
-        guard let year = date.year, year > 0 else { return nil }
-        guard let month = date.month,
-              let parsed = Calendar.current.date(from: DateComponents(year: year, month: month, day: date.day ?? 1))
-        else { return String(year) }
-        return parsed.formatted(date.day == nil ? .dateTime.month(.wide).year() : .dateTime.day().month(.wide).year())
-    }
 }

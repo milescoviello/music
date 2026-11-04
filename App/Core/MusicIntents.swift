@@ -51,41 +51,8 @@ struct PlayPlaylistIntent: AppIntent {
         guard let appState = await MusicIntentBridge.state() else {
             return .result(dialog: "Music isn't signed in yet.")
         }
-
-        await appState.playlistStore.loadIfNeeded()
-
-        // Matched loosely on purpose: dictation will not reproduce a playlist called
-        // "When nobody else is listening" exactly, and an exact-match failure would make
-        // the feature useless in the one place it matters, which is hands-free.
-        let target = appState.playlistStore.playlists.first {
-            $0.name.localizedCaseInsensitiveCompare(playlist) == .orderedSame
-        } ?? appState.playlistStore.playlists.first {
-            $0.name.localizedCaseInsensitiveContains(playlist)
-        }
-
-        guard let target else {
-            return .result(dialog: "I couldn't find a playlist called \(playlist).")
-        }
-
-        // Through the cache, as the playlist screen does, so a playlist kept on the phone
-        // plays offline too -- straight from the server, offline answered "is empty".
-        // And from the saved copy, only the songs on the phone: one it would have to stream
-        // stops the queue when there is no server.
-        let (found, isSaved) = await appState.playlist(target.id)
-        guard let detail = found else {
-            return .result(dialog: "I couldn't reach your library for \(target.name).")
-        }
-        guard !detail.songs.isEmpty else {
-            return .result(dialog: "\(target.name) is empty.")
-        }
-
-        appState.player.play(
-            songs: isSaved ? appState.playableHere(detail.songs) : detail.songs,
-            startingAt: 0,
-            source: target.name,
-            shuffled: shuffled
-        )
-        return .result(dialog: "Playing \(target.name).")
+        let said = await appState.playPlaylist(named: playlist, shuffled: shuffled)
+        return .result(dialog: "\(said)")
     }
 }
 
@@ -99,14 +66,8 @@ struct ShuffleLibraryIntent: AppIntent {
         guard let appState = await MusicIntentBridge.state() else {
             return .result(dialog: "Music isn't signed in yet.")
         }
-
-        let songs = (try? await appState.client.randomSongs(size: 100)) ?? []
-        guard !songs.isEmpty else {
-            return .result(dialog: "I couldn't reach your library.")
-        }
-
-        appState.startRadio(named: "Shuffle", songs: songs)
-        return .result(dialog: "Shuffling your library.")
+        let said = await appState.quickPlay(.shuffleLibrary)
+        return .result(dialog: "\(said)")
     }
 }
 
@@ -120,25 +81,8 @@ struct PlayFavouritesIntent: AppIntent {
         guard let appState = await MusicIntentBridge.state() else {
             return .result(dialog: "Music isn't signed in yet.")
         }
-
-        // Through the cache Home fills, so it works offline -- and a failure is said as
-        // one, where it used to come out as "you haven't starred anything".
-        let client = appState.client
-        let scope = appState.scope.scope
-        guard let starred: Starred2 = await appState.cached(CacheKey.starred(scope.cacheKey), {
-            try await client.starred(scope: scope)
-        }) else {
-            return .result(dialog: "I couldn't reach your library.")
-        }
-        let songs = starred.songs
-        guard !songs.isEmpty else {
-            return .result(dialog: "You haven't starred anything yet.")
-        }
-
-        appState.player.play(
-            songs: songs, startingAt: 0, source: "Favourites", shuffled: true
-        )
-        return .result(dialog: "Playing your favourites.")
+        let said = await appState.quickPlay(.favourites)
+        return .result(dialog: "\(said)")
     }
 }
 
@@ -204,13 +148,8 @@ struct ResumeMusicIntent: AppIntent {
         guard let appState = await MusicIntentBridge.state() else {
             return .result(dialog: "Music isn't signed in yet.")
         }
-        guard appState.player.hasQueue else {
-            return .result(dialog: "There's nothing queued.")
-        }
-
-        appState.player.play()
-        let title = appState.player.currentSong?.title
-        return .result(dialog: title.map { "Playing \($0)." } ?? "Playing.")
+        let said = await appState.quickPlay(.resume)
+        return .result(dialog: "\(said)")
     }
 }
 
@@ -236,21 +175,8 @@ struct MakeVibePlaylistIntent: AppIntent {
         guard let appState = await MusicIntentBridge.state() else {
             return .result(dialog: "Music isn't signed in yet.")
         }
-        guard appState.hermes.isAvailable else {
-            return .result(dialog: "Set the Hermes results address in Music's settings first.")
-        }
-
-        await appState.playlistStore.loadIfNeeded()
-        let name = VibeTitle.unique(
-            VibeTitle.sanitised(vibe),
-            existing: appState.playlistStore.playlists.map(\.name),
-            requestID: UUID()
-        )
-
-        let sent = await appState.hermes.startVibe(name: name, vibe: vibe)
-        return .result(dialog: sent
-            ? "Hermes is building \(name). It'll appear in your playlists shortly."
-            : "I couldn't reach Hermes.")
+        let said = await appState.makeVibePlaylist(vibe)
+        return .result(dialog: "\(said)")
     }
 }
 

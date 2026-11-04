@@ -268,13 +268,21 @@ enum DownloadFolderPage {
         let body = Box.vertical(spacing: 18) { header }
         switch folder.kind {
         case .album:
-            let list = ListBox()
-            for (index, song) in folder.songs.enumerated() {
-                let row = SongRowView(env, style: .numbered, showsNavigation: false)
-                row.bind(song, number: song.track ?? index + 1)
-                list.append(row.root) { env.play(folder.songs, from: index, source: folder.name) }
+            // A section per disc, as the album's own page has. Any track still plays the
+            // folder from there, in folder order, so disc 1 runs on into disc 2.
+            let discs = Dictionary(grouping: folder.songs.indices) { folder.songs[$0].discNumber ?? 1 }
+                .sorted { $0.key < $1.key }
+            for disc in discs {
+                if discs.count > 1 { body.append(Label("Disc \(disc.key)", "heading")) }
+                let list = ListBox()
+                for index in disc.value {
+                    let song = folder.songs[index]
+                    let row = SongRowView(env, style: .numbered, showsNavigation: false)
+                    row.bind(song, number: song.track ?? index + 1)
+                    list.append(row.root) { env.play(folder.songs, from: index, source: folder.name) }
+                }
+                body.append(list)
             }
-            body.append(list)
         case .playlist:
             body.append(SongList.make(env, folder.songs, source: folder.name))
         }

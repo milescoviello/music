@@ -160,7 +160,18 @@ enum AlbumPage {
                 parts.append(suffix)
             }
         }
-        if let genre = detail.genre, !genre.isEmpty { parts.append(genre) }
+        // The phone's release facts: label, date, and every genre, not only the first.
+        if let labels = detail.recordLabels?.map(\.name).filter({ !$0.isEmpty }), !labels.isEmpty {
+            parts.append(labels.joined(separator: ", "))
+        }
+        if let released = (detail.originalReleaseDate ?? detail.releaseDate)?.spelledOut {
+            parts.append("Released \(released)")
+        }
+        if let genres = detail.genres?.map(\.name).filter({ !$0.isEmpty }), !genres.isEmpty {
+            parts.append(genres.joined(separator: ", "))
+        } else if let genre = detail.genre, !genre.isEmpty {
+            parts.append(genre)
+        }
         return parts.joined(separator: " · ")
     }
 

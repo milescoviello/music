@@ -129,6 +129,17 @@ final class PulseOutput: @unchecked Sendable {
         pa_stream_set_moved_callback(stream, { stream, data in
             PulseOutput.from(data).moved(stream)
         }, userdata)
+        // The sound server asking music to stand aside, for a call or a notification
+        // with the "phone" role, and saying when it may carry on: the desktop's audio
+        // interruption.
+        pa_stream_set_event_callback(stream, { _, name, _, _ in
+            guard let name else { return }
+            switch String(cString: name) {
+            case "request-cork": Task { @MainActor in AudioDevice.onCork?(true) }
+            case "request-uncork": Task { @MainActor in AudioDevice.onCork?(false) }
+            default: break
+            }
+        }, userdata)
 
         let frameBytes = UInt32(MemoryLayout<Float>.size * 2)
         var attributes = pa_buffer_attr(

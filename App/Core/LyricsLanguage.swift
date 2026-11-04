@@ -39,6 +39,33 @@ enum LyricsLanguage {
         return detected ?? code(fromTag: tag)
     }
 
+    /// A guess from the letters alone, for where there is no language recognizer (the
+    /// desktop): which Cyrillic language, the one thing the romanization spells
+    /// differently. Ukrainian alone writes і, ї, є and ґ; Russian alone ы and э; Bulgarian
+    /// writes ъ as a vowel, often, where Russian has it rarely. Nil when the letters do not
+    /// settle it, and for anything not in Cyrillic.
+    static func guess(_ lines: [String]) -> String? {
+        var cyrillic = 0, ukrainian = 0, russian = 0, hard = 0, belarusian = 0
+        for line in lines {
+            for scalar in line.lowercased().unicodeScalars where (0x0400...0x04FF).contains(scalar.value) {
+                cyrillic += 1
+                switch scalar {
+                case "і", "ї", "є", "ґ": ukrainian += 1
+                case "ы", "э", "ё": russian += 1
+                case "ъ": hard += 1
+                case "ў": belarusian += 1
+                default: break
+                }
+            }
+        }
+        guard cyrillic >= 20 else { return nil }
+        if belarusian > 0 { return "be" }
+        if ukrainian > 0, ukrainian >= russian { return "uk" }
+        if russian > 0 { return "ru" }
+        if hard * 100 >= cyrillic { return "bg" }
+        return nil
+    }
+
     /// The lines to send for translation. Lines with no letters ("♪", blank) never are.
     /// When the song is mostly in another script, only the lines in that script are --
     /// the English chorus of a J-pop song is already English, and run through a

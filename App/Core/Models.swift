@@ -79,6 +79,17 @@ struct ItemDate: Codable, Hashable, Sendable {
     var day: Int?
 }
 
+extension ItemDate {
+    /// "3 June 1997", "June 1997" or "1997": as much of the date as the tags give.
+    var spelledOut: String? {
+        guard let year, year > 0 else { return nil }
+        guard let month,
+              let parsed = Calendar.current.date(from: DateComponents(year: year, month: month, day: day ?? 1))
+        else { return String(year) }
+        return parsed.formatted(day == nil ? .dateTime.month(.wide).year() : .dateTime.day().month(.wide).year())
+    }
+}
+
 /// An `{ "id", "name" }` pair for one of a track's several credited artists.
 struct ArtistLink: Codable, Hashable, Sendable {
     let id: String

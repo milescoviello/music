@@ -218,6 +218,8 @@ enum SearchPage {
                     app.player.play(songs: [match.song], startingAt: 0, source: "Search")
                 }
                 row.prefix(artwork.root)
+                let song = match.song
+                row.contextMenu { Menus.song(env, song) }
                 group.add(row)
             }
             body.append(group)

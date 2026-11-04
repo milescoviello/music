@@ -10,7 +10,7 @@ public enum MusicApplication {
     @MainActor private static var state: AppState?
     @MainActor private static var shell: Shell?
     /// A quick start asked for on this launch's command line, run once the app is ready.
-    @MainActor private static var pendingAction: QuickPlay?
+    @MainActor private static var pendingCommand: QuickCommand?
 
     @MainActor
     public static func run() {
@@ -55,9 +55,9 @@ public enum MusicApplication {
             // After the window, which a pairing code is shown over.
             RemotePairingPrompt.install()
             RemoteControlServer.shared.start(app: state)
-            if let action = pendingAction {
-                pendingAction = nil
-                run(action)
+            if let command = pendingCommand {
+                pendingCommand = nil
+                run(command)
             }
         }
         Signal.connect(application, "shutdown") {
@@ -79,36 +79,61 @@ public enum MusicApplication {
         exit(status)
     }
 
-    /// `music --action=play-heavy-rotation` and the others in `QuickPlay`: the launcher's
-    /// right-click menu, the desktop's Shortcuts. A second launch hands the action to the
-    /// running app and exits; a first one starts the app and runs it once it is ready.
+    /// `music --action=play-heavy-rotation` and the others in `QuickPlay` (with `--mix=N`
+    /// for Made for You), `--play-playlist=NAME` (and `--shuffle`), `--make-playlist=VIBE`:
+    /// the launcher's right-click menu, the desktop's shortcuts, the phone's Siri. A second
+    /// launch hands the command to the running app and exits; a first one starts the app
+    /// and runs it once it is ready.
     @MainActor
     private static func installQuickPlay(_ application: UnsafeMutablePointer<AdwApplication>) {
         let names = QuickPlay.allCases.map(\.rawValue).joined(separator: ", ")
-        g_application_add_main_option(
-            application.cast(), "action", 0, GOptionFlags(rawValue: 0), G_OPTION_ARG_STRING,
-            "Start playing: \(names)", "NAME"
-        )
+        let options: [(String, GOptionArg, String, String?)] = [
+            ("action", G_OPTION_ARG_STRING, "Start playing: \(names)", "NAME"),
+            ("mix", G_OPTION_ARG_INT, "With --action=play-made-for-you: which mix, from 1", "N"),
+            ("play-playlist", G_OPTION_ARG_STRING, "Play the playlist with this name", "NAME"),
+            ("shuffle", G_OPTION_ARG_NONE, "With --play-playlist: shuffled", nil),
+            ("make-playlist", G_OPTION_ARG_STRING, "Ask Hermes for a playlist from a description", "VIBE"),
+        ]
+        for (name, kind, help, value) in options {
+            g_application_add_main_option(application.cast(), name, 0, GOptionFlags(rawValue: 0), kind, help, value)
+        }
         Signal.connectStatus(application, "handle-local-options", pointer: { options in
             guard let options else { return -1 }
-            let type = g_variant_type_new("s")
-            defer { g_variant_type_free(type) }
-            guard let value = g_variant_dict_lookup_value(options.cast(), "action", type) else { return -1 }
-            defer { g_variant_unref(value) }
-            let name = String(cString: g_variant_get_string(value, nil))
-            guard let action = QuickPlay(rawValue: name) else {
-                FileHandle.standardError.write("Unknown action \(name). One of: \(names)\n".data(using: .utf8)!)
-                return 2
+            func string(_ key: String) -> String? {
+                guard let value = g_variant_dict_lookup_value(options.cast(), key, cgtk_type_string()) else { return nil }
+                defer { g_variant_unref(value) }
+                return String(cString: g_variant_get_string(value, nil))
+            }
+            var mix: Int32 = 1
+            if let value = g_variant_dict_lookup_value(options.cast(), "mix", nil) {
+                mix = g_variant_get_int32(value)
+                g_variant_unref(value)
+            }
+            let shuffled = g_variant_dict_contains(options.cast(), "shuffle") != 0
+
+            let command: QuickCommand
+            if let name = string("play-playlist") {
+                command = .playlist(name: name, shuffled: shuffled)
+            } else if let vibe = string("make-playlist") {
+                command = .makePlaylist(vibe: vibe)
+            } else if let name = string("action") {
+                guard let action = QuickPlay(rawValue: name) else {
+                    FileHandle.standardError.write("Unknown action \(name). One of: \(names)\n".data(using: .utf8)!)
+                    return 2
+                }
+                command = .play(action, mix: Int(mix))
+            } else {
+                return -1
             }
             guard g_application_register(application.cast(), nil, nil) != 0 else { return 1 }
             if g_application_get_is_remote(application.cast()) != 0 {
-                g_action_group_activate_action(application.opaque, action.rawValue, nil)
+                g_action_group_activate_action(application.opaque, "command", g_variant_new_string(command.encoded))
                 if let bus = g_application_get_dbus_connection(application.cast()) {
                     g_dbus_connection_flush_sync(bus, nil, nil)
                 }
                 return 0
             }
-            pendingAction = action
+            pendingCommand = command
             return -1
         })
     }
@@ -117,15 +142,23 @@ public enum MusicApplication {
     private static func installQuickPlayActions(_ application: UnsafeMutablePointer<AdwApplication>) {
         for action in QuickPlay.allCases {
             let simple = g_simple_action_new(action.rawValue, nil)!
-            Signal.connect(simple, "activate", pointer: { _ in run(action) })
+            Signal.connect(simple, "activate", pointer: { _ in run(.play(action)) })
             g_action_map_add_action(application.opaque, simple)
         }
+        // Everything a second launch can say, as one string: see `QuickCommand.encoded`.
+        let command = g_simple_action_new("command", cgtk_type_string())!
+        Signal.connect(command, "activate", pointer: { parameter in
+            guard let parameter else { return }
+            let text = String(cString: g_variant_get_string(OpaquePointer(parameter), nil))
+            if let decoded = QuickCommand(encoded: text) { run(decoded) }
+        })
+        g_action_map_add_action(application.opaque, command)
     }
 
     @MainActor
-    private static func run(_ action: QuickPlay) {
+    private static func run(_ command: QuickCommand) {
         guard let state else {
-            pendingAction = action
+            pendingCommand = command
             return
         }
         shell?.present()
@@ -133,8 +166,8 @@ public enum MusicApplication {
             for _ in 0..<100 where state.phase != .ready {
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
-            let said = await state.quickPlay(action)
-            await Diagnostics.shared.record("app", "\(action.title): \(said)")
+            let said = await state.run(command)
+            await Diagnostics.shared.record("app", "\(command.title): \(said)")
         }
     }
 

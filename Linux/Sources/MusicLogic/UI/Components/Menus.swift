@@ -110,6 +110,25 @@ enum Menus {
         }
     }
 
+    /// An artist row's menu: what the phone's swipe and its artist page offer.
+    static func artist(_ env: Env, _ artist: Artist) -> Menu {
+        let app = env.app
+        let user = app.userState
+        let starred = user.isStarred(artist)
+        let ref = ArtistRef(artist)
+        return Menu([
+            [
+                .action("Start Artist Radio") {
+                    Task {
+                        let mix = await app.radio.artistMix(ref, scope: app.scope.scope)
+                        app.startRadio(named: "\(artist.name) Radio", songs: mix, station: .artistMix(ids: [artist.id], names: [artist.name]))
+                    }
+                },
+            ],
+            [.action(starred ? "Remove Favourite" : "Favourite") { user.toggleStar(artist) }],
+        ])
+    }
+
     /// An album card's or row's menu: the album has to be fetched before it can be
     /// queued, since a card carries the album and not its tracks.
     static func album(_ env: Env, _ album: Album) -> Menu {

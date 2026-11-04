@@ -1,25 +1,39 @@
 import CGtk
 import Foundation
 
-/// Every artist, A to Z, with a filter field: the phone's alphabet rail becomes typing,
-/// which is how a desktop jumps through a long list.
+/// Every artist, A to Z, with a filter field and the phone's alphabet rail: a letter
+/// jumps to the server's section for it.
 @MainActor
 enum ArtistList {
     static func make(_ env: Env) -> NavigationPage {
         let app = env.app
         let filter = SearchEntry(placeholder: "Filter artists")
         var all: [Artist] = []
+        /// The server's sections, each with where its first artist is in `all`. Its own,
+        /// not letters worked out here: Navidrome files "La Roux" under R.
+        var sections: [(letter: String, first: Int)] = []
         let list = ItemList<Artist, ArtistRowCell>(.list, setup: {
             let cell = ArtistRowCell(app)
+            let reference = WeakReference(cell)
+            cell.root.contextMenu {
+                guard let artist = reference.value?.artist else { return nil }
+                return Menus.artist(env, artist)
+            }
             return (cell.root, cell)
         }, bind: { cell, artist, _ in
             cell.bind(artist)
         }, activate: { artist, _ in
             env.open(.artist(ArtistRef(artist)))
         })
+        // Its own column beside the list, not over it, where it hid the album counts.
+        let rail = Box.vertical(spacing: 0)
+        rail.css("alphabet-rail").valign(GTK_ALIGN_CENTER).margin(horizontal: 4, vertical: 8)
         let stack = Stack()
         stack.add(Spinner().size(32).halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_CENTER), name: "loading")
-        stack.add(ScrolledWindow(list.view).vexpand(), name: "list")
+        stack.add(Box.horizontal(spacing: 0) {
+            ScrolledWindow(list.view).hexpand().vexpand()
+            rail
+        }, name: "list")
         let empty = Bin()
         stack.add(empty, name: "empty")
 
@@ -27,6 +41,15 @@ enum ArtistList {
             let text = filter.text.trimmingCharacters(in: .whitespaces)
             let shown = text.isEmpty ? all : all.filter { $0.name.localizedCaseInsensitiveContains(text) }
             list.set(shown)
+            // Only for the whole list, and only when it is long enough to need it.
+            rail.removeAll()
+            rail.isVisible = text.isEmpty && all.count > 40
+            if rail.isVisible {
+                for section in sections {
+                    let first = section.first
+                    rail.append(Button(section.letter, "flat", "alphabet-letter") { list.scroll(toTop: first) })
+                }
+            }
             if shown.isEmpty {
                 empty.child = Loader.empty(all.isEmpty ? "No Artists" : "No Matches", icon: "avatar-default-symbolic")
                 stack.visibleName = "empty"
@@ -53,6 +76,11 @@ enum ArtistList {
                 } ?? []
                 guard alive.isAlive else { return }
                 all = indexes.flatMap(\.artists)
+                var position = 0
+                sections = indexes.compactMap { index in
+                    defer { position += index.artists.count }
+                    return index.artists.isEmpty ? nil : (index.name, position)
+                }
                 apply()
             }
         }
@@ -62,21 +90,27 @@ enum ArtistList {
     }
 }
 
-/// An artist as a row: round picture, name, album count.
+/// An artist as a row: round picture, name, a heart when favourited, album count.
 @MainActor
 final class ArtistRowCell {
     let root: Box
+    private(set) var artist: Artist?
+    private let app: AppState
     private let artwork: ArtworkView
     private let name = Label("").ellipsize()
+    private let heart = Icon("music-heart-symbolic", size: 14).css("accent")
     private let count = Label("", "song-meta")
+    private var marks: Observer?
 
     init(_ app: AppState) {
+        self.app = app
         let artwork = ArtworkView(app, size: .thumb, side: 40, shape: .round)
         self.artwork = artwork
-        let (name, count) = (self.name, self.count)
+        let (name, heart, count) = (self.name, self.heart, self.count)
         root = Box.horizontal(spacing: 12) {
             artwork.root
             name.hexpand()
+            heart
             count
         }
         root.margin(horizontal: 12, vertical: 4)
@@ -84,9 +118,17 @@ final class ArtistRowCell {
     }
 
     func bind(_ artist: Artist) {
+        self.artist = artist
         name.text = artist.name
         count.text = artist.albumCount.map(String.init) ?? ""
         artwork.show(artist.coverArt, fallback: artist.name)
+        // Watched once the row has its artist, so a favourite from the menu shows here.
+        marks?.cancel()
+        let reference = WeakReference(self)
+        marks = Observer {
+            guard let row = reference.value, let artist = row.artist else { return }
+            row.heart.isVisible = row.app.userState.isStarred(artist)
+        }
     }
 }
 

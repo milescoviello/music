@@ -100,6 +100,17 @@ final class ItemList<Item, Cell: AnyObject> {
         withExtendedLifetime(storage) {}
     }
 
+    /// Scrolls so the item at `index` is the first in view, as a jump to a section. By the
+    /// list's own scroll position, for rows of one height: a scroll into view moves only
+    /// as far as it must, which left a section's first row at the bottom.
+    func scroll(toTop index: Int) {
+        guard index >= 0, index < items.count, !isGrid,
+              let adjustment = gtk_scrollable_get_vadjustment(OpaquePointer(view.widget))
+        else { return scroll(to: index) }
+        let upper = gtk_adjustment_get_upper(adjustment)
+        gtk_adjustment_set_value(adjustment, upper * Double(index) / Double(items.count))
+    }
+
     /// Scrolls so the item at `index` is in view.
     func scroll(to index: Int) {
         guard index >= 0, index < items.count else { return }
