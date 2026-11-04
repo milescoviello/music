@@ -75,6 +75,7 @@ enum Style {
     .song-row .title.current { color: var(--accent-color); }
     .song-number { opacity: 0.45; font-feature-settings: "tnum"; min-width: 24px; }
     .song-meta { opacity: 0.45; font-size: 0.9em; font-feature-settings: "tnum"; }
+    .selection-bar { padding: 10px 12px; border-radius: 12px; background-color: alpha(currentColor, 0.06); }
     .alphabet-rail { background-color: alpha(currentColor, 0.06); border-radius: 10px; padding: 4px 0; }
     .alphabet-letter { min-width: 22px; min-height: 0; padding: 0 2px; font-size: 10px; font-weight: 700; color: var(--accent-color); }
 

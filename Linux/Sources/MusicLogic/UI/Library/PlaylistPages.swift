@@ -190,6 +190,7 @@ enum PlaylistPage {
         let app = env.app
         let loader = Loader()
         var songs: [Song] = []
+        let selection = TrackSelection()
         let download = CollectionDownloadButton(env, groupID: playlist.id, groupName: playlist.name) { songs }
         let menu = MenuButton(icon: "view-more-symbolic", "flat") {
             var sections: [[Menu.Item]] = [Menus.queueItems(env, songs)]
@@ -215,6 +216,7 @@ enum PlaylistPage {
         let page = Page.make(playlist.name, content: loader.bin) { bar in
             bar.end(menu)
             bar.end(download.root)
+            bar.end(selection.button())
         }
 
         var current = playlist
@@ -225,7 +227,8 @@ enum PlaylistPage {
             }) { found in
                 songs = found.detail.songs
                 download.songsChanged()
-                return content(env, playlist: current, detail: found.detail, isSaved: found.isSaved, reload: load)
+                selection.end()
+                return content(env, playlist: current, detail: found.detail, isSaved: found.isSaved, selection: selection, reload: load)
             }
         }
         load()
@@ -248,7 +251,7 @@ enum PlaylistPage {
         return page
     }
 
-    private static func content(_ env: Env, playlist: PlaylistRef, detail: PlaylistDetail, isSaved: Bool, reload: @escaping @MainActor () -> Void) -> Widget {
+    private static func content(_ env: Env, playlist: PlaylistRef, detail: PlaylistDetail, isSaved: Bool, selection: TrackSelection, reload: @escaping @MainActor () -> Void) -> Widget {
         let app = env.app
         let songs = detail.songs
         // Without the server, Play and Shuffle start the songs on this computer.
@@ -275,13 +278,14 @@ enum PlaylistPage {
             }.valign(GTK_ALIGN_END).hexpand()
         }
         let body = Box.vertical(spacing: 18) { header }
+        body.append(selection.bar(env, all: { songs }, source: playlist.name))
 
         if songs.count > longList {
             // Built as it scrolls, each row reused for others, so its menu asks which song
             // and place it holds now. These had no Remove or Move at all.
             var list: ItemList<Song, PlaylistCell>?
             list = ItemList(.list, setup: {
-                let cell = PlaylistCell(env)
+                let cell = PlaylistCell(env, selection: selection)
                 let reference = WeakReference(cell)
                 cell.row.ownItems = { song in
                     guard let index = reference.value?.index else { return [] }
@@ -291,8 +295,9 @@ enum PlaylistPage {
             }, bind: { cell, song, index in
                 cell.index = index
                 cell.row.bind(song)
-            }, activate: { _, index in
-                env.play(songs, from: index, source: playlist.name)
+                cell.check.bind(song)
+            }, activate: { song, index in
+                selection.activate(song) { env.play(songs, from: index, source: playlist.name) }
             })
             list?.set(songs)
             if let list {
@@ -312,7 +317,9 @@ enum PlaylistPage {
                     move(app, playlist, songs, from: from, to: from < index ? index + 1 : index, reload)
                     return true
                 }
-                list.append(wrapper) { env.play(songs, from: index, source: playlist.name) }
+                list.append(selection.row(wrapper, song: song)) {
+                    selection.activate(song) { env.play(songs, from: index, source: playlist.name) }
+                }
             }
             if songs.isEmpty { list.placeholder(Label("This playlist is empty.", "dim").margin(24)) }
             body.append(list)
@@ -356,12 +363,18 @@ enum PlaylistPage {
 final class PlaylistCell {
     let root: Box
     let row: SongRowView
+    let check: SelectionCheck
     var index = 0
 
-    init(_ env: Env) {
+    init(_ env: Env, selection: TrackSelection) {
         let row = SongRowView(env, style: .artwork)
         self.row = row
-        root = Box.horizontal { row.root.hexpand() }
+        let check = SelectionCheck(selection)
+        self.check = check
+        root = Box.horizontal(spacing: 4) {
+            check.root
+            row.root.hexpand()
+        }
         root.keep(self)
     }
 }

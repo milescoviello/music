@@ -12,6 +12,7 @@ enum AlbumPage {
         var songs: [Song] = []
 
         let favourite = Button(icon: "music-heart-symbolic", "flat")
+        let selection = TrackSelection()
         let download = CollectionDownloadButton(env, groupID: album.id, groupName: album.name) { songs }
         let menu = MenuButton(icon: "view-more-symbolic", "flat") {
             Menu([
@@ -26,6 +27,7 @@ enum AlbumPage {
             bar.end(menu)
             bar.end(favourite)
             bar.end(download.root)
+            bar.end(selection.button())
         }
 
         loader.run({ () -> AlbumDetail? in
@@ -46,12 +48,12 @@ enum AlbumPage {
                 let starred = app.userState.isStarred(id: album.id, serverValue: detail.starred != nil)
                 app.userState.toggleStar(id: album.id, kind: .album, currentlyStarred: starred)
             }
-            return content(env, album: album, detail: detail)
+            return content(env, album: album, detail: detail, selection: selection)
         }
         return page
     }
 
-    private static func content(_ env: Env, album: AlbumRef, detail: AlbumDetail) -> Widget {
+    private static func content(_ env: Env, album: AlbumRef, detail: AlbumDetail, selection: TrackSelection) -> Widget {
         let app = env.app
         let songs = detail.songs
         let artist = album.artist ?? detail.artist
@@ -92,15 +94,16 @@ enum AlbumPage {
             HermesNoteView.make(env, subject: .album(id: album.id, name: album.name, artist: artist))
         }
 
+        body.append(selection.bar(env, all: { songs }, source: album.name))
         // By disc when there is more than one.
         let discs = Dictionary(grouping: songs) { $0.discNumber ?? 1 }.sorted { $0.key < $1.key }
         if discs.count > 1 {
             for (number, discSongs) in discs {
                 body.append(Label("Disc \(number)", "heading"))
-                body.append(numberedList(env, discSongs, all: songs, source: album.name))
+                body.append(numberedList(env, discSongs, all: songs, source: album.name, selection: selection))
             }
         } else {
-            body.append(numberedList(env, songs, all: songs, source: album.name))
+            body.append(numberedList(env, songs, all: songs, source: album.name, selection: selection))
         }
 
         let details = describe(detail, songs: songs)
@@ -137,13 +140,15 @@ enum AlbumPage {
     }
 
     /// Tracks by number, where activating one plays the whole album from there.
-    private static func numberedList(_ env: Env, _ songs: [Song], all: [Song], source: String) -> Widget {
+    private static func numberedList(_ env: Env, _ songs: [Song], all: [Song], source: String, selection: TrackSelection) -> Widget {
         let list = ListBox()
         for song in songs {
             let row = SongRowView(env, style: .numbered, showsNavigation: false)
             row.bind(song)
             let index = all.firstIndex(of: song) ?? 0
-            list.append(row.root) { env.play(all, from: index, source: source) }
+            list.append(selection.row(row.root, song: song)) {
+                selection.activate(song) { env.play(all, from: index, source: source) }
+            }
         }
         return list
     }
