@@ -4,7 +4,6 @@ struct GenreListView: View {
     @Environment(AppState.self) private var appState
     @Environment(LibraryScopeStore.self) private var scope
 
-    @State private var loadedGeneration: Int?
     @State private var genres: [Genre] = []
 
     var body: some View {
@@ -84,6 +83,7 @@ struct GenreDetailView: View {
         var title: String { rawValue.capitalized }
     }
 
+    @State private var loadedGeneration: Int?
     @State private var facet: Facet = .albums
 
     var body: some View {
