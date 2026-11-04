@@ -1,16 +1,25 @@
 import CGtk
 import Foundation
 
-/// Every playlist, with the menu the phone gives each — play, queue, download, rename,
-/// delete — and a + for a new one, empty or from Hermes.
+/// Every playlist, as the phone arranges them: the pinned ones first in his order, then
+/// the rest by the chosen sort or his own order, either dragged into place. Each has the
+/// phone's menu (play, queue, download, pin, rename, delete), and + makes a new one,
+/// empty or from Hermes.
 @MainActor
 enum PlaylistList {
     static func make(_ env: Env) -> NavigationPage {
         let app = env.app
         let store = app.playlistStore
+        let arrangement = app.playlistArrangement
+        let pinnedHeading = Label("Pinned", "heading")
+        let pinnedList = ListBox()
+        let restHeading = Label("Playlists", "heading")
         let list = ListBox()
-        let footer = Label("Playlists are shown from every library.", "caption", "dim")
+        let footer = Label("Playlists are shown from every library. Drag one to move it.", "caption", "dim")
         let body = Box.vertical(spacing: 12) {
+            pinnedHeading
+            pinnedList
+            restHeading
             list
             footer
         }.margin(horizontal: 12, vertical: 24)
@@ -19,10 +28,29 @@ enum PlaylistList {
             let playlists = store.playlists
             let loading = store.isLoading
             _ = app.playlistArtwork.generation
-            list.removeAll()
-            for playlist in playlists {
-                list.append(row(env, playlist)) { env.open(.playlist(PlaylistRef(playlist))) }
+            let split = arrangement.arranged(playlists)
+            pinnedList.removeAll()
+            for (index, playlist) in split.pinned.enumerated() {
+                let line = row(env, playlist).draggable("pinned:\(index)").onDrop { text in
+                    guard let from = Self.dropped(text, prefix: "pinned:"), from != index else { return false }
+                    arrangement.movePinned(from: IndexSet(integer: from), to: from < index ? index + 1 : index, shown: split.pinned)
+                    return true
+                }
+                pinnedList.append(line) { env.open(.playlist(PlaylistRef(playlist))) }
             }
+            list.removeAll()
+            for (index, playlist) in split.rest.enumerated() {
+                // Moving one by hand makes the order his own: My Order in the sort menu.
+                let line = row(env, playlist).draggable("rest:\(index)").onDrop { text in
+                    guard let from = Self.dropped(text, prefix: "rest:"), from != index else { return false }
+                    arrangement.moveRest(from: IndexSet(integer: from), to: from < index ? index + 1 : index, shown: split.rest)
+                    return true
+                }
+                list.append(line) { env.open(.playlist(PlaylistRef(playlist))) }
+            }
+            pinnedHeading.isVisible = !split.pinned.isEmpty
+            pinnedList.isVisible = !split.pinned.isEmpty
+            restHeading.isVisible = !split.pinned.isEmpty && !split.rest.isEmpty
             if playlists.isEmpty {
                 list.placeholder(loading
                     ? Spinner().size(24).margin(24)
@@ -33,6 +61,17 @@ enum PlaylistList {
         Task { await store.refreshIfStale() }
 
         return Page.make("Playlists", content: body) { bar in
+            bar.end(MenuButton(icon: "view-sort-descending-symbolic", "flat") {
+                Menu([[
+                    .choice(
+                        "Sort",
+                        options: PlaylistArrangement.Sort.allCases.map { ($0.rawValue, $0.title) },
+                        selected: arrangement.sort.rawValue
+                    ) { value in
+                        if let sort = PlaylistArrangement.Sort(rawValue: value) { arrangement.sort = sort }
+                    },
+                ]])
+            }.tooltip("Sort Playlists"))
             bar.end(MenuButton(icon: "list-add-symbolic", "flat") {
                 Menu([[
                     .action("New Playlist…") { Menus.newPlaylist(env, [], suggested: "") },
@@ -41,6 +80,12 @@ enum PlaylistList {
             })
             bar.end(Button(icon: "view-refresh-symbolic", "flat") { Task { await store.load() } }.tooltip("Refresh"))
         }
+    }
+
+    /// The place a dragged row carried, if it came from the same list.
+    private static func dropped(_ text: String, prefix: String) -> Int? {
+        guard text.hasPrefix(prefix) else { return nil }
+        return Int(text.dropFirst(prefix.count))
     }
 
     private static func row(_ env: Env, _ playlist: Playlist) -> Widget {
@@ -88,6 +133,11 @@ enum PlaylistList {
                         downloads.removeGroup(playlist.id)
                     }
                     : .action("Download") { withSongs { downloads.download($0, groupID: playlist.id, groupName: playlist.name) } },
+            ],
+            [
+                .action(app.playlistArrangement.isPinned(playlist) ? "Unpin" : "Pin to Top") {
+                    app.playlistArrangement.togglePin(playlist)
+                },
             ],
             [
                 .action("Rename…") { edit(env, playlist) },
@@ -227,26 +277,40 @@ enum PlaylistPage {
         let body = Box.vertical(spacing: 18) { header }
 
         if songs.count > longList {
-            let list = SongList.long(env, source: playlist.name)
-            list.set(songs)
-            let scroller = ScrolledWindow(list.view).size(height: 600).vexpand()
-            body.append(scroller)
+            // Built as it scrolls, each row reused for others, so its menu asks which song
+            // and place it holds now. These had no Remove or Move at all.
+            var list: ItemList<Song, PlaylistCell>?
+            list = ItemList(.list, setup: {
+                let cell = PlaylistCell(env)
+                let reference = WeakReference(cell)
+                cell.row.ownItems = { song in
+                    guard let index = reference.value?.index else { return [] }
+                    return ownItems(app, playlist, songs, song: song, index: index, reload)
+                }
+                return (cell.root, cell)
+            }, bind: { cell, song, index in
+                cell.index = index
+                cell.row.bind(song)
+            }, activate: { _, index in
+                env.play(songs, from: index, source: playlist.name)
+            })
+            list?.set(songs)
+            if let list {
+                body.append(ScrolledWindow(list.view).size(height: 600).vexpand())
+            }
         } else {
             let list = ListBox()
             for (index, song) in songs.enumerated() {
                 let row = SongRowView(env, style: .artwork)
                 row.bind(song)
                 // A playlist's own actions go first in its rows' menus.
+                row.ownItems = { song in ownItems(app, playlist, songs, song: song, index: index, reload) }
                 let wrapper = Box.horizontal { row.root.hexpand() }
-                wrapper.contextMenu {
-                    var sections = Menus.song(env, song).sections
-                    var own: [Menu.Item] = [.action("Remove from Playlist", destructive: true) {
-                        Task { if await app.playlistStore.remove(song, shownAt: index, from: playlist.id) { reload() } }
-                    }]
-                    if index > 0 { own.insert(.action("Move Up") { move(app, playlist, songs, from: index, to: index - 1, reload) }, at: 0) }
-                    if index + 1 < songs.count { own.insert(.action("Move Down") { move(app, playlist, songs, from: index, to: index + 2, reload) }, at: own.count - 1) }
-                    sections.insert(own, at: 0)
-                    return Menu(sections)
+                // Dragged onto another row, a song takes that row's place, as on the phone.
+                wrapper.draggable("\(index)").onDrop { text in
+                    guard let from = Int(text), from != index else { return false }
+                    move(app, playlist, songs, from: from, to: from < index ? index + 1 : index, reload)
+                    return true
                 }
                 list.append(wrapper) { env.play(songs, from: index, source: playlist.name) }
             }
@@ -254,6 +318,23 @@ enum PlaylistPage {
             body.append(list)
         }
         return body.margin(horizontal: 12, vertical: 24)
+    }
+
+    /// A playlist's own actions for the song at `index`, first in its rows' menus.
+    private static func ownItems(_ app: AppState, _ playlist: PlaylistRef, _ songs: [Song], song: Song, index: Int, _ reload: @escaping @MainActor () -> Void) -> [Menu.Item] {
+        var own: [Menu.Item] = []
+        if index > 0 {
+            own.append(.action("Move to Top") { move(app, playlist, songs, from: index, to: 0, reload) })
+            own.append(.action("Move Up") { move(app, playlist, songs, from: index, to: index - 1, reload) })
+        }
+        if index + 1 < songs.count {
+            own.append(.action("Move Down") { move(app, playlist, songs, from: index, to: index + 2, reload) })
+            own.append(.action("Move to Bottom") { move(app, playlist, songs, from: index, to: songs.count, reload) })
+        }
+        own.append(.action("Remove from Playlist", destructive: true) {
+            Task { if await app.playlistStore.remove(song, shownAt: index, from: playlist.id) { reload() } }
+        })
+        return own
     }
 
     /// Navidrome's own API moves a track; Subsonic's has no move at all. `to` is the row it
@@ -267,5 +348,20 @@ enum PlaylistPage {
             await app.playlistStore.move(song, shownAt: from, before: anchor, shownAt: to, in: playlist.id)
             reload()
         }
+    }
+}
+
+/// A row of a long playlist: the song, and the place it is bound to now.
+@MainActor
+final class PlaylistCell {
+    let root: Box
+    let row: SongRowView
+    var index = 0
+
+    init(_ env: Env) {
+        let row = SongRowView(env, style: .artwork)
+        self.row = row
+        root = Box.horizontal { row.root.hexpand() }
+        root.keep(self)
     }
 }

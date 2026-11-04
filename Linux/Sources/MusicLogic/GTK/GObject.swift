@@ -256,6 +256,19 @@ enum Signal {
         return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
     }
 
+    /// For a drop target's `drop(value, x, y)`, with a string dropped: true when taken.
+    @discardableResult
+    static func connect(_ instance: GPointer, _ name: String, drop handler: @escaping @MainActor (String) -> Bool) -> gulong {
+        typealias H = @MainActor (String) -> Bool
+        let trampoline: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<GValue>?, gdouble, gdouble, UnsafeMutableRawPointer?) -> gboolean = { _, value, _, _, data in
+            let handler = unbox(data, as: H.self)
+            guard let value, let text = g_value_get_string(value) else { return 0 }
+            let string = String(cString: text)
+            return MainActor.assumeIsolated { handler(string) } ? 1 : 0
+        }
+        return attach(instance, name, unsafeBitCast(trampoline, to: GCallback.self), ClosureBox(handler))
+    }
+
     static func disconnect(_ instance: GPointer, _ id: gulong) {
         g_signal_handler_disconnect(instance.gobject, id)
     }

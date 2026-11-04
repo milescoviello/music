@@ -24,6 +24,10 @@ final class SongRowView {
     private let heart = Icon("music-heart-symbolic", size: 14).css("accent")
     private let trailing = Label("", "song-meta")
     private(set) var song: Song?
+    /// The list's own items, before the song's: a playlist's Move and Remove. Here, not
+    /// in a menu on a box around the row, which the row's own menu always won over, so
+    /// a playlist's songs on the desktop could not be removed or moved at all.
+    var ownItems: (@MainActor (Song) -> [Menu.Item])?
 
     init(_ env: Env, style: Style, showsNavigation: Bool = true) {
         self.env = env
@@ -52,7 +56,9 @@ final class SongRowView {
         let reference = WeakReference(self)
         root.contextMenu {
             guard let row = reference.value, let song = row.song else { return nil }
-            return Menus.song(row.env, song, showsNavigation: showsNavigation)
+            let menu = Menus.song(row.env, song, showsNavigation: showsNavigation)
+            guard let own = row.ownItems?(song), !own.isEmpty else { return menu }
+            return Menu([own] + menu.sections)
         }
         root.keep(self)
     }

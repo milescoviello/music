@@ -124,12 +124,18 @@ final class QueuePane {
     private func row(_ song: Song, actions: [Menu.Item], marked: Bool) -> Widget {
         let artwork = ArtworkView(env.app, size: .thumb, side: 37, shape: .thumb)
         artwork.show(song.coverArt, fallback: song.album ?? song.title)
+        // The stars follow the rating from the row's own observer. Read while the queue
+        // was built, every rating anywhere rebuilt the whole queue.
+        let stars = Label("", "queue-stars")
+        let user = env.app.userState
+        stars.observe {
+            let rating = min(max(user.rating(song), 0), 5)
+            stars.text = String(repeating: "★", count: rating) + String(repeating: "☆", count: 5 - rating)
+            stars.isVisible = rating > 0
+        }
         let subtitle = Box.horizontal(spacing: 6) {
             Label(song.artist ?? "", "queue-artist").ellipsize()
-        }
-        let rating = min(max(env.app.userState.rating(song), 0), 5)
-        if rating > 0 {
-            subtitle.append(Label(String(repeating: "★", count: rating) + String(repeating: "☆", count: 5 - rating), "queue-stars"))
+            stars
         }
         let env = env
         let menu = MenuButton(icon: "view-more-symbolic", "flat", "circular", "queue-more") {
@@ -193,9 +199,18 @@ final class QueuePane {
             }
             if orderIndex + 1 < queue.order.count {
                 actions.append(.action("Move Down") { player.moveInQueue(from: orderIndex, to: orderIndex + 2) })
+                actions.append(.action("Move to End") { player.moveToEnd(fromOrderIndex: orderIndex) })
             }
             actions.append(.action("Remove from Queue", destructive: true) { player.removeFromQueue(orderIndex: orderIndex) })
-            upNextList.append(row(song, actions: actions, marked: env.app.guestDJ.isPick(song))) { player.jump(toOrderIndex: orderIndex) }
+            // Dragged onto another row, a song takes that row's place, as on the phone.
+            let line = row(song, actions: actions, marked: env.app.guestDJ.isPick(song))
+                .draggable("\(orderIndex)")
+                .onDrop { text in
+                    guard let from = Int(text), from != orderIndex, from > queue.position else { return false }
+                    player.moveInQueue(from: from, to: from < orderIndex ? orderIndex + 1 : orderIndex)
+                    return true
+                }
+            upNextList.append(line) { player.jump(toOrderIndex: orderIndex) }
         }
         let autoplayShowing = env.app.autoplay.isActive && !env.app.autoplay.options.isEmpty
         empty.text = "Nothing queued"

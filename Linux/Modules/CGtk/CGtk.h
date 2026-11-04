@@ -24,3 +24,8 @@ static inline const GVariantType *cgtk_type_string(void) { return G_VARIANT_TYPE
 static inline const GVariantType *cgtk_type_byte(void) { return G_VARIANT_TYPE_BYTE; }
 static inline const GVariantType *cgtk_type_bytestring(void) { return G_VARIANT_TYPE_BYTESTRING; }
 static inline const GVariantType *cgtk_type_string_variant_entry(void) { return G_VARIANT_TYPE("{sv}"); }
+// Drag and drop of a string: a reordered row's place. The provider copies the text.
+static inline GType cgtk_gtype_string(void) { return G_TYPE_STRING; }
+static inline GdkContentProvider *cgtk_string_provider(const char *text) {
+    return gdk_content_provider_new_typed(G_TYPE_STRING, text);
+}
