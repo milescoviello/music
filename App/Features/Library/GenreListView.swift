@@ -39,6 +39,8 @@ struct GenreListView: View {
         .listStyle(.plain)
         .playerClearance()
         .navigationTitle("Genres")
+        // Which library, here as on the desktop's Genres page.
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { LibraryScopeMenu() } }
         .refreshable { await load() }
         .task(id: scope.generation) { await load() }
     }

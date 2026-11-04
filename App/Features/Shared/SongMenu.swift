@@ -307,6 +307,12 @@ private struct AlbumFavoriteModifier: ViewModifier {
                 ) {
                     userState.toggleStar(album)
                 }
+                // The desktop's album menu had it and this did not.
+                if let artistId = album.artistId, let artist = album.artist {
+                    NavigationLink(value: Destination.artist(ArtistRef(id: artistId, name: artist))) {
+                        Label("Go to Artist", systemImage: "music.mic")
+                    }
+                }
             }
     }
 

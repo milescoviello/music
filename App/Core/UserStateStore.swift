@@ -18,6 +18,9 @@ import Observation
 final class UserStateStore {
     private var starOverrides: [String: Bool] = [:]
     private var ratingOverrides: [String: Int] = [:]
+    /// Counts stars and unstars the server has taken, for lists of favourites to fetch
+    /// again: they showed what they were opened with until pulled to refresh.
+    private(set) var starsDelivered = 0
 
     private weak var client: SubsonicClient?
     private var outbox: ServerOutbox?
@@ -79,6 +82,7 @@ final class UserStateStore {
                 } else {
                     try await client.unstar(id: id, kind: kind)
                 }
+                self?.starsDelivered += 1
                 // An older star or unstar still waiting offline would undo this one.
                 await self?.outbox?.discard(id: id, kinds: [.star, .unstar])
             } catch {

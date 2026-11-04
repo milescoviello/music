@@ -220,7 +220,7 @@ enum Cards {
         }.size(width: side)
         return Button(child: box, "card-button", "flat") {
             env.open(.artist(ArtistRef(artist)))
-        }
+        }.contextMenu { Menus.artist(env, artist) }
     }
 
     /// A grid of album cards for thousands of albums, built only as it scrolls. Each card

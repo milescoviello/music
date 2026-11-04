@@ -134,11 +134,20 @@ enum FavoritesPage {
         loader.bin.observe {
             let scope = app.scope.scope
             _ = app.scope.generation
+            // Again when a star or unstar reaches the server: the page kept what it was
+            // opened with, so an unstarred song stayed until it was opened again.
+            _ = app.userState.starsDelivered
             loader.run({ () -> Starred2? in
                 let client = app.client
                 app.beginLoadPass()
                 return await app.cached(CacheKey.starred(scope.cacheKey)) { try await client.starred(scope: scope) }
-            }) { starred in
+            }) { fetched in
+                // What was unstarred here but the server has not answered for yet.
+                let user = app.userState
+                var starred = fetched
+                starred.song = fetched.songs.filter { user.isStarred($0) }
+                starred.album = fetched.albums.filter { user.isStarred($0) }
+                starred.artist = fetched.artists.filter { user.isStarred($0) }
                 songs = starred.songs
                 guard !starred.songs.isEmpty || !starred.albums.isEmpty || !starred.artists.isEmpty else {
                     return Loader.empty("No Favourites", icon: "music-heart-symbolic", description: "Starred songs, albums and artists appear here.")

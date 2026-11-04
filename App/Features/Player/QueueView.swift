@@ -6,6 +6,7 @@ struct QueueView: View {
     @Environment(AppState.self) private var appState
     @Environment(AutoplayService.self) private var autoplay
     @Environment(GuestDJService.self) private var guestDJ
+    @Environment(UserStateStore.self) private var userState
 
     @State private var tab: Tab = .upNext
     @State private var isSavingAsPlaylist = false
@@ -14,10 +15,15 @@ struct QueueView: View {
     /// iOS turns swipe actions off while one is editing -- and swiping a song away is
     /// what the queue is for most. Edit shows the handles; Done puts the swipes back.
     @State private var isReordering = false
+    /// The Related tab's lists, for the song they were found for.
+    @State private var related: [(kind: SimilarKind, songs: [Song])] = []
+    @State private var isLoadingRelated = false
 
     private enum Tab: String, CaseIterable {
         case earlier = "Earlier"
         case upNext = "Up Next"
+        /// Plexamp's, and the desktop's: tracks like the one playing, following it.
+        case related = "Related"
     }
 
     private var player: PlaybackController { appState.player }
@@ -32,6 +38,7 @@ struct QueueView: View {
             switch tab {
             case .upNext: upNextList
             case .earlier: earlierList
+            case .related: relatedList
             }
         }
         .sheet(isPresented: $isSavingAsPlaylist) {
@@ -73,7 +80,7 @@ struct QueueView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .frame(maxWidth: 220)
+            .frame(maxWidth: 300)
 
             Spacer(minLength: 0)
 
@@ -221,12 +228,63 @@ struct QueueView: View {
         }
     }
 
+    private var relatedList: some View {
+        let song = player.currentSong
+        return List {
+            Section {
+                ForEach(related, id: \.kind) { group in
+                    Text(group.kind.heading.uppercased())
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .listRowBackground(Color.clear)
+                    ForEach(group.songs.indices, id: \.self) { index in
+                        PlayableSongRow(
+                            songs: group.songs,
+                            index: index,
+                            source: "\(group.kind.rawValue) · \(song?.title ?? "")",
+                            showsNavigation: false
+                        )
+                        .listRowBackground(Color.clear)
+                    }
+                }
+            } header: {
+                pinnedHeader
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .overlay {
+            if isLoadingRelated, related.isEmpty {
+                ProgressView()
+            } else if !isLoadingRelated, related.isEmpty {
+                placeholder("There isn't another like it.")
+            }
+        }
+        // Follows the track playing, as the desktop's does.
+        .task(id: song?.id) {
+            guard let song else { related = []; return }
+            isLoadingRelated = true
+            let found = await appState.similarLists(to: song, limit: 20)
+            guard !Task.isCancelled else { return }
+            related = found
+            isLoadingRelated = false
+        }
+    }
+
     private func row(_ entry: (orderIndex: Int, song: Song)) -> some View {
         Button {
             player.jump(toOrderIndex: entry.orderIndex)
         } label: {
             HStack(spacing: 6) {
                 SongRow(song: entry.song, style: .withArtwork)
+                // The desktop's queue shows each track's stars; a rated one shows here too.
+                let rating = userState.rating(entry.song)
+                if rating > 0 {
+                    Text(String(repeating: "★", count: rating) + String(repeating: "☆", count: 5 - rating))
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.5))
+                        .accessibilityLabel("\(rating) star\(rating == 1 ? "" : "s")")
+                }
                 if guestDJ.isPick(entry.song) {
                     // Plexamp marks the DJ's picks, so you can tell its taste from yours.
                     Image(systemName: "sparkles")

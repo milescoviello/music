@@ -8,12 +8,14 @@ struct ArtistListView: View {
 
     @State private var indexes: [ArtistIndex] = []
     @State private var isLoading = false
+    /// The desktop's filter field: typing is quicker than the rail for a name you know.
+    @State private var filter = ""
 
     var body: some View {
         ScrollViewReader { proxy in
             list
                 .overlay(alignment: .trailing) {
-                    if flatArtists.count > 40 {
+                    if flatArtists.count > 40, trimmedFilter.isEmpty {
                         let sections = firstArtistByLetter
                         AlphabetRail(available: Set(sections.keys)) { letter in
                             guard let target = sections[letter] else { return }
@@ -29,6 +31,16 @@ struct ArtistListView: View {
 
     private var flatArtists: [Artist] {
         indexes.flatMap(\.artists)
+    }
+
+    private var trimmedFilter: String { filter.trimmingCharacters(in: .whitespaces) }
+
+    /// The server's sections, or while filtering one section of the names that match.
+    private var shown: [ArtistIndex] {
+        let text = trimmedFilter
+        guard !text.isEmpty else { return indexes }
+        let matches = flatArtists.filter { $0.name.localizedCaseInsensitiveContains(text) }
+        return matches.isEmpty ? [] : [ArtistIndex(name: "Matches", artist: matches)]
     }
 
     /// The rail's letters from the server's own sections, each to the section's first
@@ -57,7 +69,7 @@ struct ArtistListView: View {
 
     private var list: some View {
         List {
-            ForEach(indexes) { index in
+            ForEach(shown) { index in
                 Section(index.name) {
                     ForEach(index.artists) { artist in
                         NavigationLink(value: Destination.artist(ArtistRef(artist))) {
@@ -93,8 +105,14 @@ struct ArtistListView: View {
         .listStyle(.plain)
         .playerClearance()
         .navigationTitle("Artists")
+        .searchable(text: $filter, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Filter artists")
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { LibraryScopeMenu() } }
         .overlay {
-            if isLoading, indexes.isEmpty { ProgressView() }
+            if isLoading, indexes.isEmpty {
+                ProgressView()
+            } else if !trimmedFilter.isEmpty, shown.isEmpty {
+                ContentUnavailableView.search(text: trimmedFilter)
+            }
         }
         .refreshable { await load() }
         .task(id: scope.generation) { await load() }

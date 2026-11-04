@@ -12,24 +12,11 @@ import SwiftUI
 /// analysed, only Related is offered.
 struct SimilarTracksView: View {
     @Environment(AppState.self) private var appState
-    @Environment(SonicService.self) private var sonic
     @Environment(\.dismiss) private var dismiss
 
     let song: Song
 
-    private enum Kind: String, CaseIterable, Identifiable {
-        case sonic = "Sonically Similar"
-        case related = "Related"
-        case comfortZone = "Outside Your Comfort Zone"
-        var id: String { rawValue }
-        var short: String {
-            switch self {
-            case .sonic: return "Similar"
-            case .related: return "Related"
-            case .comfortZone: return "Outside"
-            }
-        }
-    }
+    private typealias Kind = SimilarKind
 
     @State private var list: Kind = .related
     @State private var results: [Kind: [Song]] = [:]
@@ -102,23 +89,11 @@ struct SimilarTracksView: View {
         .playlistPicker(host: "similar")
     }
 
-    private var footer: String {
-        switch list {
-        case .sonic: return "Tracks that sound most like this one, from the sonic analysis of your library."
-        case .related: return "Tracks by artists your server considers similar to \(song.artist ?? "this one")."
-        case .comfortZone: return "Related in sound but not close, by other artists — the ones you haven't played first."
-        }
-    }
+    private var footer: String { list.footer(song) }
 
     private func load() async {
-        let client = appState.client
-        async let sonicList = sonic.similarSongs(to: song, limit: 50)
-        async let distant = sonic.distantSongs(from: song, limit: 50)
-        async let related = try? client.similarSongs(toSongID: song.id, count: 50)
-
-        results[.sonic] = await sonicList ?? []
-        results[.comfortZone] = await distant ?? []
-        results[.related] = (await related ?? []).filter { $0.id != song.id }
+        let lists = await appState.similarLists(to: song, limit: 50)
+        results = Dictionary(uniqueKeysWithValues: lists.map { ($0.kind, $0.songs) })
         // Sonic first when there is one, as in Plexamp.
         list = available.first ?? .related
         isLoading = false
