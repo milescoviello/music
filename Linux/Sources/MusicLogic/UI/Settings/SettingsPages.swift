@@ -416,7 +416,7 @@ enum SettingsPages {
         })
         page.add(PreferencesGroup("Home Screen", description: "Choose which shelves Home shows, and in what order — from Home's own menu.") {
             ButtonRow("Reset Home Screen", icon: "edit-undo-symbolic", destructive: true) {
-                UserDefaults.standard.removeObject(forKey: "home.layout")
+                HomePage.resetLayout()
             }
         })
         page.observe {
@@ -671,7 +671,8 @@ enum SettingsPages {
             mixes.add(ButtonRow("Rebuild Daily Mixes", icon: "view-refresh-symbolic") {
                 Task { @MainActor in
                     app.mixes.forgetToday()
-                    await app.mixes.loadAndWait(appState: app, scope: app.scope.scope)
+                    // The mixes' own library, as Home builds them: not the one being browsed.
+                    await app.mixes.loadAndWait(appState: app, scope: app.scope.mixScope)
                     reload()
                 }
             })

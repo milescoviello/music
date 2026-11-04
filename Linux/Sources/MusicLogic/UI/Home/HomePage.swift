@@ -16,8 +16,6 @@ enum HomePage {
         let body = Box.vertical(spacing: 0) { shelves }.margin(horizontal: 12, vertical: 18)
         body.keep(model)
 
-        let layoutVersion = LayoutVersion()
-        body.keep(layoutVersion)
         body.observe {
             _ = layoutVersion.value
             _ = model.hasLoaded
@@ -66,10 +64,20 @@ enum HomePage {
         return page
     }
 
-    /// Bumped when the layout is edited, so the shelves are rebuilt.
+    /// Bumped when the layout is edited, so the shelves are rebuilt. Shared, so Settings'
+    /// Reset Home Screen redraws Home too: it cleared the layout, and Home kept showing
+    /// the old one until something else changed.
     @Observable
     final class LayoutVersion {
         var value = 0
+    }
+
+    private static let layoutVersion = LayoutVersion()
+
+    /// Back to the shelves Home starts with.
+    static func resetLayout() {
+        UserDefaults.standard.removeObject(forKey: layoutKey)
+        layoutVersion.value += 1
     }
 
     private static var layout: HomeLayout {
