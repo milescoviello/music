@@ -86,7 +86,7 @@ public enum MusicApplication {
     private static func installQuickPlay(_ application: UnsafeMutablePointer<AdwApplication>) {
         let names = QuickPlay.allCases.map(\.rawValue).joined(separator: ", ")
         g_application_add_main_option(
-            application.cast(), "action", 0, G_OPTION_FLAG_NONE, G_OPTION_ARG_STRING,
+            application.cast(), "action", 0, GOptionFlags(rawValue: 0), G_OPTION_ARG_STRING,
             "Start playing: \(names)", "NAME"
         )
         Signal.connectStatus(application, "handle-local-options", pointer: { options in
