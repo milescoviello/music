@@ -120,6 +120,7 @@ func logicPackage() -> Package {
                     "SkipMemory.swift",
                     "SmartShuffle.swift",
                     "Recap.swift",
+                    "CoverPlaceholder.swift",
                     "LibraryScope.swift",
                     "RecentPlays.swift",
                     "SonicClient.swift",

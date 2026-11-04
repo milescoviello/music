@@ -27,6 +27,10 @@ struct PlayableSongRow: View {
     /// is for -- a playlist. It has to be this row's own swipe: a second `.swipeActions`
     /// for the same edge, put on from outside, leaves which one iOS shows undefined.
     var onRemove: (() -> Void)?
+    /// For a row in a `ScrollView`, not a `List` -- Home, an artist's page -- where
+    /// `.swipeActions` does nothing: the row swipes by itself instead. A parameter, not an
+    /// environment value, so it cannot reach the `List` screens pushed from there.
+    var swipesOutsideList = false
 
     private var song: Song { songs[index] }
 
@@ -100,5 +104,17 @@ struct PlayableSongRow: View {
                 .tint(.gray)
             }
         }
+        // The same two, where the row is not in a `List` and the ones above do nothing.
+        .modifier(RowSwipe(
+            isEnabled: swipesOutsideList,
+            leading: .init(title: "Play Next", systemImage: "text.insert", tint: .appTint) {
+                appState.player.playNext([song])
+            },
+            trailing: onRemove.map { remove in
+                .init(title: "Remove", systemImage: "minus.circle", tint: .red, perform: remove)
+            } ?? .init(title: "Queue", systemImage: "text.append", tint: .gray) {
+                appState.player.append([song])
+            }
+        ))
     }
 }

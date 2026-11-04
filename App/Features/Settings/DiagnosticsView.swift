@@ -16,6 +16,8 @@ struct DiagnosticsView: View {
     @State private var note = ""
     @State private var isSending = false
     @State private var sent: Sent?
+    /// The note's keyboard, put away on Send: left up, it hid the answer (2026-11-03).
+    @FocusState private var isWritingNote: Bool
 
     /// How the last Send Logs went. A report that didn't arrive is kept, to share instead.
     private enum Sent {
@@ -28,6 +30,7 @@ struct DiagnosticsView: View {
             Section {
                 TextField("What went wrong? (optional)", text: $note, axis: .vertical)
                     .lineLimit(1...5)
+                    .focused($isWritingNote)
                 Button {
                     send()
                 } label: {
@@ -216,6 +219,7 @@ struct DiagnosticsView: View {
     }
 
     private func send() {
+        isWritingNote = false
         isSending = true
         sent = nil
         Task {

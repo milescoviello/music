@@ -61,7 +61,8 @@ final class HomeModel {
         }
         // Not cached: it is derived from two calls, and offline the starred list it is
         // built from is already served from the cache above.
-        async let neglected = Rediscovery.forgottenFavourites(appState: appState, scope: scope, limit: 3)
+        // A few spare: the shelf shows three, and drops each one as it is played.
+        async let neglected = Rediscovery.forgottenFavourites(appState: appState, scope: scope, limit: 12)
 
         // One of each: the two library folders hold many albums twice.
         recentlyPlayed = SearchRanking.oneOfEach(await played ?? [])

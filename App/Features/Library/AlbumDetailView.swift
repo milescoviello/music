@@ -12,6 +12,8 @@ struct AlbumDetailView: View {
     @State private var review: String?
     @State private var moreByArtist: [Album] = []
     @State private var sonicallySimilar: [Album] = []
+    /// The similar albums that are singles, by album id, with their one song.
+    @State private var similarSingles: [String: Song] = [:]
     @State private var isReviewExpanded = false
 
     var body: some View {
@@ -255,7 +257,9 @@ struct AlbumDetailView: View {
             moreByArtist = SearchRanking.moreBy(artist.albums, than: Album(id: id, name: detail?.name ?? "", artist: detail?.artist))
         }
         review = await info?.plainNotes
-        sonicallySimilar = await appState.sonic.similarAlbums(to: id) ?? []
+        let similar = await appState.sonic.similarAlbumsWithSingles(to: id) ?? []
+        sonicallySimilar = similar.map(\.album)
+        similarSingles = Dictionary(similar.compactMap { pair in pair.single.map { (pair.album.id, $0) } }) { first, _ in first }
     }
 
     /// Plexamp's Sonically Similar Albums, from our sonic analysis: other artists' albums
@@ -265,12 +269,24 @@ struct AlbumDetailView: View {
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: Metrics.itemSpacing) {
                     ForEach(albums) { other in
-                        NavigationLink(value: Destination.album(AlbumRef(other))) {
-                            AlbumCard(album: other)
-                                .frame(width: Metrics.cardWidth)
+                        if let single = similarSingles[other.id] {
+                            // A single plays, and its menu is the song's.
+                            Button {
+                                appState.player.play(songs: [single], startingAt: 0, source: "Sonically Similar")
+                            } label: {
+                                AlbumCard(album: other)
+                                    .frame(width: Metrics.cardWidth)
+                            }
+                            .buttonStyle(.plain)
+                            .contextMenu { SongMenu(song: single) }
+                        } else {
+                            NavigationLink(value: Destination.album(AlbumRef(other))) {
+                                AlbumCard(album: other)
+                                    .frame(width: Metrics.cardWidth)
+                            }
+                            .buttonStyle(.plain)
+                            .albumMenu(other)
                         }
-                        .buttonStyle(.plain)
-                        .albumMenu(other)
                     }
                 }
             }

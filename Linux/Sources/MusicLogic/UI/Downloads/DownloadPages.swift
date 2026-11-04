@@ -160,7 +160,7 @@ enum DownloadsPage {
 enum DownloadFolderRow {
     static func make(_ env: Env, _ folder: DownloadFolders.Folder) -> Widget {
         let artwork = ArtworkView(env.app, size: .thumb, side: 56, shape: .thumb)
-        artwork.show(folder.coverArt, playlistID: folder.kind == .playlist ? folder.key : nil, fallback: folder.name)
+        artwork.show(env.app.playlistStore.cover(for: folder), playlistID: folder.kind == .playlist ? folder.key : nil, fallback: folder.name)
         let cover = Overlay(artwork.root)
         if folder.isDownloading {
             let fraction = folder.fractionDone
@@ -245,7 +245,7 @@ enum DownloadFolderPage {
 
     private static func content(_ env: Env, _ folder: DownloadFolders.Folder) -> Widget {
         let artwork = ArtworkView(env.app, size: .full, side: 200, shape: .player)
-        artwork.show(folder.coverArt, playlistID: folder.kind == .playlist ? folder.key : nil, fallback: folder.name)
+        artwork.show(env.app.playlistStore.cover(for: folder), playlistID: folder.kind == .playlist ? folder.key : nil, fallback: folder.name)
         var summary = [folder.trackCountText]
         if folder.duration > 0 { summary.append(folder.duration.asLongDuration) }
         summary.append(folder.byteCount.asFileSize)

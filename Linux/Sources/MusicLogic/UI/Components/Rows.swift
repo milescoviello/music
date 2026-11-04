@@ -180,9 +180,16 @@ final class AlbumCardView {
 @MainActor
 enum Cards {
     /// A clickable album card with its menu.
-    static func album(_ env: Env, _ album: Album, side: Int32 = AlbumCardView.side) -> Widget {
+    /// `single`: the album's one song, when it has only one. Then the card plays it, and its
+    /// menu is the song's, rather than opening an album page with one track on it.
+    static func album(_ env: Env, _ album: Album, single: Song? = nil, side: Int32 = AlbumCardView.side) -> Widget {
         let card = AlbumCardView(env, side: side)
         card.bind(album)
+        if let single {
+            return Button(child: card.root, "card-button", "flat") {
+                env.play([single], source: "Sonically Similar")
+            }.contextMenu { Menus.song(env, single) }
+        }
         return Button(child: card.root, "card-button", "flat") {
             env.open(.album(AlbumRef(album)))
         }.contextMenu { Menus.album(env, album) }

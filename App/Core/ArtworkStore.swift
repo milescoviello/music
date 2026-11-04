@@ -74,8 +74,15 @@ final class ArtworkStore {
         // Version 2 cleared covers fetched while Navidrome was rebuilding its artwork,
         // which `returnCacheDataElseLoad` would have kept forever. Version 3 drops the
         // URLCache that held them, now replaced by `Paths.covers`.
-        let version = 3
+        // Version 4 removes Navidrome's placeholder record, kept as covers until now.
+        let version = 4
         let stored = UserDefaults.standard.integer(forKey: "artwork.cacheVersion")
+        if stored < 4 {
+            Task.detached(priority: .background) {
+                let removed = CoverPlaceholder.purge(in: Paths.covers) + CoverPlaceholder.purge(in: Paths.artwork)
+                await Diagnostics.shared.record("artwork", "removed \(removed) kept copies of the server's placeholder")
+            }
+        }
         if stored < version {
             URLCache(memoryCapacity: 0, diskCapacity: 0, diskPath: "artwork").removeAllCachedResponses()
             if stored < 2 {
@@ -384,7 +391,8 @@ final class ArtworkStore {
               (response as? HTTPURLResponse).map({ (200...299).contains($0.statusCode) }) ?? true,
               !(response.mimeType ?? "").contains("json"),
               !(response.mimeType ?? "").contains("xml"),
-              !data.isEmpty
+              !data.isEmpty,
+              !CoverPlaceholder.isServerPlaceholder(data)
         else { return nil }
         return data
     }

@@ -8,12 +8,13 @@ import SwiftUI
 /// consulted: it changes many times a second while anything downloads, and every row
 /// that read it would redraw with it.
 struct DownloadFolderRow: View {
+    @Environment(PlaylistStore.self) private var store
     let folder: DownloadFolders.Folder
 
     var body: some View {
         HStack(spacing: Metrics.itemSpacing) {
             ArtworkImage(
-                id: folder.coverArt,
+                id: store.cover(for: folder),
                 size: .thumb,
                 cornerRadius: Metrics.radiusThumb,
                 playlistID: folder.kind == .playlist ? folder.key : nil,

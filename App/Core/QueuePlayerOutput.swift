@@ -70,6 +70,7 @@ final class QueuePlayerOutput: AudioOutput {
     /// Not raised here yet: a failed item is still left to `AVQueuePlayer`. The Linux
     /// output, which decodes its own streams, holds an unreachable track and raises it.
     var onUnreachable: ((String) -> Void)?
+    var onFailedMidTrack: ((String, Double) -> Void)?
     var onTick: ((Double, Bool) -> Void)?
     var locate: ((Song) -> MediaLocation?)?
     var makeChain: ((Song) -> DSPChain)?
@@ -161,10 +162,17 @@ final class QueuePlayerOutput: AudioOutput {
         troubleObservers.append(center.addObserver(
             forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: nil, queue: .main
         ) { [weak self] notification in
-            let item = (notification.object as AnyObject?).map { ObjectIdentifier($0) }
+            let failed = notification.object as? AVPlayerItem
+            let item = failed.map { ObjectIdentifier($0) }
             let reason = (notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)
                 .map(Diagnostics.describe) ?? "no reason given"
-            MainActor.assumeIsolated { self?.logTrouble(item, "stopped before its end: \(reason)") }
+            // Read here, while the item is in hand: by the time anything else looks, the
+            // player has let it go.
+            let position = failed?.currentTime().seconds
+            let streamed = (failed?.asset as? AVURLAsset).map { !$0.url.isFileURL } ?? false
+            MainActor.assumeIsolated {
+                self?.failedMidTrack(item, at: position, streamed: streamed, reason: reason)
+            }
         })
         troubleObservers.append(center.addObserver(
             forName: AVPlayerItem.playbackStalledNotification, object: nil, queue: .main
@@ -178,6 +186,17 @@ final class QueuePlayerOutput: AudioOutput {
             let item = (notification.object as AnyObject?).map { ObjectIdentifier($0) }
             MainActor.assumeIsolated { self?.logErrorLogEntry(item) }
         })
+    }
+
+    /// A track that gave out before its end. `AVQueuePlayer` moves on from it at once, which
+    /// sounds like a skip: a streamed track that failed to decode after a seek on a slow
+    /// link did just that (2026-11-03). Logged, and a streamed one is offered back to the
+    /// controller with where it stopped. A downloaded file failing would fail again.
+    private func failedMidTrack(_ id: ObjectIdentifier?, at position: Double?, streamed: Bool, reason: String) {
+        logTrouble(id, "stopped before its end: \(reason)")
+        guard streamed, let id, let songID = itemToSongID[id], let position, position.isFinite, position >= 0
+        else { return }
+        onFailedMidTrack?(songID, position)
     }
 
     /// The newest entry of the item's own error log: an HTTP status and what the loader

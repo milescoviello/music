@@ -125,11 +125,13 @@ enum HomePage {
                 SongList.make(env, model.favoriteSongs, source: "Favourites")
             }
         case .forgottenFavourites:
+            // Read here, so a play rebuilds the shelf without it.
             let forgotten = model.forgotten
-            guard !forgotten.songs.isEmpty else { return nil }
+            let songs = forgotten.remaining(after: app.history, limit: 3)
+            guard !songs.isEmpty else { return nil }
             return Box.vertical(spacing: 8) {
                 header("Forgotten Favourites") { env.open(.rediscover) }
-                SongList.make(env, forgotten.songs, source: "Forgotten Favourites") { song in
+                SongList.make(env, songs, source: "Forgotten Favourites") { song in
                     Rediscovery.lastPlayedText(forgotten.lastPlayed[song.id])
                 }
             }

@@ -210,6 +210,9 @@ final class PlaybackController {
         output.onUnreachable = { [weak self] songID in
             self?.handleUnreachable(songID: songID)
         }
+        output.onFailedMidTrack = { [weak self] songID, position in
+            self?.handleFailedMidTrack(songID: songID, at: position)
+        }
         output.onTick = { [weak self] elapsed, isMoving in
             self?.tick(elapsed: elapsed, isMoving: isMoving)
         }
@@ -1258,6 +1261,52 @@ final class PlaybackController {
             else { return }
             play()
         }
+    }
+
+    /// When the last tries at a track that gave out partway were made: two in two minutes,
+    /// then it is let go, so a track that cannot be played does not hold the queue.
+    private var midTrackRetries: [Date] = []
+
+    /// A streamed track gave out partway and the output moved past it: go back to it and
+    /// play on from where it stopped, as a skip nobody asked for is worse than a pause.
+    ///
+    /// The failure can be reported before or just after the output's own move to the next
+    /// track, so the song is looked for as the current one, then as the one just left.
+    private func handleFailedMidTrack(songID: String, at position: Double) {
+        guard remote == nil, isPlaying, let wanted = queue.tracks.first(where: { $0.id == songID }) else { return }
+        let length = Double(wanted.duration ?? 0)
+        // At its very end there is nothing left to hear: moving on was right.
+        guard length <= 0 || position < length - 3 else { return }
+
+        let index: Int
+        if queue.current?.id == songID {
+            index = queue.position
+        } else if queue.position > 0, queue.tracks[queue.order[queue.position - 1]].id == songID, elapsed < 10 {
+            index = queue.position - 1
+        } else {
+            return
+        }
+        midTrackRetries.removeAll { Date.now.timeIntervalSince($0) > 120 }
+        let title = wanted.title
+        guard midTrackRetries.count < 2 else {
+            Task { await Diagnostics.shared.record("playback", "“\(title)” gave out again, letting it go") }
+            return
+        }
+        midTrackRetries.append(.now)
+        let at = Diagnostics.duration(position)
+        Task { await Diagnostics.shared.record("playback", "“\(title)” gave out at \(at), playing it again from there") }
+
+        queue.position = index
+        let window = currentWindow
+        output.load(window: window, startAt: position)
+        queueChanged()
+        duration = Double(wanted.duration ?? 0)
+        elapsed = position
+        // Still the queue's current track: the same play goes on.
+        tracker.trackChanged(to: wanted, duration: duration)
+        tracker.interrupted(at: position)
+        startOutput()
+        persist()
     }
 
     // MARK: - Now Playing

@@ -113,7 +113,7 @@ enum AlbumPage {
         Task { @MainActor in
             let client = app.client
             async let info = try? client.albumInfo(id: album.id)
-            async let similarAlbums = app.sonic.similarAlbums(to: album.id)
+            async let similarAlbums = app.sonic.similarAlbumsWithSingles(to: album.id)
             var more: [Album] = []
             if let artistID = detail.artistId, let artist = try? await client.artistDetail(id: artistID) {
                 more = SearchRanking.moreBy(artist.albums, than: Album(id: album.id, name: detail.name, artist: detail.artist))
@@ -127,7 +127,7 @@ enum AlbumPage {
                 })
             }
             if let similar, !similar.isEmpty {
-                extras.append(Shelf.make("Sonically Similar", cards: similar.map { Cards.album(env, $0) }))
+                extras.append(Shelf.make("Sonically Similar", cards: similar.map { Cards.album(env, $0.album, single: $0.single) }))
             }
             if !more.isEmpty, let artist {
                 extras.append(Shelf.make("More by \(artist)", cards: more.map { Cards.album(env, $0) }))

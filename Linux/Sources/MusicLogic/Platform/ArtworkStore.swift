@@ -39,6 +39,14 @@ final class ArtworkStore {
 
         try? FileManager.default.createDirectory(at: Self.cacheDirectory, withIntermediateDirectories: true)
         Task.detached(priority: .background) { Self.trimCache() }
+        // Once: Navidrome's placeholder record, kept as covers until it was recognised.
+        if !UserDefaults.standard.bool(forKey: "artwork.placeholderPurged") {
+            UserDefaults.standard.set(true, forKey: "artwork.placeholderPurged")
+            Task.detached(priority: .background) {
+                let removed = CoverPlaceholder.purge(in: Self.cacheDirectory) + CoverPlaceholder.purge(in: Paths.artwork)
+                await Diagnostics.shared.record("artwork", "removed \(removed) kept copies of the server's placeholder")
+            }
+        }
     }
 
     /// Seen covers, not kept ones: can be emptied at any time and refetched.
@@ -261,7 +269,7 @@ final class ArtworkStore {
             guard let remote,
                   let (data, response) = try? await session.data(from: remote),
                   (response as? HTTPURLResponse)?.statusCode ?? 200 < 300,
-                  !Self.isErrorBody(data)
+                  !Self.isErrorBody(data), !CoverPlaceholder.isServerPlaceholder(data)
             else { return nil }
             try? data.write(to: cache, options: .atomic)
             return data
@@ -328,7 +336,7 @@ final class ArtworkStore {
                         guard !Task.isCancelled,
                               let (data, response) = try? await session.data(from: item.remote),
                               (response as? HTTPURLResponse)?.statusCode ?? 200 < 300,
-                              !Self.isErrorBody(data)
+                              !Self.isErrorBody(data), !CoverPlaceholder.isServerPlaceholder(data)
                         else { return }
                         try? data.write(to: item.file, options: .atomic)
                     }

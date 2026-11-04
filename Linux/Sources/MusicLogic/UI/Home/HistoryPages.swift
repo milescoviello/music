@@ -16,6 +16,8 @@ enum RediscoverPage {
             _ = model.monthAgo
             let forgotten = model.forgotten
             _ = forgotten
+            // Each play: a favourite played drops out of Forgotten Favourites.
+            _ = app.history.plays.count
             fill(body, model: model, env: env)
         }
         body.keep(rebuild)
@@ -40,9 +42,10 @@ enum RediscoverPage {
             }
             return
         }
-        if !model.forgotten.songs.isEmpty {
+        let forgotten = model.forgotten.remaining(after: app.history)
+        if !forgotten.isEmpty {
             let lastPlayed: (Song) -> String? = { model.lastPlayedText(for: $0) }
-            let list = SongList.make(env, model.forgotten.songs, source: "Forgotten Favourites", trailing: lastPlayed)
+            let list = SongList.make(env, forgotten, source: "Forgotten Favourites", trailing: lastPlayed)
             body.append(section("Forgotten Favourites", footer: "Starred, and least recently played. A favourite you have never played at all comes first.", list))
         }
         if !model.neverPlayed.isEmpty {

@@ -168,17 +168,19 @@ struct HomeView: View {
     /// somewhere you have not already been.
     @ViewBuilder
     private var forgottenFavourites: some View {
-        if !model.forgotten.songs.isEmpty {
+        let songs = model.forgotten.remaining(after: appState.history, limit: 3)
+        if !songs.isEmpty {
             VStack(alignment: .leading, spacing: Metrics.headerToContent) {
                 ShelfHeader(title: "Forgotten Favourites", seeAll: .rediscover)
 
                 VStack(spacing: 0) {
-                    ForEach(Array(model.forgotten.songs.enumerated()), id: \.element.id) { index, song in
+                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, song in
                         PlayableSongRow(
-                            songs: model.forgotten.songs,
+                            songs: songs,
                             index: index,
                             source: "Forgotten Favourites",
-                            trailing: Rediscovery.lastPlayedText(model.forgotten.lastPlayed[song.id])
+                            trailing: Rediscovery.lastPlayedText(model.forgotten.lastPlayed[song.id]),
+                            swipesOutsideList: true
                         )
                         .padding(.horizontal, Metrics.gutter)
                         .padding(.vertical, 6)
@@ -315,16 +317,15 @@ struct HomeView: View {
                 // `contentShape` and nothing to receive the tap, so unlike every other
                 // song list in the app they did nothing at all -- no play, no menu.
                 //
-                // Swipe actions still will not work here, because `.swipeActions` only
-                // functions inside a `List` and Home is a `ScrollView`. Tap and
-                // long-press do, which is the same trade `ArtistDetailView` makes for its
-                // Top Songs block. Not worth turning Home into a `List` for.
+                // Swiped by the rows' own `RowSwipe`: `.swipeActions` only works inside a
+                // `List`, and Home is a `ScrollView`.
                 VStack(spacing: 0) {
                     ForEach(Array(model.favoriteSongs.enumerated()), id: \.element.id) { index, _ in
                         PlayableSongRow(
                             songs: model.favoriteSongs,
                             index: index,
-                            source: "Favourites"
+                            source: "Favourites",
+                            swipesOutsideList: true
                         )
                         .padding(.horizontal, Metrics.gutter)
                         .padding(.vertical, 6)

@@ -75,6 +75,15 @@ final class PlaylistStore {
 
     @ObservationIgnored private var loadedAt: Date?
 
+    /// A download folder's picture: for a playlist, the playlist's own, as the library
+    /// shows it, not its first song's cover, which is what Downloads showed instead.
+    func cover(for folder: DownloadFolders.Folder) -> String? {
+        guard folder.kind == .playlist,
+              let playlist = playlists.first(where: { $0.id == folder.key }), let cover = playlist.coverArt
+        else { return folder.coverArt }
+        return cover
+    }
+
     /// Loads again when the list is more than a minute old: for the Playlists screens and
     /// Add to Playlist. Loaded once only, a playlist made on the other device, or a count
     /// changed there, stayed missing until a pull to refresh or a relaunch.

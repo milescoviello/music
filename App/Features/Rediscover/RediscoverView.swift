@@ -8,13 +8,19 @@ struct RediscoverView: View {
     @State private var loadedGeneration: Int?
     @State private var model = RediscoverModel()
 
+    /// Without what has been played since the list came: it follows each play.
+    private var forgotten: [Song] {
+        model.forgotten.remaining(after: appState.history)
+    }
+
     var body: some View {
         List {
-            if !model.forgotten.songs.isEmpty {
+            if !forgotten.isEmpty {
                 Section {
-                    ForEach(Array(model.forgotten.songs.enumerated()), id: \.offset) { index, song in
+                    // By id: a song played drops out, and the rows after it move up.
+                    ForEach(Array(forgotten.enumerated()), id: \.element.id) { index, song in
                         PlayableSongRow(
-                            songs: model.forgotten.songs,
+                            songs: forgotten,
                             index: index,
                             source: "Forgotten Favourites",
                             trailing: model.lastPlayedText(for: song)

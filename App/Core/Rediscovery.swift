@@ -11,6 +11,22 @@ enum Rediscovery {
         var songs: [Song] = []
         /// Keyed by song id. Absent means never played, which is not the same as unknown.
         var lastPlayed: [String: Date] = [:]
+
+        /// `songs`, without what has been played in the last month, by either copy. The
+        /// list is fetched once, and a favourite played since is not forgotten any more:
+        /// the shelf kept offering the very songs being played from it (2026-11-03). It
+        /// reads the history, so a screen showing it follows each play.
+        @MainActor
+        func remaining(after history: ListeningHistory, limit: Int = .max) -> [Song] {
+            let since = Date.now.addingTimeInterval(-30 * 86_400)
+            var played: Set<String> = []
+            // Oldest first, so the month is at the end.
+            for play in history.plays.reversed() {
+                guard play.at >= since else { break }
+                played.insert(MixEngine.identity(title: play.title, artist: play.artist))
+            }
+            return Array(songs.lazy.filter { !played.contains(MixEngine.identity($0)) }.prefix(limit))
+        }
     }
 
     /// "8 months ago", or "Never" when the server has no play date at all.

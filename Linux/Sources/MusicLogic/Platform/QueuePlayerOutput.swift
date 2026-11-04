@@ -33,6 +33,9 @@ final class QueuePlayerOutput: AudioOutput {
 
     var onAdvanced: ((String?) -> Void)?
     var onUnreachable: ((String) -> Void)?
+    /// Never raised: this output decodes its own streams, and holds a track it cannot read
+    /// rather than moving past it, which is what the iPhone's needs going back for.
+    var onFailedMidTrack: ((String, Double) -> Void)?
     var onTick: ((Double, Bool) -> Void)?
     var locate: ((Song) -> MediaLocation?)?
     var makeChain: ((Song) -> DSPChain)?

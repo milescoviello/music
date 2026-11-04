@@ -135,12 +135,28 @@ final class SonicService {
     // MARK: - Albums and artists
 
     func similarAlbums(to albumID: String, limit: Int = 12) async -> [Album]? {
+        await similarAlbumsWithSingles(to: albumID, limit: limit)?.map(\.album)
+    }
+
+    /// The same, each with its one song when it is a single: a single's card plays that
+    /// song rather than opening an album page with one track on it (2026-11-03). The
+    /// details are fetched for the cards anyway, so the song costs nothing more.
+    func similarAlbumsWithSingles(to albumID: String, limit: Int = 12) async -> [(album: Album, single: Song?)]? {
         guard isAvailable, let appState,
               let hits = try? await client.similarAlbums(to: albumID, limit: limit), !hits.isEmpty
         else { return nil }
         let api = appState.client
-        let found = await ordered(hits.map(\.id)) { id in try? await api.albumDetail(id: id).summary }
-        return found.isEmpty ? nil : found
+        let found = await ordered(hits.map(\.id)) { id -> SimilarAlbum? in
+            guard let detail = try? await api.albumDetail(id: id) else { return nil }
+            let songs = detail.song ?? []
+            return SimilarAlbum(album: detail.summary, single: songs.count == 1 ? songs.first : nil)
+        }
+        return found.isEmpty ? nil : found.map { ($0.album, $0.single) }
+    }
+
+    private struct SimilarAlbum: Sendable {
+        let album: Album
+        let single: Song?
     }
 
     func similarArtists(to artistID: String, limit: Int = 15) async -> [Artist]? {

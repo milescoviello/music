@@ -54,7 +54,8 @@ struct ArtistDetailView: View {
                                 songs: popular,
                                 index: index,
                                 source: artist.name,
-                                showsNavigation: false
+                                showsNavigation: false,
+                                swipesOutsideList: true
                             )
                             .padding(.horizontal, Metrics.gutter)
                             .padding(.vertical, 6)

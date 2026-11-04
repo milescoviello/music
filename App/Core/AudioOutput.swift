@@ -58,6 +58,9 @@ protocol AudioOutput: AnyObject {
     /// The current track could not be fetched: the server did not answer. The output
     /// holds the track rather than moving on, and the controller decides when to retry.
     var onUnreachable: ((String) -> Void)? { get set }
+    /// A streamed track gave out partway, and the output moved past it: the id, and where
+    /// it stopped. The controller decides whether to go back and try it again from there.
+    var onFailedMidTrack: ((_ songID: String, _ position: Double) -> Void)? { get set }
     /// Roughly 4 Hz. `isMoving` is false while stalled, so the play tracker does not
     /// credit listening time to a buffering track.
     var onTick: ((_ elapsed: Double, _ isMoving: Bool) -> Void)? { get set }
