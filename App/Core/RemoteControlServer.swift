@@ -1,8 +1,18 @@
 import Foundation
 import Observation
+#if canImport(UIKit)
+import UIKit
+#endif
 
-/// The desktop's half of remote players: the phone's commands played here, and what plays
-/// here told to the phone. The protocol is `RemoteControl`'s, in the shared core.
+/// What announces this player on the network: Avahi on the desktop, Bonjour on the phone.
+protocol RemoteAdvertising: AnyObject, Sendable {
+    func publish(name: String, type: String, port: UInt16, txt: [String])
+    func withdraw()
+}
+
+/// The played-to half of remote players: another device's commands played here, and what
+/// plays here told to it. The desktop's from the start; the phone's too, so the desktop
+/// can play to it. The protocol is `RemoteControl`'s, in the shared core.
 ///
 /// Every command is a call the desktop's own screens make, on the same
 /// `PlaybackController`, so a phone playing an album does exactly what a click on it
@@ -59,7 +69,7 @@ final class RemoteControlServer {
     @ObservationIgnored private let id: String
     @ObservationIgnored private weak var app: AppState?
     @ObservationIgnored private var server: HTTPServer?
-    @ObservationIgnored private let avahi = Avahi()
+    @ObservationIgnored private var advertiser: (any RemoteAdvertising)?
     @ObservationIgnored private var streams: [ObjectIdentifier: HTTPConnection] = [:]
     @ObservationIgnored private var observer: Observer?
     @ObservationIgnored private var pinger: Task<Void, Never>?
@@ -76,7 +86,13 @@ final class RemoteControlServer {
 
     private init() {
         let defaults = UserDefaults.standard
+        // On by default on the desktop, which is what it was for; off on the phone, which
+        // listens only while it runs and is asked to.
+        #if canImport(UIKit)
+        isEnabled = defaults.object(forKey: Keys.enabled) as? Bool ?? false
+        #else
         isEnabled = defaults.object(forKey: Keys.enabled) as? Bool ?? true
+        #endif
         name = defaults.string(forKey: Keys.name) ?? Self.hostName
         if let id = defaults.string(forKey: Keys.id) {
             self.id = id
@@ -88,15 +104,28 @@ final class RemoteControlServer {
     }
 
     private static var hostName: String {
+        #if canImport(UIKit)
+        return UIDevice.current.name
+        #else
         let host = ProcessInfo.processInfo.hostName.split(separator: ".").first.map(String.init) ?? ""
         return host.isEmpty || host == "localhost" ? "Desktop" : host
+        #endif
     }
 
     // MARK: - Running
 
-    func start(app: AppState) {
+    func start(app: AppState, advertiser: any RemoteAdvertising) {
         self.app = app
+        self.advertiser = advertiser
         if isEnabled { listen() }
+    }
+
+    /// Back in front on the phone: iOS may have closed the listening socket while the app
+    /// was suspended, so it is opened afresh.
+    func appBecameActive() {
+        guard isEnabled, app != nil else { return }
+        stopListening()
+        listen()
     }
 
     private func listen() {
@@ -123,7 +152,7 @@ final class RemoteControlServer {
         server?.stop()
         server = nil
         port = nil
-        avahi.withdraw()
+        advertiser?.withdraw()
         pinger?.cancel()
         for connection in streams.values { connection.close() }
         streams = [:]
@@ -134,7 +163,7 @@ final class RemoteControlServer {
 
     private func advertise() {
         guard let port else { return }
-        avahi.publish(
+        advertiser?.publish(
             name: name,
             type: RemoteControl.serviceType,
             port: port,

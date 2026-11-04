@@ -10,7 +10,7 @@ import Foundation
 ///
 /// The calls block, for at most a few seconds when Avahi is wedged, so they run on a
 /// thread of their own.
-final class Avahi: @unchecked Sendable {
+final class Avahi: RemoteAdvertising, @unchecked Sendable {
     private let lock = NSLock()
     private var bus: OpaquePointer?
     private var group: String?

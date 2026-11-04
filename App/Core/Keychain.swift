@@ -86,6 +86,17 @@ enum Keychain {
         read(account: remoteAccount)
     }
 
+    /// The devices paired to control this phone, with their tokens: the desktop's item.
+    static func saveRemoteDevices(_ devices: [RemoteControlServer.Device]) {
+        guard let data = try? JSONEncoder().encode(devices) else { return }
+        write(data, account: "remote-devices")
+    }
+
+    static func loadRemoteDevices() -> [RemoteControlServer.Device] {
+        guard let data = read(account: "remote-devices") else { return [] }
+        return (try? JSONDecoder().decode([RemoteControlServer.Device].self, from: data)) ?? []
+    }
+
     // MARK: - Plumbing
 
     private static func write(_ data: Data, account: String) {

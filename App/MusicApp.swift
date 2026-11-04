@@ -15,6 +15,8 @@ struct MusicApp: App {
         let launched = "launched \(SettingsView.version) on \(LogReport.currentSystem)"
         Task { await Diagnostics.shared.record("app", launched) }
         _remotePlayers = State(initialValue: RemotePlayers(appState: appState, browser: NetworkRemoteBrowser()))
+        // The desktop can play to the phone too, when it is allowed in Settings.
+        RemoteControlServer.shared.start(app: appState, advertiser: BonjourAdvertiser())
     }
 
     var body: some Scene {
@@ -44,6 +46,7 @@ struct MusicApp: App {
                 .environment(appState.sonic)
                 .environment(appState.streamCache)
                 .environment(remotePlayers)
+                .remotePairingPrompt()
                 .preferredColorScheme(.dark)
                 .tint(.appTint)
                 .onChange(of: scenePhase) { _, phase in
@@ -56,6 +59,7 @@ struct MusicApp: App {
                         // only signal that the interruption is over.
                         appState.player.appBecameActive()
                         remotePlayers.appBecameActive()
+                        RemoteControlServer.shared.appBecameActive()
                         // iOS clears the idle-timer flag when the app leaves the
                         // foreground, so it has to be set again on the way back.
                         appState.screenAwake.apply()

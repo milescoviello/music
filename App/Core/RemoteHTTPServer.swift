@@ -1,9 +1,51 @@
 import Foundation
 #if canImport(Glibc)
 import Glibc
+#elseif canImport(Darwin)
+import Darwin
 #endif
 
-/// The smallest HTTP/1.1 server the remote needs: one request per connection, answered
+/// The socket calls whose spelling differs between Linux and Apple's platforms.
+private enum Socket {
+    static func stream() -> Int32 {
+        #if os(Linux)
+        return socket(AF_INET, Int32(SOCK_STREAM.rawValue) | Int32(SOCK_CLOEXEC.rawValue), 0)
+        #else
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        if fd >= 0 { noSignal(fd) }
+        return fd
+        #endif
+    }
+
+    /// A peer gone must be an error from `send`, not a SIGPIPE that ends the app: Linux
+    /// says so per call, Apple's platforms per socket.
+    static func noSignal(_ fd: Int32) {
+        #if !os(Linux)
+        var yes: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, socklen_t(MemoryLayout<Int32>.size))
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+        #endif
+    }
+
+    static func send(_ fd: Int32, _ base: UnsafeRawPointer, _ count: Int) -> Int {
+        #if os(Linux)
+        return Glibc.send(fd, base, count, Int32(MSG_NOSIGNAL))
+        #else
+        return Darwin.send(fd, base, count, 0)
+        #endif
+    }
+
+    static func close(_ fd: Int32) {
+        #if os(Linux)
+        _ = Glibc.close(fd)
+        #else
+        _ = Darwin.close(fd)
+        #endif
+    }
+}
+
+/// The smallest HTTP/1.1 server the remote needs, on the desktop and, to be played to,
+/// on the phone: one request per connection, answered
 /// and closed, except an event stream, which stays open for writing.
 ///
 /// Plain sockets and a thread per connection. There are a phone or two on the other end,
@@ -44,21 +86,24 @@ final class HTTPServer: @unchecked Sendable {
         defer { lock.unlock() }
         guard listener < 0 else { return true }
         for candidate in [preferred, 0] {
-            let fd = socket(AF_INET, Int32(SOCK_STREAM.rawValue) | Int32(SOCK_CLOEXEC.rawValue), 0)
+            let fd = Socket.stream()
             guard fd >= 0 else { return false }
             var yes: Int32 = 1
             setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
             var address = sockaddr_in()
+            #if !os(Linux)
+            address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            #endif
             address.sin_family = sa_family_t(AF_INET)
             address.sin_port = candidate.bigEndian
-            address.sin_addr = in_addr(s_addr: INADDR_ANY)
+            address.sin_addr = in_addr(s_addr: 0)
             let bound = withUnsafePointer(to: &address) {
                 $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
                     bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
                 }
             }
             guard bound == 0, listen(fd, 16) == 0 else {
-                close(fd)
+                Socket.close(fd)
                 continue
             }
             var actual = sockaddr_in()
@@ -83,7 +128,7 @@ final class HTTPServer: @unchecked Sendable {
         // Shutting the socket down is what wakes a thread blocked in `accept`; closing it
         // alone does not, on Linux.
         shutdown(listener, Int32(SHUT_RDWR))
-        close(listener)
+        Socket.close(listener)
         listener = -1
         port = 0
     }
@@ -97,14 +142,17 @@ final class HTTPServer: @unchecked Sendable {
                     accept(fd, $0, &length)
                 }
             }
-            if client >= 0 { _ = fcntl(client, F_SETFD, FD_CLOEXEC) }
+            if client >= 0 {
+                _ = fcntl(client, F_SETFD, FD_CLOEXEC)
+                Socket.noSignal(client)
+            }
             if client < 0 {
                 if errno == EINTR || errno == ECONNABORTED { continue }
                 return
             }
             let host = UInt32(bigEndian: address.sin_addr.s_addr)
             guard Self.isLocal(host) else {
-                close(client)
+                Socket.close(client)
                 continue
             }
             let connection = HTTPConnection(fd: client, peer: Self.dotted(host))
@@ -184,8 +232,10 @@ final class HTTPConnection: @unchecked Sendable {
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         // Data a phone has not acknowledged in 30 seconds means it has gone -- out of Wi-Fi,
         // asleep -- and the connection with it, rather than after TCP's quarter of an hour.
+        #if os(Linux)
         var unacknowledged: UInt32 = 30_000
         setsockopt(fd, Int32(IPPROTO_TCP), Self.tcpUserTimeout, &unacknowledged, socklen_t(MemoryLayout<UInt32>.size))
+        #endif
     }
 
     /// `TCP_USER_TIMEOUT`, which Glibc's module does not export.
@@ -283,7 +333,7 @@ final class HTTPConnection: @unchecked Sendable {
             while sent < raw.count {
                 // MSG_NOSIGNAL: a phone that has gone must be an error here, not a SIGPIPE
                 // that ends the app.
-                let count = Glibc.send(fd, base + sent, raw.count - sent, Int32(MSG_NOSIGNAL))
+                let count = Socket.send(fd, base + sent, raw.count - sent)
                 if count < 0, errno == EINTR { continue }
                 guard count > 0 else { return false }
                 sent += count
@@ -303,7 +353,7 @@ final class HTTPConnection: @unchecked Sendable {
         self.onClose = nil
         lock.unlock()
         shutdown(fd, Int32(SHUT_RDWR))
-        Glibc.close(fd)
+        Socket.close(fd)
         onClose?()
     }
 

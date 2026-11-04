@@ -9,7 +9,7 @@ enum RemoteControlPage {
         let remote = RemoteControlServer.shared
         let page = PreferencesPage()
 
-        let enabled = SwitchRow("Allow Control from Phones", isOn: remote.isEnabled) { remote.isEnabled = $0 }
+        let enabled = SwitchRow("Allow Control from Other Devices", isOn: remote.isEnabled) { remote.isEnabled = $0 }
         let name = EntryRow("Name", text: remote.name).onApply { text in
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty { remote.name = String(trimmed.prefix(60)) }
@@ -21,9 +21,9 @@ enum RemoteControlPage {
         let connectedValue = Label("", "dim")
         connected.suffix(connectedValue)
         page.add(PreferencesGroup("Remote Control", description: """
-        The Music app on your iPhone can play to this computer, the way Plexamp plays to \
-        another Plexamp: in its player, tap the computer button and choose this name. The \
-        first time, this computer shows a code to type in on the phone. Only phones on this \
+        The Music app on your iPhone, or on another computer, can play to this one, the way \
+        Plexamp plays to another Plexamp: in its player, choose Play On and this name. The \
+        first time, this computer shows a code to type in there. Only devices on this \
         network can reach it.
         """) {
             enabled

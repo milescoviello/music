@@ -248,10 +248,19 @@ struct RemotePlayerList: View {
     }
 }
 
-/// Settings → Remote Players.
+/// Settings → Remote Players: the computers to play on, and whether they may play here.
 struct RemotePlayersSettingsView: View {
     var body: some View {
         RemotePlayerList()
             .navigationTitle("Remote Players")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        PlayedToSettingsView()
+                    } label: {
+                        Label("This iPhone", systemImage: "iphone.radiowaves.left.and.right")
+                    }
+                }
+            }
     }
 }

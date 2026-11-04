@@ -55,7 +55,7 @@ public enum MusicApplication {
             shell.present()
             // After the window, which a pairing code is shown over.
             RemotePairingPrompt.install()
-            RemoteControlServer.shared.start(app: state)
+            RemoteControlServer.shared.start(app: state, advertiser: Avahi())
             if let command = pendingCommand {
                 pendingCommand = nil
                 run(command)
