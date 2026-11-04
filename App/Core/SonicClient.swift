@@ -244,6 +244,9 @@ struct SonicClient: Sendable {
         var date: String
         var upcoming: Bool
         var cover: URL?
+        /// The cover through the service, which fetches it from the archive once: the
+        /// archive's own address redirects to archive.org, which some networks refuse.
+        var coverPath: String?
     }
 
     struct Radar: Decodable, Sendable {
@@ -254,6 +257,17 @@ struct SonicClient: Sendable {
 
     func radar() async throws -> Radar {
         try await get("v1/radar", as: Radar.self)
+    }
+
+    /// A release's cover image, through the service. Nil when it has none.
+    func radarCover(_ item: RadarItem) async -> Data? {
+        guard let path = item.coverPath, let url = url(path) else { return nil }
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        authorise(&request)
+        guard let (data, response) = try? await session.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty
+        else { return nil }
+        return data
     }
 
     // MARK: - Plumbing

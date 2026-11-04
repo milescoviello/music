@@ -81,12 +81,12 @@ struct StatsView: View {
             }
             .frame(maxWidth: .infinity)
         } header: {
-            Text("On This Phone")
+            Text("Your Listening")
         } footer: {
             if history.plays.isEmpty {
                 Text("Nothing yet. Plays are recorded as they happen, on this phone.")
             } else {
-                Text("Recorded on this phone, from when the app was installed.")
+                Text("Recorded by the app here and on your other devices, shared through your server, from when each was installed.")
             }
         }
 

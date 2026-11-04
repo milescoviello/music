@@ -74,6 +74,48 @@ class Radar:
         except (OSError, ValueError):
             return None
 
+    # MARK: - Covers
+
+    COVER_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+    def cover(self, group_id: str, fetch=None) -> bytes | None:
+        """A release's cover, from the Cover Art Archive by way of here, kept once fetched.
+
+        Not linked to directly: the archive redirects to archive.org, which some networks
+        will not connect to (the campus one, 2026-11-03), and the apps already reach this
+        service wherever they are. A cover the archive does not have is remembered for a day.
+        """
+        if not self.COVER_ID.match(group_id or ""):
+            return None
+        folder = self.path.parent / "radar-covers"
+        image, missing = folder / f"{group_id}.jpg", folder / f"{group_id}.none"
+        if image.exists():
+            return image.read_bytes()
+        if missing.exists() and self._clock() - missing.stat().st_mtime < 86_400:
+            return None
+        folder.mkdir(parents=True, exist_ok=True)
+        data = (fetch or self._cover_bytes)(group_id)
+        if not data:
+            missing.touch()
+            return None
+        temporary = image.with_suffix(".tmp")
+        temporary.write_bytes(data)
+        temporary.replace(image)
+        return data
+
+    @staticmethod
+    def _cover_bytes(group_id: str) -> bytes | None:
+        request = urllib.request.Request(
+            f"https://coverartarchive.org/release-group/{group_id}/front-250", headers={"User-Agent": USER_AGENT}
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                if not response.headers.get("Content-Type", "").startswith("image/"):
+                    return None
+                return response.read()
+        except Exception:  # noqa: BLE001 — no cover is an answer, not a failure
+            return None
+
     # MARK: - Working it out
 
     def _refresh(self) -> None:
@@ -144,6 +186,7 @@ class Radar:
                     "date": released.isoformat(),
                     "upcoming": released > today,
                     "cover": f"https://coverartarchive.org/release-group/{group['id']}/front-250",
+                    "coverPath": f"v1/radar/{group['id']}/cover",
                     "plays": artist["plays"],
                 })
         # Newest first; on the same day, the artist played most.

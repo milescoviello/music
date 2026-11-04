@@ -200,8 +200,8 @@ enum StatsPage {
                 figure(hours, "listened")
                 figure("\(history.streak)", "day streak")
             }.homogeneous()
-            local.append(RediscoverPage.section("On This Computer",
-                footer: history.plays.isEmpty ? "Nothing yet. Plays are recorded as they happen, on this computer." : "Recorded on this computer, from when the app was first run.",
+            local.append(RediscoverPage.section("Your Listening",
+                footer: history.plays.isEmpty ? "Nothing yet. Plays are recorded as they happen, on this computer." : "Recorded by the app here and on your other devices, shared through your server, from when each was first run.",
                 figures))
 
             let byHour = history.playsByHour(in: window)

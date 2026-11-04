@@ -49,16 +49,7 @@ struct NewReleasesShelf: View {
 
     private func card(_ item: SonicClient.RadarItem, requested: Bool) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            AsyncImage(url: item.cover) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFill()
-                } else {
-                    ZStack {
-                        Color.secondary.opacity(0.15)
-                        Image(systemName: "sparkles").font(.title2).foregroundStyle(.secondary)
-                    }
-                }
-            }
+            RadarCover(item: item)
             .frame(width: Metrics.cardWidth, height: Metrics.cardWidth)
             .clipShape(RoundedRectangle(cornerRadius: Metrics.radiusCard, style: .continuous))
             .overlay(alignment: .topTrailing) {
@@ -76,6 +67,29 @@ struct NewReleasesShelf: View {
                 .font(.caption2)
                 .foregroundStyle(item.upcoming ? Color.appTint : .secondary)
                 .lineLimit(1)
+        }
+    }
+}
+
+/// A release's cover, through the sonic service rather than straight from the archive,
+/// whose redirect to archive.org some networks refuse.
+private struct RadarCover: View {
+    @Environment(AppState.self) private var appState
+    let item: SonicClient.RadarItem
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Color.secondary.opacity(0.15)
+                Image(systemName: "sparkles").font(.title2).foregroundStyle(.secondary)
+            }
+        }
+        .task(id: item.id) {
+            let client = SonicClient(configuration: appState.sonic.configuration)
+            if let data = await client.radarCover(item) { image = UIImage(data: data) }
         }
     }
 }

@@ -100,6 +100,20 @@ class ReleaseRadar(unittest.TestCase):
             {"id": "g6", "title": "Coming Soon", "primary-type": "EP", "first-release-date": "2026-12-01"},
         ]}
 
+    def test_covers_are_kept_and_a_missing_one_remembered(self):
+        radar = Radar(self.db, self.path, fetch=self.fetch)
+        calls = []
+        def fetch(group):
+            calls.append(group)
+            return b"jpeg" if group.startswith("1") else None
+        good, bad = "123915e0-65c6-4d3e-a150-e1c4914f6f31", "ff346c66-de17-4a5e-b6df-100880ee0d35"
+        self.assertEqual(radar.cover(good, fetch=fetch), b"jpeg")
+        self.assertEqual(radar.cover(good, fetch=fetch), b"jpeg")
+        self.assertIsNone(radar.cover(bad, fetch=fetch))
+        self.assertIsNone(radar.cover(bad, fetch=fetch))
+        self.assertEqual(calls, [good, bad])
+        self.assertIsNone(radar.cover("../../etc/passwd", fetch=fetch))
+
     def test_only_new_and_missing_releases(self):
         radar = Radar(self.db, self.path, fetch=self.fetch)
         items = radar.build(today=date(2026, 11, 3))

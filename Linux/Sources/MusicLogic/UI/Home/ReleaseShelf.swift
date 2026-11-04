@@ -15,7 +15,8 @@ enum ReleaseShelf {
         let radar = env.app.radar
         let side = AlbumCardView.side
         let artwork = ArtworkView(env.app, size: .card, side: side, shape: .card)
-        artwork.showRemote(item.cover, fallback: item.title)
+        let client = SonicClient(configuration: env.app.sonic.configuration)
+        artwork.showRemote(fallback: item.title) { await client.radarCover(item) }
         let requested = radar.requested.contains(item.id)
         let detail = Label(requested ? "Requested" : ReleaseRadar.detail(item), "caption", item.upcoming ? "accent" : "dim-label")
         let box = Box.vertical(spacing: 6) {

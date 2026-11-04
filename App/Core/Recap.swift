@@ -59,10 +59,14 @@ struct Recap: Sendable {
         let plays = all.filter { calendar.component(.year, from: $0.at) == year }.sorted { $0.at < $1.at }
         func minutes(_ group: [Play]) -> Int { group.reduce(0) { $0 + $1.duration } / 60 }
 
-        func rank(_ key: (Play) -> String?, _ make: (String, [Play]) -> Entry) -> [Entry] {
+        func rank(byMinutes: Bool = false, _ key: (Play) -> String?, _ make: (String, [Play]) -> Entry) -> [Entry] {
             Dictionary(grouping: plays.compactMap { play in key(play).map { ($0, play) } }, by: \.0)
                 .map { make($0.key, $0.value.map(\.1)) }
-                .sorted { $0.plays != $1.plays ? $0.plays > $1.plays : ($0.minutes != $1.minutes ? $0.minutes > $1.minutes : $0.name < $1.name) }
+                .sorted { a, b in
+                    let (first, second) = byMinutes ? (a.minutes, b.minutes) : (a.plays, b.plays)
+                    let (third, fourth) = byMinutes ? (a.plays, b.plays) : (a.minutes, b.minutes)
+                    return first != second ? first > second : (third != fourth ? third > fourth : a.name < b.name)
+                }
         }
 
         // Copies of a song or an album in the two libraries count as one.
@@ -70,7 +74,9 @@ struct Recap: Sendable {
             Entry(id: key, songID: group.last?.songID, name: group[0].title, detail: group[0].artist, coverArt: group.last?.coverArt,
                   albumID: group.last?.albumID, plays: group.count, minutes: minutes(group))
         }
-        let artists = rank({ $0.artist.isEmpty ? nil : $0.artist.lowercased() }) { key, group in
+        // Artists by time listened, as they are shown: by plays, a band of short songs
+        // outranked one with fewer, longer ones while showing fewer minutes.
+        let artists = rank(byMinutes: true, { $0.artist.isEmpty ? nil : $0.artist.lowercased() }) { key, group in
             Entry(id: key, name: group[0].artist, detail: nil, coverArt: group.last?.coverArt,
                   albumID: nil, plays: group.count, minutes: minutes(group))
         }

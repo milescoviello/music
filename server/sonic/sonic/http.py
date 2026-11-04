@@ -83,6 +83,18 @@ def make_handler(service):
                 return self._send(401, {"error": "token required"})
             query = parse_qs(url.query)
             path = unquote(url.path)
+            cover = re.match(r"^/v1/radar/([^/]+)/cover$", path)
+            if cover:
+                data = service.radar.cover(cover[1])
+                if data is None:
+                    return self._send(404, {"error": "no cover"})
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "max-age=604800")
+                self.end_headers()
+                self.wfile.write(data)
+                return
             for pattern, answer in routes:
                 match = pattern.match(path)
                 if match:
