@@ -28,6 +28,27 @@ final class HomeModel {
 
     var lastYear: Int { Calendar.current.component(.year, from: .now) - 1 }
 
+    /// The month's chart, from the play log. Again after `HistoryRepair` gives plays new
+    /// ids, which is after Home first loads.
+    func loadMonth(appState: AppState) async {
+        // Worked out off the main actor: it is the whole log, up to 20,000 plays, at the
+        // moment Home is first drawn and being scrolled. Which, at launch, may be before
+        // the log has been read.
+        await appState.history.loaded()
+        let history = appState.history.plays
+        let month = ChartPeriod.current(.month)
+        let monthRows = await Task.detached(priority: .userInitiated) {
+            Charts.topAlbums(history.map { $0.chartPlay }, in: month, limit: 12)
+        }.value
+        mostPlayedThisMonth = monthRows.compactMap { row in
+            guard let id = row.albumID else { return nil }
+            var album = Album(id: id, name: row.title)
+            album.artist = row.subtitle
+            album.coverArt = row.coverArt
+            return album
+        }
+    }
+
     var isEmpty: Bool {
         recentlyPlayed.isEmpty && recentlyAdded.isEmpty
             && mostPlayed.isEmpty && favoriteSongs.isEmpty && forgotten.songs.isEmpty
@@ -73,22 +94,7 @@ final class HomeModel {
         hasLoaded = true
 
         // From this phone's own history: the server counts plays but never dates them.
-        // Worked out off the main actor: it is the whole log, up to 20,000 plays, at the
-        // moment Home is first drawn and being scrolled. Which, at launch, may be before
-        // the log has been read.
-        await appState.history.loaded()
-        let history = appState.history.plays
-        let month = ChartPeriod.current(.month)
-        let monthRows = await Task.detached(priority: .userInitiated) {
-            Charts.topAlbums(history.map { $0.chartPlay }, in: month, limit: 12)
-        }.value
-        mostPlayedThisMonth = monthRows.compactMap { row in
-            guard let id = row.albumID else { return nil }
-            var album = Album(id: id, name: row.title)
-            album.artist = row.subtitle
-            album.coverArt = row.coverArt
-            return album
-        }
+        await loadMonth(appState: appState)
 
         // The shelves cut from the whole album list. After the rest, so they never hold
         // Home up; the list itself is kept on disk and only refetched every few hours.

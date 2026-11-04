@@ -16,10 +16,11 @@ import Observation
 final class ListeningHistory {
     struct Play: Codable, Sendable, Identifiable {
         var id = UUID()
-        let songID: String
+        /// `var` for `relink`: the server gives a song a new id when its file moves.
+        var songID: String
         let title: String
         let artist: String
-        let album: String
+        var album: String
         let genre: String?
         /// Seconds, so totals do not need the library to answer.
         let duration: Int
@@ -39,6 +40,10 @@ final class ListeningHistory {
     }
 
     private(set) var plays: [Play] = []
+    /// Counts `relink`s that changed something, for what was worked out from the plays
+    /// before: Home's month chart, built at launch, still showed the old ids until the
+    /// next one.
+    private(set) var relinked = 0
 
     /// Roughly two years of heavy listening. Capped because this is read whole for every
     /// statistic, and an unbounded array would eventually make the stats screen crawl.
@@ -124,6 +129,34 @@ final class ListeningHistory {
         }
         scheduleSave()
         return fresh.count
+    }
+
+    /// Points the plays of each song id in `links` at what the server calls it now: see
+    /// `HistoryRepair`. Returns how many plays changed.
+    @discardableResult
+    func relink(_ links: [String: HistoryRepair.Link]) -> Int {
+        guard !links.isEmpty else { return 0 }
+        var changed = 0
+        for index in plays.indices {
+            guard let link = links[plays[index].songID] else { continue }
+            var play = plays[index]
+            play.songID = link.songID
+            play.album = link.album
+            play.albumID = link.albumID
+            if let artistID = link.artistID { play.artistID = artistID }
+            if let coverArt = link.coverArt { play.coverArt = coverArt }
+            guard play.songID != plays[index].songID || play.album != plays[index].album
+                || play.albumID != plays[index].albumID || play.artistID != plays[index].artistID
+                || play.coverArt != plays[index].coverArt
+            else { continue }
+            plays[index] = play
+            changed += 1
+        }
+        if changed > 0 {
+            relinked += 1
+            scheduleSave()
+        }
+        return changed
     }
 
     func clear() {

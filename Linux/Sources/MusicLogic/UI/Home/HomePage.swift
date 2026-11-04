@@ -39,6 +39,11 @@ enum HomePage {
             Task { await model.load(appState: app, scope: scope) }
             Task { await app.radar.load() }
         }
+        // The month's chart again once old plays are given new ids, after the first load.
+        body.observe {
+            guard app.history.relinked > 0 else { return }
+            Task { await model.loadMonth(appState: app) }
+        }
         // Again when the folder list changes: on a first launch it arrives after Home, and
         // until then a chosen library reads as all of them. Only the scope is read here;
         // the load runs outside the observer, so the mixes' own changes do not re-run it.

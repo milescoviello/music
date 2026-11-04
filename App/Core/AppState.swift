@@ -238,6 +238,8 @@ final class AppState {
         _ = await outbox.flush(using: client)
         await flushUnsentLogs()
         await taste.sync()
+        // After the sync, which may bring in other devices' plays under old ids too.
+        await HistoryRepair.runIfDue(self)
     }
 
     /// Fetch-with-fallback, used by every library screen. Online the server always wins,

@@ -134,6 +134,7 @@ func logicPackage() -> Package {
                     "LyricsLanguage.swift",
                     "LyricTranslationStore.swift",
                     "RemoteControl.swift",
+                    "RecordingMatch.swift",
                 ]
             ),
             .testTarget(

@@ -33,6 +33,8 @@ actor NavidromeClient {
         var starred: Bool?
         var rating: Int?
         var duration: Double?
+        /// Its file is gone and the next full scan will drop it.
+        var missing: Bool?
     }
 
     /// One window onto a native-API collection, and how many rows exist behind it.
@@ -235,6 +237,23 @@ actor NavidromeClient {
 
     private static func total(from response: HTTPURLResponse) -> Int? {
         response.value(forHTTPHeaderField: "X-Total-Count").flatMap(Int.init)
+    }
+
+    /// The songs with these ids, from both libraries: a hundred per request. One the server
+    /// no longer has is not in the answer.
+    func songs(ids: [String]) async throws -> [Song] {
+        let unique = Array(Set(ids))
+        var found: [Song] = []
+        for start in stride(from: 0, to: unique.count, by: 100) {
+            let chunk = unique[start..<min(start + 100, unique.count)]
+            let items = chunk.map { URLQueryItem(name: "id", value: $0) } + [
+                URLQueryItem(name: "_start", value: "0"),
+                URLQueryItem(name: "_end", value: String(chunk.count)),
+            ]
+            let (rows, _): ([Song], HTTPURLResponse) = try await request(path: "api/song", items: items)
+            found += rows
+        }
+        return found
     }
 
     /// Which of `ids` are in library `libraryID`.

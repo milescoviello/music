@@ -96,6 +96,9 @@ struct HomeView: View {
             .task(id: mixScope) {
                 appState.mixes.load(appState: appState, scope: mixScope)
             }
+            .onChange(of: appState.history.relinked) {
+                Task { await model.loadMonth(appState: appState) }
+            }
         }
     }
 
