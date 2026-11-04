@@ -14,6 +14,12 @@ on:
 permissions:
     contents: write
 
+# A newer push supersedes a build still going: only the newest is published, so an
+# older run finishing last can't put an older build on the phone.
+concurrency:
+    group: ios-${{ github.ref }}
+    cancel-in-progress: true
+
 jobs:
     # Runs first and independently of the app build: pure logic, `swift test`, no
     # simulator. This is the only automated check in the project -- everything else is
