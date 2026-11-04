@@ -179,7 +179,7 @@ final class NowPlayingCenter {
 
     private static func strings(_ values: [String]) -> OpaquePointer {
         var children = values.map { g_variant_new_string($0) }
-        return g_variant_new_array(cgtk_variant_type("s"), &children, gsize(children.count))
+        return g_variant_new_array(cgtk_type_string(), &children, gsize(children.count))
     }
 
     /// An `a{sv}`.
@@ -187,7 +187,7 @@ final class NowPlayingCenter {
         var children = entries.map { key, value in
             g_variant_new_dict_entry(g_variant_new_string(key), g_variant_new_variant(value))
         }
-        return g_variant_new_array(cgtk_variant_type("{sv}"), &children, gsize(children.count))
+        return g_variant_new_array(cgtk_type_string_variant_entry(), &children, gsize(children.count))
     }
 
     private func property(_ interface: String, _ name: String) -> OpaquePointer? {

@@ -16,4 +16,11 @@ static inline guint cgtk_disconnect_by_data(gpointer instance, gpointer data) {
     return g_signal_handlers_disconnect_matched(instance, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, data);
 }
 static inline gboolean cgtk_is_widget(gpointer object) { return GTK_IS_WIDGET(object); }
-static inline GVariantType *cgtk_variant_type(const char *string) { return (GVariantType *)string; }
+// GVariant types from constant storage. The cast of a C string these replace was handed
+// the copy Swift makes of a short `String` for the length of one call, gone before GLib
+// read it: MPRIS's "s" and "{sv}" crashed the app now and then, on a track change, with
+// "g_variant_type_info_get: assertion failed (0 <= -50)" (2026-11-04).
+static inline const GVariantType *cgtk_type_string(void) { return G_VARIANT_TYPE_STRING; }
+static inline const GVariantType *cgtk_type_byte(void) { return G_VARIANT_TYPE_BYTE; }
+static inline const GVariantType *cgtk_type_bytestring(void) { return G_VARIANT_TYPE_BYTESTRING; }
+static inline const GVariantType *cgtk_type_string_variant_entry(void) { return G_VARIANT_TYPE("{sv}"); }

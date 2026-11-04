@@ -79,8 +79,8 @@ final class Avahi: @unchecked Sendable {
         reply: String? = nil
     ) -> OpaquePointer? {
         var error: UnsafeMutablePointer<GError>?
-        // A type of its own, not `cgtk_variant_type`: that casts the C string Swift makes
-        // for a `String`, which is gone by the time GDBus reads it.
+        // A type of its own: a reply type can be anything, and the C string Swift makes for
+        // a `String` is gone by the time GDBus reads it.
         let type = reply.flatMap { g_variant_type_new($0) }
         defer { if let type { g_variant_type_free(type) } }
         let result = g_dbus_connection_call_sync(
@@ -102,7 +102,7 @@ final class Avahi: @unchecked Sendable {
         var records = txt.map { entry -> OpaquePointer? in
             let bytes = Array(entry.utf8)
             return bytes.withUnsafeBufferPointer {
-                g_variant_new_fixed_array(cgtk_variant_type("y"), $0.baseAddress, gsize($0.count), 1)
+                g_variant_new_fixed_array(cgtk_type_byte(), $0.baseAddress, gsize($0.count), 1)
             }
         }
         var children: [OpaquePointer?] = [
@@ -114,7 +114,7 @@ final class Avahi: @unchecked Sendable {
             g_variant_new_string(""),
             g_variant_new_string(""),
             g_variant_new_uint16(port),
-            g_variant_new_array(cgtk_variant_type("ay"), &records, gsize(records.count)),
+            g_variant_new_array(cgtk_type_bytestring(), &records, gsize(records.count)),
         ]
         return g_variant_new_tuple(&children, gsize(children.count))
     }
