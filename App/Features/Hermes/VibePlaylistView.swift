@@ -15,7 +15,9 @@ struct VibePlaylistView: View {
 
     @State private var vibe = ""
     @State private var trackCount = 25
-    @State private var keepServerSideOnly = false
+    /// On: nothing downloads, as playlist sync is now chosen per playlist. Off: the new
+    /// one is kept offline once Hermes has made it.
+    @State private var keepServerSideOnly = true
     @State private var isSending = false
 
     private var store: PlaylistStore { appState.playlistStore }
@@ -53,6 +55,7 @@ struct VibePlaylistView: View {
 
             Section {
                 Toggle("Keep this one server-side only", isOn: $keepServerSideOnly)
+                    .disabled(!appState.playlistSync.isEnabled)
             } footer: {
                 // Honest about the consequence: playlist sync is on by default, and a
                 // FLAC playlist is not a small download.
@@ -111,8 +114,8 @@ struct VibePlaylistView: View {
         let seconds = trackCount * 240
         let bytes = Int64(Double(seconds) * appState.downloads.catalog.measuredBytesPerSecond)
         return appState.playlistSync.isEnabled
-            ? "Playlist sync is on, so a new \(trackCount)-track playlist would download about \(bytes.asFileSize). Leave this on to keep it on the server only."
-            : "Playlist sync is off, so nothing is downloaded either way."
+            ? "Switched off, the new \(trackCount)-track playlist is kept offline once it's made: about \(bytes.asFileSize)."
+            : "Keep Playlists Offline is off, so nothing is downloaded either way."
     }
 
     private func send() async {
@@ -129,7 +132,8 @@ struct VibePlaylistView: View {
         let sent = await appState.hermes.startVibe(
             name: name,
             vibe: description,
-            trackCount: trackCount
+            trackCount: trackCount,
+            keepsOffline: !keepServerSideOnly && appState.playlistSync.isEnabled
         )
         if sent { vibe = "" }
     }

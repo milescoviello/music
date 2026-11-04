@@ -281,15 +281,19 @@ enum HermesPages {
         let vibe = EntryRow("late night drive, rainy sunday, gym")
         var trackCount = 25
         let naming = Label("", "caption", "dim").wrap().visible(false)
-        let serverOnly = SwitchRow("Keep this one server-side only", isOn: false) { _ in }
+        // On: nothing downloads, as playlist sync is chosen per playlist. Off: the new one
+        // is kept offline once Hermes has made it. It was a switch that did nothing.
+        var keepServerSideOnly = true
+        let serverOnly = SwitchRow("Keep this one server-side only", isOn: true) { keepServerSideOnly = $0 }
         let syncNote = Label("", "caption", "dim").wrap()
 
         // Honest about the consequence: a FLAC playlist is not a small download.
         func refreshSyncNote() {
             let bytes = Int64(Double(trackCount * 240) * app.downloads.catalog.measuredBytesPerSecond)
             syncNote.text = app.playlistSync.isEnabled
-                ? "Playlist sync is on, so a new \(trackCount)-track playlist would download about \(bytes.asFileSize). Leave this on to keep it on the server only."
-                : "Playlist sync is off, so nothing is downloaded either way."
+                ? "Switched off, the new \(trackCount)-track playlist is kept offline once it's made: about \(bytes.asFileSize)."
+                : "Keep Playlists Offline is off, so nothing is downloaded either way."
+            serverOnly.isSensitive = app.playlistSync.isEnabled
         }
         let count = SpinRow("Tracks", min: 10, max: 50, step: 5, value: 25) {
             trackCount = Int($0)
@@ -313,7 +317,8 @@ enum HermesPages {
             isSending = true
             Task { @MainActor in
                 let name = VibeTitle.unique(VibeTitle.sanitised(description), existing: store.playlists.map(\.name), requestID: UUID())
-                if await hermes.startVibe(name: name, vibe: description, trackCount: trackCount) { vibe.text = "" }
+                let keepsOffline = !keepServerSideOnly && app.playlistSync.isEnabled
+                if await hermes.startVibe(name: name, vibe: description, trackCount: trackCount, keepsOffline: keepsOffline) { vibe.text = "" }
                 isSending = false
             }
         }

@@ -29,12 +29,18 @@ final class HermesAsk {
         var playlistID: String?
         var note: String?
         var failure: String?
+        /// "Keep this one server-side only" switched off: keep it offline once it exists.
+        /// Optional, so vibes saved before it still decode.
+        var keepsOffline: Bool?
 
         var isWaiting: Bool { finishedAt == nil }
     }
 
     private(set) var vibes: [PendingVibe] = []
     var lastError: String?
+    /// A playlist Hermes made, for a vibe asked to be kept offline: see `keepsOffline`.
+    /// The switch did nothing at all before.
+    var onKeepOffline: ((String) -> Void)?
 
     /// A vibe that has not landed in twenty minutes is not going to. The agent has to
     /// query the library several times and then create the playlist, so this is generous
@@ -118,7 +124,7 @@ final class HermesAsk {
 
     /// Starts a playlist build. The name is decided here, not by the agent.
     @discardableResult
-    func startVibe(name: String, vibe: String, trackCount: Int = 25) async -> Bool {
+    func startVibe(name: String, vibe: String, trackCount: Int = 25, keepsOffline: Bool = false) async -> Bool {
         guard let configuration else {
             lastError = "Set the results address in Settings first."
             return false
@@ -143,7 +149,7 @@ final class HermesAsk {
         }
 
         vibes.insert(
-            PendingVibe(requestID: requestID, name: name, vibe: vibe, sentAt: .now),
+            PendingVibe(requestID: requestID, name: name, vibe: vibe, sentAt: .now, keepsOffline: keepsOffline),
             at: 0
         )
         vibes = Array(vibes.prefix(20))
@@ -173,6 +179,7 @@ final class HermesAsk {
                 vibes[index].finishedAt = .now
                 vibes[index].playlistID = result.playlistID
                 vibes[index].note = result.note
+                if vibe.keepsOffline == true, let id = result.playlistID { onKeepOffline?(id) }
                 continue
             case let .failed(message):
                 vibes[index].finishedAt = .now
@@ -188,6 +195,7 @@ final class HermesAsk {
                 vibes[index].finishedAt = .now
                 vibes[index].playlistID = match.id
                 vibes[index].note = match.comment
+                if vibe.keepsOffline == true { onKeepOffline?(match.id) }
                 continue
             }
 

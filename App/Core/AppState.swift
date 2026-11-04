@@ -78,6 +78,16 @@ final class AppState {
         playlistStore.configure(client: client, appState: self)
         requests.configure(client: client)
         hermes.configure(requests: requests)
+        hermes.onKeepOffline = { [weak self] id in
+            guard let self else { return }
+            Task {
+                // Hermes may have answered before the list was fetched again.
+                if !self.playlistStore.playlists.contains(where: { $0.id == id }) { await self.playlistStore.load() }
+                guard let playlist = self.playlistStore.playlists.first(where: { $0.id == id }) else { return }
+                self.playlistSync.setIncluded(true, for: playlist)
+                await self.playlistSync.sync()
+            }
+        }
         queueSync.configure(client: client)
         playlistSync.configure(
             client: client, downloads: downloads, reachability: reachability,

@@ -491,9 +491,15 @@ enum SettingsPages {
             if on { Task { await sync.sync() } }
         }
         let wifiOnly = SwitchRow("Unmetered Only", isOn: sync.isWiFiOnly) { sync.isWiFiOnly = $0 }
+        // The setting was there and kept up by every sync, with no switch.
+        let favourites = SwitchRow("Keep Favourites Offline", isOn: sync.includesFavourites) { on in
+            sync.includesFavourites = on
+            if on { Task { await sync.sync() } } else { sync.stopUnchosen() }
+        }
         let automatic = PreferencesGroup("Automatic Downloads") {
             keep
             wifiOnly
+            favourites
         }
         page.add(automatic)
 
@@ -519,6 +525,7 @@ enum SettingsPages {
 
         page.observe {
             wifiOnly.isVisible = sync.isEnabled
+            favourites.isVisible = sync.isEnabled
             automatic.descriptionText = sync.isEnabled
                 ? "The playlists switched on below are downloaded at full quality and kept up to date as you add to them. Estimated \(sync.estimatedSize(for: playlists.playlists, bytesPerSecond: app.downloads.catalog.measuredBytesPerSecond).asFileSize) for those selected. Nothing is ever deleted automatically."
                 : "Downloads stay manual: use the arrow on an album or playlist."

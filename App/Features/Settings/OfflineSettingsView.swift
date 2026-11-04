@@ -26,6 +26,14 @@ struct OfflineSettingsView: View {
                         get: { sync.isWiFiOnly },
                         set: { sync.isWiFiOnly = $0 }
                     ))
+                    // The setting was there and kept up by every sync, with no switch.
+                    Toggle("Keep Favourites Offline", isOn: Binding(
+                        get: { sync.includesFavourites },
+                        set: { on in
+                            sync.includesFavourites = on
+                            if on { Task { await sync.sync() } } else { sync.stopUnchosen() }
+                        }
+                    ))
                 }
             } header: {
                 Text("Automatic Downloads")
