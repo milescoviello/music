@@ -387,7 +387,7 @@ struct SearchView: View {
                 SongRow(
                     song: match.song,
                     style: .withArtwork,
-                    isCurrent: appState.player.currentSong?.id == match.song.id,
+                    isCurrent: match.song.isSameRecording(as: appState.player.currentSong),
                     trailing: nil
                 )
                 Text("“\(match.line)”")

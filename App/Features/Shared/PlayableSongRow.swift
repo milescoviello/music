@@ -69,7 +69,7 @@ struct PlayableSongRow: View {
             SongRow(
                 song: song,
                 style: style,
-                isCurrent: appState.player.currentSong?.id == song.id,
+                isCurrent: song.isSameRecording(as: appState.player.currentSong),
                 trailing: trailing
             )
         }

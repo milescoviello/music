@@ -47,3 +47,14 @@ struct PlaylistMembership: Equatable, Sendable {
             .joined(separator: "\u{1F}")
     }
 }
+
+extension Song {
+    /// This song, or the same recording in the other library: what a list shows as playing.
+    /// Most songs are there twice under different ids, and a row showing the copy not
+    /// playing stayed unlit while its song played. A live version on another album is a
+    /// different recording, and stays unlit.
+    func isSameRecording(as other: Song?) -> Bool {
+        guard let other else { return false }
+        return id == other.id || PlaylistMembership.recording(self) == PlaylistMembership.recording(other)
+    }
+}

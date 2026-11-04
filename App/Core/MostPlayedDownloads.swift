@@ -30,6 +30,7 @@ final class MostPlayedDownloads {
         static let count = "downloads.mostPlayed.count"
         static let wanted = "downloads.mostPlayed.wanted"
         static let refreshed = "downloads.mostPlayed.refreshed"
+        static let forCount = "downloads.mostPlayed.forCount"
     }
 
     /// Queued at a time: enough to keep a charger busy, few enough that a song started
@@ -116,7 +117,10 @@ final class MostPlayedDownloads {
             return
         }
         let last = UserDefaults.standard.object(forKey: Key.refreshed) as? Date
-        if !force, let last, Calendar.current.isDateInToday(last), !wanted.isEmpty {
+        // Today's list stands only for the size it was made for: one changed anywhere but
+        // the picker (another build, a settings file) kept the old list of 300.
+        let madeFor = UserDefaults.standard.integer(forKey: Key.forCount)
+        if !force, let last, Calendar.current.isDateInToday(last), !wanted.isEmpty, madeFor == count {
             reconcile()
             return
         }
@@ -131,6 +135,7 @@ final class MostPlayedDownloads {
         wanted = Array(ranked.lazy.filter { !avoided.contains($0.identity) }.compactMap(\.ids.first).prefix(count))
         UserDefaults.standard.set(wanted, forKey: Key.wanted)
         UserDefaults.standard.set(Date.now, forKey: Key.refreshed)
+        UserDefaults.standard.set(count, forKey: Key.forCount)
         await note("wants the top \(wanted.count) of \(ranked.count) played songs")
         reconcile()
     }

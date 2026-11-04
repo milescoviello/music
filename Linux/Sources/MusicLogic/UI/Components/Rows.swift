@@ -54,12 +54,6 @@ final class SongRowView {
             guard let row = reference.value, let song = row.song else { return nil }
             return Menus.song(row.env, song, showsNavigation: showsNavigation)
         }
-        // The marks follow the stores, so starring a song or finishing its download shows
-        // in every row that has it without the list being rebuilt.
-        root.observe {
-            guard let row = reference.value, let song = row.song else { return }
-            row.refreshMarks(song)
-        }
         root.keep(self)
     }
 
@@ -78,14 +72,26 @@ final class SongRowView {
         }
         subtitle.isVisible = !subtitle.text.isEmpty
         trailing.text = text ?? song.duration.map(\.asDuration) ?? ""
-        refreshMarks(song)
+        // The marks follow the player and the stores, so the song playing, a star or a
+        // finished download shows in every row that has it without the list being rebuilt.
+        // Watched from here, once the row has its song: watched from init, before it had
+        // one, the observer read nothing, so nothing ever ran it again, and the red title
+        // stayed on whatever was playing when the page was built.
+        marks?.cancel()
+        let reference = WeakReference(self)
+        marks = Observer {
+            guard let row = reference.value, let song = row.song else { return }
+            row.refreshMarks(song)
+        }
     }
+
+    private var marks: Observer?
 
     private func refreshMarks(_ song: Song) {
         let app = env.app
         downloaded.isVisible = app.downloads.isDownloaded(song.id)
         heart.isVisible = app.userState.isStarred(song)
-        let isCurrent = app.player.currentSong?.id == song.id
+        let isCurrent = song.isSameRecording(as: app.player.currentSong)
         title.setCSS("current", isCurrent)
         title.setCSS("accent", isCurrent)
         if style == .numbered {

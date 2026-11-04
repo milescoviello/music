@@ -60,4 +60,17 @@ struct PlaylistMembershipTests {
     @Test func nothingAskedIsNeverFull() {
         #expect(!PlaylistMembership(of: [], in: [song("a", "Nude")]).hasAll)
     }
+
+    /// The row of the copy not playing lights up too; a live version does not.
+    @Test func theOtherLibrarysCopyIsTheSameRecording() {
+        var playing = Song(id: "music", title: "All They Wanted", artist: "Panchiko")
+        playing.album = "Ferric Oxide"
+        var copy = Song(id: "mine", title: "All They Wanted", artist: "Panchiko")
+        copy.album = "Ferric Oxide"
+        var live = Song(id: "live", title: "All They Wanted", artist: "Panchiko")
+        live.album = "Live in Nottingham"
+        #expect(copy.isSameRecording(as: playing))
+        #expect(!live.isSameRecording(as: playing))
+        #expect(!copy.isSameRecording(as: nil))
+    }
 }
