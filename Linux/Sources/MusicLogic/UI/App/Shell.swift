@@ -70,8 +70,9 @@ final class Shell {
             reference.value?.becameActive()
         })
         Signal.connectHandled(window.widget, "close-request") {
-            reference.value?.saveSize()
-            return false
+            guard let shell = reference.value else { return false }
+            shell.saveSize()
+            return shell.carryOnInBackground()
         }
         installKeys()
     }
@@ -79,6 +80,54 @@ final class Shell {
     func present() {
         gtk_window_present(window.widget.cast())
         app.screenAwake.apply()
+    }
+
+    // MARK: - In the background
+
+    /// The phone's background: closing the window while music plays or downloads run
+    /// hides it and carries on, where it quit and stopped them. The launcher, a second
+    /// launch or the media controls' Raise bring it back. Nothing to do for ten minutes
+    /// with the window closed, it quits as closing it always did.
+    private var backgroundCheck: guint = 0
+    private var idleInBackground = 0
+    private static let quitAfterIdleMinutes = 10
+
+    /// True when the window was hidden instead of closed.
+    private func carryOnInBackground() -> Bool {
+        let playing = app.player.isPlaying
+        let downloading = app.downloads.isDownloading
+        guard playing || downloading else { return false }
+        gtk_widget_set_visible(window.widget, 0)
+        app.screenAwake.release()
+        idleInBackground = 0
+        let why = [playing ? "playing" : nil, downloading ? "downloading" : nil].compactMap { $0 }.joined(separator: " and ")
+        Task { await Diagnostics.shared.record("app", "window closed while \(why): carrying on in the background") }
+        guard backgroundCheck == 0 else { return true }
+        let data = Unmanaged.passUnretained(self).toOpaque()
+        backgroundCheck = g_timeout_add_seconds(60, { data in
+            guard let data else { return 0 }
+            let shell = Unmanaged<Shell>.fromOpaque(data).takeUnretainedValue()
+            return MainActor.assumeIsolated { shell.checkBackground() } ? 1 : 0
+        }, data)
+        return true
+    }
+
+    /// Once a minute while the window is hidden. False stops the check.
+    private func checkBackground() -> Bool {
+        if gtk_widget_get_visible(window.widget) != 0 {
+            backgroundCheck = 0
+            return false
+        }
+        if app.player.isPlaying || app.downloads.isDownloading {
+            idleInBackground = 0
+            return true
+        }
+        idleInBackground += 1
+        guard idleInBackground >= Self.quitAfterIdleMinutes else { return true }
+        backgroundCheck = 0
+        Task { await Diagnostics.shared.record("app", "quit after \(Self.quitAfterIdleMinutes) minutes in the background with nothing to do") }
+        if let application = Desktop.application { g_application_quit(application.cast()) }
+        return false
     }
 
     func toast(_ text: String) {
