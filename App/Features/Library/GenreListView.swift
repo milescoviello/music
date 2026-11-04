@@ -83,7 +83,6 @@ struct GenreDetailView: View {
         var title: String { rawValue.capitalized }
     }
 
-    @State private var loadedGeneration: Int?
     @State private var facet: Facet = .albums
 
     var body: some View {
@@ -127,6 +126,7 @@ private struct GenreSongsView: View {
 
     let genre: String
 
+    @State private var loadedGeneration: Int?
     @State private var songs: [Song] = []
     @State private var isLoadingPage = false
     @State private var canLoadMore = true
