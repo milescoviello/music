@@ -36,19 +36,26 @@ struct LibraryFacetView: View {
 
     var body: some View {
         Group {
-            switch facet {
-            case .labels: GroupList(groups: index.labels, empty: "No record labels tagged")
-            case .moods: GroupList(groups: index.moods, empty: "No moods tagged")
-            case .compilations: AlbumGrid(albums: index.compilations)
-            case .soundtracks: AlbumGrid(albums: index.soundtracks)
-            case .live: AlbumGrid(albums: index.live)
-            case .singles: AlbumGrid(albums: index.singles)
+            switch index.readiness(for: scope.scope) {
+            case .loading:
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .unavailable:
+                ContentUnavailableView(
+                    "Couldn't Load the Library", systemImage: "wifi.slash",
+                    description: Text("It could not be fetched, and there is no saved copy.")
+                )
+            case .ready:
+                switch facet {
+                case .labels: GroupList(groups: index.labels, empty: "No record labels tagged")
+                case .moods: GroupList(groups: index.moods, empty: "No moods tagged")
+                case .compilations: AlbumGrid(albums: index.compilations)
+                case .soundtracks: AlbumGrid(albums: index.soundtracks)
+                case .live: AlbumGrid(albums: index.live)
+                case .singles: AlbumGrid(albums: index.singles)
+                }
             }
         }
         .navigationTitle(facet.title)
-        .overlay {
-            if index.albums.isEmpty, index.isLoading { ProgressView() }
-        }
         .task(id: scope.generation) { await index.ensureLoaded(scope: scope.scope) }
     }
 }

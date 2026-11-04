@@ -32,6 +32,11 @@ final class SleepTimer {
     var onFire: (() -> Void)?
 
     private var task: Task<Void, Never>?
+    /// Bumped as each minute of a countdown passes. `label` reads it, so what shows it
+    /// follows: worked out from the clock alone, "30 min" stayed on screen until something
+    /// else redrew it. Only while the app runs; on coming back, the screens redraw anyway.
+    private var minutesPassed = 0
+    private var ticker: Task<Void, Never>?
 
     var isArmed: Bool { mode != .off }
 
@@ -51,6 +56,7 @@ final class SleepTimer {
         case .endOfAlbum:
             return "End of album"
         case .at:
+            _ = minutesPassed
             guard let remaining else { return nil }
             let minutes = Int(remaining / 60) + (remaining.truncatingRemainder(dividingBy: 60) > 0 ? 1 : 0)
             return minutes <= 1 ? "1 min" : "\(minutes) min"
@@ -69,6 +75,17 @@ final class SleepTimer {
             guard !Task.isCancelled else { return }
             self?.fire()
         }
+        ticker = Task { [weak self] in
+            while !Task.isCancelled {
+                // To the next whole minute left, where the label changes.
+                let left = deadline.timeIntervalSinceNow
+                guard left > 0 else { return }
+                let step = left.truncatingRemainder(dividingBy: 60)
+                try? await Task.sleep(for: .seconds(step > 0.5 ? step : 60))
+                guard !Task.isCancelled else { return }
+                self?.minutesPassed += 1
+            }
+        }
     }
 
     func armEndOfTrack() {
@@ -84,6 +101,8 @@ final class SleepTimer {
     func cancel() {
         task?.cancel()
         task = nil
+        ticker?.cancel()
+        ticker = nil
         mode = .off
     }
 
@@ -114,11 +133,15 @@ final class SleepTimer {
     private func stop() {
         mode = .off
         task = nil
+        ticker?.cancel()
+        ticker = nil
     }
 
     private func fire() {
         mode = .off
         task = nil
+        ticker?.cancel()
+        ticker = nil
         onFire?()
     }
 }

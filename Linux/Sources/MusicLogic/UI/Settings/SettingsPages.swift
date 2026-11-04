@@ -385,6 +385,11 @@ enum SettingsPages {
         let backgrounds = PlayerSettings.Background.allCases
         let shuffles = PlayerSettings.ShuffleStyle.allCases
         let skips = PlayerSettings.skipOptions
+        // Follows the player menu's own switch, which it did not: it showed what it was
+        // when Settings opened.
+        let screenAwake = app.screenAwake
+        let keepAwake = SwitchRow("Keep Screen On", isOn: screenAwake.isEnabled) { screenAwake.isEnabled = $0 }
+        keepAwake.observe { keepAwake.isOn = screenAwake.isEnabled }
         page.add(PreferencesGroup("Player", description: """
         Show Full Player opens the player whenever something starts playing. The Smooth and Bars \
         seekbars draw the track's loudness. Keep Screen On stops the screen blanking while the app \
@@ -401,7 +406,7 @@ enum SettingsPages {
             ComboRow("Shuffle", options: shuffles.map(\.title), selected: shuffles.firstIndex(of: settings.shuffleStyle) ?? 0) { index in
                 if shuffles.indices.contains(index) { settings.shuffleStyle = shuffles[index] }
             }
-            SwitchRow("Keep Screen On", isOn: app.screenAwake.isEnabled) { app.screenAwake.isEnabled = $0 }
+            keepAwake
         })
         let back = ComboRow("Skip Backwards", options: skips.map { "\($0) sec" }, selected: skips.firstIndex(of: settings.skipBackSeconds) ?? 0) { index in
             if skips.indices.contains(index) { settings.skipBackSeconds = skips[index] }

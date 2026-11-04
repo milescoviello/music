@@ -128,7 +128,7 @@ struct QueueView: View {
 
                 // Swipe left to remove, right to play next. Neither works while the drag
                 // handles show (Edit), so the long-press menu has both too.
-                ForEach(upNextWithIndices, id: \.orderIndex) { entry in
+                ForEach(upNextWithIndices, id: \.track) { entry in
                     row(entry)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
@@ -188,9 +188,9 @@ struct QueueView: View {
         ScrollViewReader { proxy in
             List {
                 Section {
-                    ForEach(earlierWithIndices, id: \.orderIndex) { entry in
+                    ForEach(earlierWithIndices, id: \.track) { entry in
                         row(entry)
-                            .id(entry.orderIndex)
+                            .id(entry.track)
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
                                     remove(entry)
@@ -216,7 +216,7 @@ struct QueueView: View {
             // Oldest first, like the queue itself, but opened at the most recent end:
             // the track that just finished is the one most likely wanted back.
             .onAppear {
-                if let last = earlierWithIndices.last { proxy.scrollTo(last.orderIndex, anchor: .bottom) }
+                if let last = earlierWithIndices.last { proxy.scrollTo(last.track, anchor: .bottom) }
             }
             .overlay {
                 // The same test `earlier` makes, without building every track already
@@ -271,7 +271,7 @@ struct QueueView: View {
         }
     }
 
-    private func row(_ entry: (orderIndex: Int, song: Song)) -> some View {
+    private func row(_ entry: QueueEntry) -> some View {
         Button {
             player.jump(toOrderIndex: entry.orderIndex)
         } label: {
@@ -319,12 +319,12 @@ struct QueueView: View {
     }
 
     /// Straight after the track playing -- moved there, from Up Next or from Earlier.
-    private func playNext(_ entry: (orderIndex: Int, song: Song)) {
+    private func playNext(_ entry: QueueEntry) {
         guard let index = stillHolds(entry) else { return }
         player.moveInQueue(from: index, to: player.queue.position + 1)
     }
 
-    private func moveToEnd(_ entry: (orderIndex: Int, song: Song)) {
+    private func moveToEnd(_ entry: QueueEntry) {
         guard let index = stillHolds(entry) else { return }
         player.moveToEnd(fromOrderIndex: index)
     }
@@ -332,13 +332,13 @@ struct QueueView: View {
     /// The menu was built for one row. If the queue shifted while it was open -- a DJ
     /// pick or a station top-up landing ahead of it -- that index is now some other
     /// song, so it is only acted on while it still holds this one.
-    private func remove(_ entry: (orderIndex: Int, song: Song)) {
+    private func remove(_ entry: QueueEntry) {
         guard let index = stillHolds(entry) else { return }
         player.removeFromQueue(orderIndex: index)
     }
 
     /// The row's place, if the queue still has this song there.
-    private func stillHolds(_ entry: (orderIndex: Int, song: Song)) -> Int? {
+    private func stillHolds(_ entry: QueueEntry) -> Int? {
         let queue = player.queue
         guard queue.order.indices.contains(entry.orderIndex),
               queue.tracks.indices.contains(queue.order[entry.orderIndex]),
@@ -355,7 +355,7 @@ struct QueueView: View {
     }
 
     /// The order index is what the controller acts on, so carry it alongside.
-    private var upNextWithIndices: [(orderIndex: Int, song: Song)] {
+    private var upNextWithIndices: [QueueEntry] {
         let queue = player.queue
         let start = queue.position + 1
         guard start < queue.order.count else { return [] }
@@ -363,17 +363,17 @@ struct QueueView: View {
         // The next few hundred: a 28,000-track queue as a list is a lag spike every time
         // it is drawn, and nobody scrolls that far.
         return (start..<min(queue.order.count, start + 300)).map { index in
-            (orderIndex: index, song: queue.tracks[queue.order[index]])
+            QueueEntry(orderIndex: index, track: queue.order[index], song: queue.tracks[queue.order[index]])
         }
     }
 
-    private var earlierWithIndices: [(orderIndex: Int, song: Song)] {
+    private var earlierWithIndices: [QueueEntry] {
         let queue = player.queue
         guard queue.position > 0, queue.position <= queue.order.count else { return [] }
         // The last few hundred, like Up Next: deep into a 28,000-track queue this was every
         // track already played, built and handed to the list on each redraw.
         return (max(0, queue.position - 300)..<queue.position).map { index in
-            (orderIndex: index, song: queue.tracks[queue.order[index]])
+            QueueEntry(orderIndex: index, track: queue.order[index], song: queue.tracks[queue.order[index]])
         }
     }
 }
@@ -444,4 +444,13 @@ private struct AutoplayCarousel: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
+}
+
+/// A queue row: where it is in the play order, and which of the queue's tracks it is.
+/// Rows are told apart by the track, which stays the same as songs move: by their place,
+/// a song removed or moved made the one after it take over its row, swipe and all.
+private struct QueueEntry {
+    let orderIndex: Int
+    let track: Int
+    let song: Song
 }

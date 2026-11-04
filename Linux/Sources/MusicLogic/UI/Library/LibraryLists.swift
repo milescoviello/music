@@ -91,15 +91,22 @@ enum GenrePage {
         var fetchedRows = 0
         var loading = false
         var more = true
+        // Which library the rows came from. Switched mid-list, the next pages came from
+        // the other one, under the first's: now the list starts again, and a page still
+        // on its way for the old one is dropped.
+        var scope = app.scope.scope
+        var generation = 0
         let scroller = ScrolledWindow(list.view).vexpand()
         let alive = scroller.liveness
         func loadMore() {
             guard !loading, more else { return }
             loading = true
             let offset = fetchedRows
+            let asked = generation
+            let current = scope
             Task { @MainActor in
-                let fetched = try? await app.client.songsByGenre(genre, count: 100, offset: offset, scope: app.scope.scope)
-                guard alive.isAlive else { return }
+                let fetched = try? await app.client.songsByGenre(genre, count: 100, offset: offset, scope: current)
+                guard alive.isAlive, asked == generation else { return }
                 // A failed page is not the end of the list: the next scroll asks again.
                 // Read as an empty page, one network blip ended the list for good.
                 guard let page = fetched else {
@@ -115,6 +122,19 @@ enum GenrePage {
             }
         }
         scroller.onNearEnd { loadMore() }
+        scroller.observe {
+            let now = app.scope.scope
+            _ = app.scope.generation
+            guard now.cacheKey != scope.cacheKey else { return }
+            scope = now
+            generation += 1
+            songs = []
+            fetchedRows = 0
+            more = true
+            loading = false
+            list.set([])
+            loadMore()
+        }
         loadMore()
         return scroller
     }
@@ -240,14 +260,19 @@ enum TracksPage {
         var fetchedRows = 0
         var loading = false
         var more = true
+        // As the genre's songs: a switch of library starts the list again.
+        var scope = app.scope.scope
+        var generation = 0
         let alive = stack.liveness
         func loadMore() {
             guard !loading, more else { return }
             loading = true
             let offset = fetchedRows
+            let asked = generation
+            let current = scope
             Task { @MainActor in
-                let fetched = try? await app.client.search(query: "", artistCount: 0, albumCount: 0, songCount: 200, songOffset: offset, scope: app.scope.scope)
-                guard alive.isAlive else { return }
+                let fetched = try? await app.client.search(query: "", artistCount: 0, albumCount: 0, songCount: 200, songOffset: offset, scope: current)
+                guard alive.isAlive, asked == generation else { return }
                 // A failed page is not the end of the list: the next scroll asks again.
                 guard let page = fetched?.songs else {
                     loading = false
@@ -264,6 +289,20 @@ enum TracksPage {
             }
         }
         scroller.onNearEnd { loadMore() }
+        stack.observe {
+            let now = app.scope.scope
+            _ = app.scope.generation
+            guard now.cacheKey != scope.cacheKey else { return }
+            scope = now
+            generation += 1
+            songs = []
+            fetchedRows = 0
+            more = true
+            loading = false
+            list.set([])
+            stack.visibleName = "loading"
+            loadMore()
+        }
         loadMore()
         let shuffle = Button(icon: "media-playlist-shuffle-symbolic", "flat") { app.stations.play(.library) }
         shuffle.tooltip("Shuffle All Tracks")
@@ -284,7 +323,18 @@ enum LibraryFacetPage {
             Task { await index.ensureLoaded(scope: scope) }
         }
         slot.observe {
-            guard !index.albums.isEmpty || !index.isLoading else { return }
+            // Not before the index has loaded for this library: on its first frame, with
+            // the load not yet begun, this said "No Albums".
+            switch index.readiness(for: app.scope.scope) {
+            case .loading:
+                slot.child = Spinner().size(32).halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_CENTER)
+                return
+            case .unavailable:
+                slot.child = Loader.empty("Couldn't Load the Library", icon: "network-offline-symbolic", description: "It could not be fetched, and there is no saved copy.")
+                return
+            case .ready:
+                break
+            }
             switch facet {
             case .labels: slot.child = groups(env, index.labels, empty: "No record labels tagged")
             case .moods: slot.child = groups(env, index.moods, empty: "No moods tagged")

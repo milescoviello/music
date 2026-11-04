@@ -15,7 +15,11 @@ final class LibraryIndex {
     private(set) var albums: [Album] = []
     private(set) var isLoading = false
 
-    @ObservationIgnored private var loadedScope: String?
+    /// Which library `albums` are, and the last one a load finished for, found or not:
+    /// observed, so a screen can tell "not loaded yet" from "loaded, and none". Without
+    /// them a facet said "No Albums" on its first frame, before its load had begun.
+    private(set) var loadedScope: String?
+    private(set) var attemptedScope: String?
     @ObservationIgnored private var loadedAt: Date?
     @ObservationIgnored private weak var appState: AppState?
 
@@ -36,7 +40,10 @@ final class LibraryIndex {
         if loadedScope == key, let loadedAt, Date.now.timeIntervalSince(loadedAt) < freshFor { return }
 
         isLoading = true
-        defer { isLoading = false }
+        defer {
+            isLoading = false
+            attemptedScope = key
+        }
 
         // Last launch's copy first, so the screen is never empty while the fresh one loads.
         if loadedScope != key, let stored = await appState.cache.load([Album].self, for: key) {
@@ -71,6 +78,15 @@ final class LibraryIndex {
         if appState.reachability.network == .wifi {
             appState.artwork.warm(fetched.compactMap(\.coverArt), sizes: [.thumb, .card])
         }
+    }
+
+    /// What a screen cut from the index should show for `scope`.
+    enum Readiness { case ready, loading, unavailable }
+
+    func readiness(for scope: LibraryScope) -> Readiness {
+        let key = CacheKey.albumList("all", scope.cacheKey)
+        if loadedScope == key { return .ready }
+        return attemptedScope == key && !isLoading ? .unavailable : .loading
     }
 
     var compilations: [Album] { LibraryFacets.ofKind(.compilation, in: albums) }
