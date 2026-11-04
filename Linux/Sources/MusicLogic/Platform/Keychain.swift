@@ -64,6 +64,16 @@ enum Keychain {
         return (try? JSONDecoder().decode([RemoteControlServer.Device].self, from: data)) ?? []
     }
 
+    /// The computers this one is paired to play to, with their tokens: the phone's
+    /// item, as `RemotePlayers` keeps it.
+    static func saveRemotePlayers(_ data: Data) {
+        write(data, account: "remote-players")
+    }
+
+    static func loadRemotePlayers() -> Data? {
+        read(account: "remote-players")
+    }
+
     // MARK: - Files
 
     private static func file(_ account: String) -> URL {

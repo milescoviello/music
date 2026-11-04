@@ -46,6 +46,7 @@ public enum MusicApplication {
             }
             let state = AppState()
             self.state = state
+            PlayOn.players = RemotePlayers(appState: state, browser: AvahiBrowser())
             // Where every stretch of the log starts: which build, on what.
             let launched = "launched \(SettingsPages.logVersion) on \(LogReport.currentSystem), network \(state.reachability.network)"
             Task { await Diagnostics.shared.record("app", launched) }

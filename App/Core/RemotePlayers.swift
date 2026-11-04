@@ -1,10 +1,31 @@
 import Foundation
-import Network
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Observation
+#if canImport(UIKit)
 import UIKit
+#endif
 
-/// The phone's side of remote players, Plexamp's "play on": the computers on this network
-/// running Music, the ones paired, and the one being played to.
+/// What finds computers on the network: Bonjour through Network on the phone, Avahi on
+/// the desktop. Each sighting as it changes, the whole set each time.
+@MainActor
+protocol RemoteBrowsing: AnyObject {
+    func start(_ found: @escaping @MainActor ([RemoteSighting]) -> Void)
+    func stop()
+}
+
+/// A computer seen on the network, with where it is once that is known.
+struct RemoteSighting: Equatable, Sendable {
+    var id: String
+    var name: String
+    var host: String?
+    var port: UInt16?
+}
+
+/// Remote players, Plexamp's "play on": the computers on this network running Music, the
+/// ones paired, and the one being played to. The phone's, and the desktop's too: one
+/// computer can play to another.
 ///
 /// Choosing one hands `PlaybackController` a `RemoteSession`, after which every screen
 /// that plays or shows music plays and shows it there. The protocol is `RemoteControl`'s.
@@ -45,13 +66,17 @@ final class RemotePlayers {
 
     private let appState: AppState
     private let requests: URLSession
-    @ObservationIgnored private var browser: NWBrowser?
+    @ObservationIgnored private let browser: any RemoteBrowsing
+    @ObservationIgnored private var isBrowsing = false
 
-    init(appState: AppState) {
+    init(appState: AppState, browser: any RemoteBrowsing) {
         self.appState = appState
+        self.browser = browser
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 8
+        #if !canImport(FoundationNetworking)
         configuration.waitsForConnectivity = false
+        #endif
         requests = URLSession(configuration: configuration)
         if let data = Keychain.loadRemotePlayers(),
            let paired = try? JSONDecoder().decode([Computer].self, from: data) {
@@ -59,102 +84,51 @@ final class RemotePlayers {
         }
     }
 
-    private static var deviceName: String { UIDevice.current.name }
+    private static var deviceName: String {
+        #if canImport(UIKit)
+        UIDevice.current.name
+        #else
+        ProcessInfo.processInfo.hostName
+        #endif
+    }
 
     // MARK: - Finding computers
 
     /// Looks for computers while the picker is open. The first time, iOS asks whether the
     /// app may use the local network.
     func startBrowsing() {
-        guard browser == nil else { return }
+        guard !isBrowsing else { return }
+        isBrowsing = true
         computers.removeAll { !$0.isPaired && $0.id != session?.computer.id }
         nearby = []
-        let browser = NWBrowser(
-            for: .bonjourWithTXTRecord(type: RemoteControl.serviceType, domain: nil),
-            using: .tcp
-        )
-        browser.browseResultsChangedHandler = { [weak self] results, _ in
-            // Delivered on the main queue, which `start` was given.
-            MainActor.assumeIsolated { self?.found(results) }
-        }
-        browser.start(queue: .main)
-        self.browser = browser
+        browser.start { [weak self] sightings in self?.found(sightings) }
     }
 
     func stopBrowsing() {
-        browser?.cancel()
-        browser = nil
+        browser.stop()
+        isBrowsing = false
     }
 
-    private func found(_ results: Set<NWBrowser.Result>) {
-        var seen: Set<String> = []
-        for result in results {
-            guard case let .service(name, _, _, _) = result.endpoint,
-                  case let .bonjour(txt) = result.metadata,
-                  let id = txt["id"]
-            else { continue }
-            seen.insert(id)
-            if let index = computers.firstIndex(where: { $0.id == id }) {
+    private func found(_ sightings: [RemoteSighting]) {
+        var changed = false
+        for sighting in sightings {
+            if let index = computers.firstIndex(where: { $0.id == sighting.id }) {
                 // Renamed on the computer since it was paired.
-                if computers[index].name != name { computers[index].name = name }
-            } else {
-                computers.append(Computer(id: id, name: name))
-            }
-            let endpoint = result.endpoint
-            Task { await resolve(endpoint, id: id) }
-        }
-        nearby = seen
-    }
-
-    /// Where a computer is now: an address can change with every lease, so it is looked
-    /// up again each time it is seen, and remembered for when it is not.
-    private func resolve(_ endpoint: NWEndpoint, id: String) async {
-        guard let address = await Self.address(of: endpoint),
-              let index = computers.firstIndex(where: { $0.id == id }),
-              computers[index].host != address.host || computers[index].port != address.port
-        else { return }
-        computers[index].host = address.host
-        computers[index].port = address.port
-        save()
-    }
-
-    /// A service's IPv4 address and port, found by connecting to it: the one way Network
-    /// offers. IPv4 because a link-local IPv6 address needs its interface in the URL.
-    private nonisolated static func address(of endpoint: NWEndpoint) async -> (host: String, port: UInt16)? {
-        await withCheckedContinuation { continuation in
-            let parameters = NWParameters.tcp
-            if let ip = parameters.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options {
-                ip.version = .v4
-            }
-            let connection = NWConnection(to: endpoint, using: parameters)
-            let once = ResumeOnce(continuation)
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    var address: (host: String, port: UInt16)?
-                    if case let .hostPort(host, port)? = connection.currentPath?.remoteEndpoint,
-                       case let .ipv4(ipv4) = host {
-                        address = (ipv4.rawValue.map(String.init).joined(separator: "."), port.rawValue)
-                    }
-                    once.resume(address)
-                    connection.cancel()
-                case .failed, .waiting:
-                    once.resume(nil)
-                    connection.cancel()
-                case .cancelled:
-                    once.resume(nil)
-                    // The handler holds the connection; let it go.
-                    connection.stateUpdateHandler = nil
-                default:
-                    break
+                if computers[index].name != sighting.name { computers[index].name = sighting.name }
+                // An address can change with every lease, so it is taken each time it is
+                // seen, and remembered for when it is not.
+                if let host = sighting.host, let port = sighting.port,
+                   computers[index].host != host || computers[index].port != port {
+                    computers[index].host = host
+                    computers[index].port = port
+                    changed = true
                 }
-            }
-            connection.start(queue: .global(qos: .userInitiated))
-            DispatchQueue.global().asyncAfter(deadline: .now() + 5) {
-                once.resume(nil)
-                connection.cancel()
+            } else {
+                computers.append(Computer(id: sighting.id, name: sighting.name, host: sighting.host, port: sighting.port))
             }
         }
+        nearby = Set(sightings.map(\.id))
+        if changed { save() }
     }
 
     /// Adds a computer by the address its Remote Control settings show: `192.168.1.20`, or
@@ -169,7 +143,7 @@ final class RemotePlayers {
             return
         }
         do {
-            let (data, response) = try await requests.data(from: url)
+            let (data, response) = try await requests.data(for: URLRequest(url: url))
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
             let info = try JSONDecoder().decode(RemoteInfo.self, from: data)
             if let index = computers.firstIndex(where: { $0.id == info.id }) {
@@ -198,7 +172,7 @@ final class RemotePlayers {
             return
         }
         do {
-            let status = try await post(base.appending(path: "v1/pair/request"), RemotePairing.Request(device: Self.deviceName)).1
+            let status = try await post(base.appendingPathComponent("v1/pair/request"), RemotePairing.Request(device: Self.deviceName)).1
             guard status == 202 else { throw URLError(.badServerResponse) }
             pairing = computer
         } catch {
@@ -216,7 +190,7 @@ final class RemotePlayers {
         pairing = nil
         do {
             let (data, status) = try await post(
-                base.appending(path: "v1/pair/confirm"),
+                base.appendingPathComponent("v1/pair/confirm"),
                 RemotePairing.Confirm(device: Self.deviceName, code: code)
             )
             switch status {
@@ -241,7 +215,7 @@ final class RemotePlayers {
     func forget(_ computer: Computer) async {
         if session?.computer.id == computer.id { await playHere(moving: false) }
         if let base = computer.baseURL, let token = computer.token {
-            var request = URLRequest(url: base.appending(path: "v1/pair"))
+            var request = URLRequest(url: base.appendingPathComponent("v1/pair"))
             request.httpMethod = "DELETE"
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             _ = try? await requests.data(for: request)
@@ -355,24 +329,5 @@ final class RemotePlayers {
         let paired = computers.filter(\.isPaired)
         guard let data = try? JSONEncoder().encode(paired) else { return }
         Keychain.saveRemotePlayers(data)
-    }
-}
-
-/// Resumes a continuation once, whichever of a connection's states and a timeout comes
-/// first.
-private final class ResumeOnce<Value: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Value, Never>?
-
-    init(_ continuation: CheckedContinuation<Value, Never>) {
-        self.continuation = continuation
-    }
-
-    func resume(_ value: Value) {
-        lock.lock()
-        let continuation = continuation
-        self.continuation = nil
-        lock.unlock()
-        continuation?.resume(returning: value)
     }
 }

@@ -126,6 +126,7 @@ final class NowPlaying {
         info.append(codec)
         info.append(resume)
         info.append(unreachable)
+        info.append(PlayOn.banner(env))
         infoClamp = Clamp(info, maximum: 400, threshold: 300)
         controls.append(transportRow)
         controls.append(volume)
@@ -822,8 +823,15 @@ final class NowPlaying {
     private static func volumeRow() -> Widget {
         let volume = OutputVolume.shared
         let scale = Scale(min: 0, max: 1, step: 0.01, value: volume.level)
-        scale.hexpand().onUserChange { volume.level = min(max($0, 0), 1) }
-        scale.observe { if abs(scale.value - volume.level) > 0.005 { scale.value = volume.level } }
+        // Playing on another computer, that computer's volume for the app, as on the phone.
+        scale.hexpand().onUserChange { value in
+            let level = min(max(value, 0), 1)
+            if let session = PlayOn.players?.session { session.setVolume(level) } else { volume.level = level }
+        }
+        scale.observe {
+            let target = PlayOn.players?.session?.volume ?? volume.level
+            if abs(scale.value - target) > 0.005 { scale.value = target }
+        }
         return Box.horizontal(spacing: 8) {
             Icon("audio-volume-high-symbolic", size: 14).opacity(0.7)
             scale
@@ -866,10 +874,12 @@ final class NowPlaying {
             toolbarShuffle
         }.hexpand().halign(GTK_ALIGN_START))
         toolbar.append(closeButton())
+        // Plexamp keeps its speakers here; Play On is the phone's.
         toolbar.append(Box.horizontal(spacing: 4) {
             toolbarRepeat
             lyrics
             visualizer
+            PlayOn.button(env)
         }.hexpand().halign(GTK_ALIGN_END))
         toolbar.css("np-toolbar")
 
@@ -880,6 +890,7 @@ final class NowPlaying {
         sideToolbar.append(sideVisualizer)
         sideToolbar.append(Self.djButton(app))
         sideToolbar.append(menuButton())
+        sideToolbar.append(PlayOn.button(env))
         sideToolbar.append(queue)
         sideToolbar.append(closeButton())
         sideToolbar.css("np-toolbar").halign(GTK_ALIGN_CENTER)

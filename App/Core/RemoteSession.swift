@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Observation
 
 /// One computer being played to: its event stream followed into the player, and the
@@ -28,6 +31,7 @@ final class RemoteSession: RemotePlayerLink {
     @ObservationIgnored private let token: String
     @ObservationIgnored private weak var player: PlaybackController?
     @ObservationIgnored private let connection: URLSession
+    @ObservationIgnored private let streaming: URLSessionConfiguration
     @ObservationIgnored private var stream: Task<Void, Never>?
     @ObservationIgnored private var ticker: Task<Void, Never>?
     /// The last command sent; each waits for the one before, so a seek and a play arrive
@@ -43,8 +47,11 @@ final class RemoteSession: RemotePlayerLink {
         self.player = player
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = RemoteControl.silence
+        #if !canImport(FoundationNetworking)
         configuration.waitsForConnectivity = false
+        #endif
         connection = URLSession(configuration: configuration)
+        streaming = configuration
     }
 
     /// 0...1, the computer's own volume for the app.
@@ -85,18 +92,19 @@ final class RemoteSession: RemotePlayerLink {
         var failures = 0
         while !Task.isCancelled {
             do {
-                var request = URLRequest(url: base.appending(path: "v1/events"))
+                var request = URLRequest(url: base.appendingPathComponent("v1/events"))
                 request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
                 request.timeoutInterval = RemoteControl.silence
-                let (bytes, response) = try await connection.bytes(for: request)
-                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                // Its own line reader rather than `bytes(for:)`, which Linux's Foundation
+                // does not have: the desktop plays to other computers too.
+                let (code, lines) = try await RemoteLines.open(request, configuration: streaming)
                 if code == 401 {
                     onUnauthorized?()
                     return
                 }
                 guard code == 200 else { throw URLError(.badServerResponse) }
                 var parser = EventStream.Parser()
-                for try await line in bytes.lines {
+                for try await line in lines {
                     guard let event = parser.feed(line) else { continue }
                     if status != .connected {
                         status = .connected
@@ -171,7 +179,7 @@ final class RemoteSession: RemotePlayerLink {
     }
 
     private func post(_ command: RemoteCommand) async {
-        var request = URLRequest(url: base.appending(path: "v1/command"))
+        var request = URLRequest(url: base.appendingPathComponent("v1/command"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")

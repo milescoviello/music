@@ -14,7 +14,7 @@ struct MusicApp: App {
         // Where every stretch of the log starts: which build, on what.
         let launched = "launched \(SettingsView.version) on \(LogReport.currentSystem)"
         Task { await Diagnostics.shared.record("app", launched) }
-        _remotePlayers = State(initialValue: RemotePlayers(appState: appState))
+        _remotePlayers = State(initialValue: RemotePlayers(appState: appState, browser: NetworkRemoteBrowser()))
     }
 
     var body: some Scene {
