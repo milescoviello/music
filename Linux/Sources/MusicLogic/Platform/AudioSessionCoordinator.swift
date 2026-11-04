@@ -12,6 +12,8 @@ import Foundation
 final class AudioSessionCoordinator {
     var onPause: (() -> Void)?
     var onResume: (() -> Void)?
+    /// Never raised: the sound server has no reset that kills the app's streams unseen.
+    var onMediaServicesReset: (() -> Void)?
 
     private var isPlaying = false
 
@@ -27,6 +29,8 @@ final class AudioSessionCoordinator {
     func deactivate() {}
 
     func resumeIfInterruptionWentUnreported() {}
+
+    func setUpAgain() {}
 
     func noteIsPlaying(_ isPlaying: Bool) {
         self.isPlaying = isPlaying

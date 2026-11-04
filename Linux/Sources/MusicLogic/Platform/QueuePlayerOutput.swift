@@ -36,6 +36,9 @@ final class QueuePlayerOutput: AudioOutput {
     /// Never raised: this output decodes its own streams, and holds a track it cannot read
     /// rather than moving past it, which is what the iPhone's needs going back for.
     var onFailedMidTrack: ((String, Double) -> Void)?
+    /// Never raised, and nothing to replace: see the session's `onMediaServicesReset`.
+    var onMediaServicesReset: (() -> Void)?
+    func replacePlayers() {}
     var onTick: ((Double, Bool) -> Void)?
     var locate: ((Song) -> MediaLocation?)?
     var makeChain: ((Song) -> DSPChain)?

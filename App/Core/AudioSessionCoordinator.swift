@@ -11,6 +11,9 @@ final class AudioSessionCoordinator {
     /// Called when the system wants playback paused or resumed.
     var onPause: (() -> Void)?
     var onResume: (() -> Void)?
+    /// The system's media services restarted: every player made before is dead, and the
+    /// session has been set up again here. The controller makes new players.
+    var onMediaServicesReset: (() -> Void)?
 
     private var isActivated = false
     /// Mirrors the controller's play state, kept current by `noteIsPlaying`.
@@ -26,11 +29,24 @@ final class AudioSessionCoordinator {
     private var observers: [NSObjectProtocol] = []
 
     func configure() {
+        setCategory()
+        observeNotifications()
+    }
+
+    private func setCategory() {
         let session = AVAudioSession.sharedInstance()
         // .longFormAudio is what marks this as a music app for routing and AirPlay 2.
         // Deliberately no .mixWithOthers: it is incompatible with that policy.
         try? session.setCategory(.playback, mode: .default, policy: .longFormAudio)
-        observeNotifications()
+    }
+
+    /// After the system's media services restarted. Apple's rule is that everything audio
+    /// made before is gone, the session's settings with it, so the category is set again
+    /// and the next play activates afresh. Called for the system's notice, and by the
+    /// controller when a track fails for that reason, the only sign of it some times.
+    func setUpAgain() {
+        setCategory()
+        isActivated = false
     }
 
     /// Activated lazily on the first play. Activating a `.playback` session at
@@ -69,6 +85,21 @@ final class AudioSessionCoordinator {
 
             MainActor.assumeIsolated {
                 self?.handleInterruption(rawType: rawType, rawOptions: rawOptions, rawReason: rawReason)
+            }
+        })
+
+        // Nothing was listening for this: on 2026-11-04 the media server had restarted
+        // in the hour between two plays, and every track after "couldn't be opened:
+        // Cannot Complete Action" or sat buffering at 0:00 for good.
+        observers.append(center.addObserver(
+            forName: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                setUpAgain()
+                onMediaServicesReset?()
             }
         })
 

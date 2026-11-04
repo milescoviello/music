@@ -213,6 +213,14 @@ final class PlaybackController {
         output.onFailedMidTrack = { [weak self] songID, position in
             self?.handleFailedMidTrack(songID: songID, at: position)
         }
+        // Either can come first, and the output's once for each track in the window.
+        session.onMediaServicesReset = { [weak self] in
+            self?.mediaServicesWereReset()
+        }
+        output.onMediaServicesReset = { [weak self] in
+            self?.session.setUpAgain()
+            self?.mediaServicesWereReset()
+        }
         output.onTick = { [weak self] elapsed, isMoving in
             self?.tick(elapsed: elapsed, isMoving: isMoving)
         }
@@ -743,7 +751,9 @@ final class PlaybackController {
     /// A skip the mixes learn from: by hand, early, and of a track that was playing. One
     /// stuck waiting for data is skipped because of the network, not the song.
     private func noteSkip() {
-        guard let song = currentSong, isPlaying, !isBuffering,
+        // Not past a track that would not play: that is the app failing, not a verdict on
+        // the song ("Tonight, Tonight" counted against after the media server restarted).
+        guard let song = currentSong, isPlaying, !isBuffering, output.holdsCurrent,
               SkipMemory.isEarly(position: elapsed, duration: duration)
         else { return }
         appState?.skips.record(song, at: elapsed)
@@ -1307,6 +1317,27 @@ final class PlaybackController {
         tracker.interrupted(at: position)
         startOutput()
         persist()
+    }
+
+    /// When the players were last replaced, so one restart is handled once.
+    private var lastMediaReset: Date?
+
+    /// The system's media services restarted, and every player made before is dead: make
+    /// new ones and load the current track again where it was, playing if it was.
+    private func mediaServicesWereReset() {
+        if let lastMediaReset, Date.now.timeIntervalSince(lastMediaReset) < 5 { return }
+        lastMediaReset = .now
+        let title = queue.current?.title ?? "nothing"
+        let playing = isPlaying
+        Task {
+            await Diagnostics.shared.record(
+                "audio", "the system's media services restarted: new players, “\(title)” loaded again\(playing ? ", playing" : "")"
+            )
+        }
+        output.replacePlayers()
+        guard remote == nil else { return }
+        reloadCurrent()
+        if playing { startOutput() }
     }
 
     // MARK: - Now Playing

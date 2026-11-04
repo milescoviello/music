@@ -71,6 +71,9 @@ final class QueuePlayerOutput: AudioOutput {
     /// output, which decodes its own streams, holds an unreachable track and raises it.
     var onUnreachable: ((String) -> Void)?
     var onFailedMidTrack: ((String, Double) -> Void)?
+    /// A track failed because the system's media services restarted: the players are
+    /// dead. The controller has `replacePlayers` called and the track loaded again.
+    var onMediaServicesReset: (() -> Void)?
     var onTick: ((Double, Bool) -> Void)?
     var locate: ((Song) -> MediaLocation?)?
     var makeChain: ((Song) -> DSPChain)?
@@ -79,7 +82,9 @@ final class QueuePlayerOutput: AudioOutput {
     /// to leave it a plain fade.
     var beatMatch: ((Song, Song, Double) -> BeatMatch.Plan?)?
 
-    private let players = [AVQueuePlayer(), AVQueuePlayer()]
+    /// Replaced, not reused, after the system's media services restart: the old ones are
+    /// dead, and anything given to them never plays.
+    private var players = [AVQueuePlayer(), AVQueuePlayer()]
     private var active = 0
     private var idle: Int { 1 - active }
     /// Crossfade gain per player, multiplied with `volume`.
@@ -138,8 +143,8 @@ final class QueuePlayerOutput: AudioOutput {
     private var wantsToPlay = false
     private var startFallback: Task<Void, Never>?
     private var spectrum: AudioSampleBuffer?
-    /// Never removed: each observer is owned by its player, which is owned by this
-    /// object, so they are deallocated together.
+    /// One per player, in the players' order. Removed only when the players are replaced:
+    /// otherwise each is owned by its player, and they are deallocated together.
     private var timeObservers: [Any] = []
     /// AVPlayer says why an item failed or stalled only through these, and nothing was
     /// listening: a track that would not open or stopped early left no trace in the log.
@@ -443,7 +448,11 @@ final class QueuePlayerOutput: AudioOutput {
         statusObservations[id] = item.observe(\.status) { @Sendable [weak self] item, _ in
             guard item.status == .failed else { return }
             let reason = item.error.map(Diagnostics.describe) ?? "no reason given"
-            Task { @MainActor in self?.logTrouble(id, "couldn't be opened: \(reason)") }
+            let wasReset = (item.error as? AVError)?.code == .mediaServicesWereReset
+            Task { @MainActor in
+                self?.logTrouble(id, "couldn't be opened: \(reason)")
+                if wasReset { self?.onMediaServicesReset?() }
+            }
         }
 
         if let chain = makeChain?(song) {
@@ -871,6 +880,23 @@ final class QueuePlayerOutput: AudioOutput {
     }
 
     // MARK: - Time
+
+    /// New players for dead ones, after the system's media services restarted. Empty: the
+    /// controller loads the window again straight after.
+    func replacePlayers() {
+        resetPlayers()
+        for (player, observer) in zip(players, timeObservers) {
+            player.removeTimeObserver(observer)
+        }
+        timeObservers.removeAll()
+        players = [AVQueuePlayer(), AVQueuePlayer()]
+        for player in players {
+            player.actionAtItemEnd = .advance
+        }
+        addTimeObservers()
+        applyVolumes()
+        applyRate()
+    }
 
     private func addTimeObservers() {
         // 4 Hz: enough for a smooth scrubber, and cheap. Item advancement is detected
