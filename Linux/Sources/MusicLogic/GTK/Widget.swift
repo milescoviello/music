@@ -231,6 +231,41 @@ class Widget {
         Signal.connect(widget, "unmap", action)
         return self
     }
+
+    /// Runs `action` once, when the widget is actually on screen within every scroller
+    /// around it. "map" is no use for this: everything in a scrolled list is mapped,
+    /// seen or not, so a "load more" spinner at the end of Made for You loaded more at
+    /// once, and the next one did too, until all forty mixes were built.
+    @discardableResult
+    func onScrolledIntoView(_ action: @escaping @MainActor () -> Void) -> Self {
+        let trigger = ScrollTrigger(self, action: action)
+        keep(trigger)
+        Signal.connect(widget, "map") { trigger.mapped() }
+        return self
+    }
+
+    /// The scrolled windows around this widget, nearest first.
+    fileprivate var scrollers: [OpaquePointer] {
+        var found: [OpaquePointer] = []
+        var from: UnsafeMutablePointer<GtkWidget>? = gtk_widget_get_parent(widget)
+        while let start = from, let scroller = gtk_widget_get_ancestor(start, gtk_scrolled_window_get_type()) {
+            found.append(OpaquePointer(scroller))
+            from = gtk_widget_get_parent(scroller)
+        }
+        return found
+    }
+
+    fileprivate var isOnScreenInScrollers: Bool {
+        for scroller in scrollers {
+            let container: UnsafeMutablePointer<GtkWidget> = scroller.cast()
+            var bounds = graphene_rect_t()
+            guard gtk_widget_compute_bounds(widget, container, &bounds) != 0 else { return false }
+            let width = Float(gtk_widget_get_width(container)), height = Float(gtk_widget_get_height(container))
+            let x = bounds.origin.x, y = bounds.origin.y
+            guard x < width, x + bounds.size.width > 0, y < height, y + bounds.size.height > 0 else { return false }
+        }
+        return true
+    }
 }
 
 /// Children, written as a list in braces.
@@ -915,5 +950,40 @@ final class Clamp: Widget {
         adw_clamp_set_child(widget.cast(), child.widget)
         adw_clamp_set_maximum_size(widget.cast(), maximum)
         adw_clamp_set_tightening_threshold(widget.cast(), threshold)
+    }
+}
+
+/// `onScrolledIntoView`'s state: whether it has fired, and what it listens to until then.
+@MainActor
+private final class ScrollTrigger {
+    private weak var view: Widget?
+    private let action: @MainActor () -> Void
+    private var fired = false
+    private var handlers: [(OpaquePointer, gulong)] = []
+
+    init(_ view: Widget, action: @escaping @MainActor () -> Void) {
+        self.view = view
+        self.action = action
+    }
+
+    func mapped() {
+        check()
+        guard !fired, handlers.isEmpty, let view else { return }
+        let reference = WeakReference(self)
+        for scroller in view.scrollers {
+            for adjustment in [gtk_scrolled_window_get_hadjustment(scroller), gtk_scrolled_window_get_vadjustment(scroller)] {
+                guard let adjustment else { continue }
+                let id = Signal.connect(adjustment, "value-changed") { reference.value?.check() }
+                handlers.append((OpaquePointer(adjustment), id))
+            }
+        }
+    }
+
+    func check() {
+        guard !fired, let view, view.isOnScreenInScrollers else { return }
+        fired = true
+        for (adjustment, id) in handlers { Signal.disconnect(adjustment, id) }
+        handlers = []
+        action()
     }
 }

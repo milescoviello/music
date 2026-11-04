@@ -46,7 +46,7 @@ enum MixPages {
         var cards = mixes.mixes.map { card(env, $0) }
         if mixes.canLoadMore {
             let more = Spinner().size(24).valign(GTK_ALIGN_CENTER).margin(24)
-            more.onMap { mixes.loadMore(appState: env.app, scope: MixScope.current(env.app)) }
+            more.onScrolledIntoView { mixes.loadMore(appState: env.app, scope: MixScope.current(env.app)) }
             cards.append(more)
         }
         return Shelf.make("Made for You", more: { env.open(.dailyMixes) }, cards: cards)
@@ -100,7 +100,7 @@ enum MixPages {
                     Spinner().size(16)
                     Label("Building more…", "caption", "dim")
                 }.margin(12)
-                more.onMap { mixes.loadMore(appState: app, scope: MixScope.current(app)) }
+                more.onScrolledIntoView { mixes.loadMore(appState: app, scope: MixScope.current(app)) }
                 list.append(more)
             }
             if mixes.mixes.isEmpty, !mixes.isBuilding {
@@ -147,7 +147,7 @@ enum MixPages {
                     Spinner().size(16)
                     Label("Adding more…", "caption", "dim")
                 }
-                more.onMap { app.mixes.extend(mixID: id, appState: app, scope: MixScope.current(app)) }
+                more.onScrolledIntoView { app.mixes.extend(mixID: id, appState: app, scope: MixScope.current(app)) }
                 body.append(more)
             }
             slot.child = body.margin(horizontal: 12, vertical: 24)

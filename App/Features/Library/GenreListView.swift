@@ -4,6 +4,7 @@ struct GenreListView: View {
     @Environment(AppState.self) private var appState
     @Environment(LibraryScopeStore.self) private var scope
 
+    @State private var loadedGeneration: Int?
     @State private var genres: [Genre] = []
 
     var body: some View {
@@ -167,12 +168,16 @@ private struct GenreSongsView: View {
             }
         }
         .task(id: scope.generation) {
+            // Only for a new library, not each time the screen comes back into view: that
+            // emptied the list and lost how far it had been scrolled.
+            guard loadedGeneration != scope.generation else { return }
             generation += 1
             songs = []
             fetched = 0
             canLoadMore = true
             isLoadingPage = false
             await loadMore()
+            if !Task.isCancelled { loadedGeneration = scope.generation }
         }
     }
 

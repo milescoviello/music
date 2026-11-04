@@ -308,7 +308,7 @@ final class PlaybackController {
         let policy = appState.streaming.policy
         let cache = appState.streamCache
 
-        if appState.downloads.localURL(for: song.id) != nil, policy.usesDownload(on: network) {
+        if appState.downloads.localURL(for: song) != nil, policy.usesDownload(on: network) {
             return appState.downloads.catalog.entries[song.id]?.quality == .original
         }
         let variant = policy.variant(for: song, on: network)
@@ -337,7 +337,7 @@ final class PlaybackController {
         guard let appState else { return nil }
         let network = appState.reachability.network
         let policy = appState.streaming.policy
-        let download = appState.downloads.localURL(for: song.id)
+        let download = appState.downloads.localURL(for: song)
 
         if let download, policy.usesDownload(on: network) {
             return located(song, from: "the download", MediaLocation(url: download, mimeType: nil, isLocal: true))
@@ -413,7 +413,7 @@ final class PlaybackController {
 
         var requests: [StreamCache.Request] = []
         for song in wanted {
-            if appState.downloads.localURL(for: song.id) != nil, policy.usesDownload(on: network) { continue }
+            if appState.downloads.localURL(for: song) != nil, policy.usesDownload(on: network) { continue }
             let variant = policy.variant(for: song, on: network)
             guard let url = Self.cacheURL(for: song, variant: variant, signer: signer) else { continue }
             requests.append(StreamCache.Request(song: song, variant: variant, url: url))

@@ -36,7 +36,7 @@ struct SongRow: View {
 
             Spacer(minLength: 8)
 
-            DownloadedBadge(songID: song.id)
+            DownloadedBadge(song: song)
 
             if userState.isStarred(song) {
                 Image(systemName: "heart.fill")

@@ -128,7 +128,7 @@ struct AddToPlaylistSheet: View {
             }
             // Again when the list changes, for a playlist that was not there before.
             .task(id: store.writable.map(\.id)) {
-                await store.loadIfNeeded()
+                await store.refreshIfStale()
                 await readMembership()
             }
             .sheet(isPresented: $isNaming) {

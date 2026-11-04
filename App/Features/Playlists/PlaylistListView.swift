@@ -119,7 +119,7 @@ struct PlaylistListView: View {
             }
         }
         .refreshable { await store.load() }
-        .task { await store.loadIfNeeded() }
+        .task { await store.refreshIfStale() }
     }
 
     /// The same toggle as the download button on the playlist's own screen: Download,
@@ -246,6 +246,23 @@ struct PlaylistDetailView: View {
     let playlist: PlaylistRef
 
     @State private var detail: PlaylistDetail?
+
+    /// The name as the store has it now, not as it was when the screen opened: renamed
+    /// from here, the title, header and description kept the old ones.
+    private var name: String {
+        store.playlists.first(where: { $0.id == playlist.id })?.name ?? detail?.name ?? playlist.name
+    }
+
+    /// Rows keyed by song and which of its repeats, not by position: removing row 3 slid
+    /// the last row away while every row from 3 down changed title.
+    private var keyedRows: [(key: String, index: Int)] {
+        var seen: [String: Int] = [:]
+        return songs.indices.map { index in
+            let id = songs[index].id
+            seen[id, default: 0] += 1
+            return ("\(id)#\(seen[id]!)", index)
+        }
+    }
     @State private var selection = SongSelection()
     @State private var isPickingPhoto = false
     @State private var pickedItem: PhotosPickerItem?
@@ -290,17 +307,22 @@ struct PlaylistDetailView: View {
             // The indices, not `Array(songs.enumerated())`: the same identities, without
             // copying every song into a new array on each redraw, which for a smart
             // playlist of the whole library is 28,000 of them.
-            ForEach(songs.indices, id: \.self) { index in
+            ForEach(keyedRows, id: \.key) { row in
+                let index = row.index
                 let song = songs[index]
                 // Trailing swipe removes from the playlist here, rather than the generic
                 // "add to queue": in a playlist, removal is the action you actually want.
                 PlayableSongRow(
-                    songs: songs, index: index, source: playlist.name, selection: selection,
+                    songs: songs, index: index, source: name, selection: selection,
                     onRemove: {
+                        // Gone from the screen at once; the server's answer then decides.
+                        if var shown = detail, shown.entry?.indices.contains(index) == true {
+                            shown.entry?.remove(at: index)
+                            detail = shown
+                        }
                         Task {
-                            if await store.remove(song, shownAt: index, from: playlist.id) {
-                                await load()
-                            }
+                            _ = await store.remove(song, shownAt: index, from: playlist.id)
+                            await load()
                         }
                     }
                 )
@@ -312,14 +334,14 @@ struct PlaylistDetailView: View {
         .listStyle(.plain)
         .playerClearance()
         .environment(\.editMode, .constant(isReordering ? .active : .inactive))
-        .collapsingTitle(playlist.name)
+        .collapsingTitle(name)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 if isReordering {
                     Button("Done") { isReordering = false }
                 } else {
                     CollectionDownloadButton(
-                        songs: songs, groupID: playlist.id, groupName: playlist.name
+                        songs: songs, groupID: playlist.id, groupName: name
                     )
                 }
             }
@@ -358,10 +380,15 @@ struct PlaylistDetailView: View {
                 }
             }
         }
-        .sheet(item: $editing) { EditPlaylistSheet(playlist: $0) }
+        .sheet(item: $editing, onDismiss: { Task { await load() } }) { EditPlaylistSheet(playlist: $0) }
+        // Changed from elsewhere: a song added from the player, which is laid over this
+        // screen, so it never comes back into view to load again.
+        .onChange(of: store.playlists.first(where: { $0.id == playlist.id }).map { "\($0.songCount ?? 0)\($0.changed ?? "")" }) {
+            Task { await load() }
+        }
         .safeAreaInset(edge: .bottom) {
             if selection.isActive {
-                SelectionToolbar(selection: selection, all: songs, source: playlist.name)
+                SelectionToolbar(selection: selection, all: songs, source: name)
             }
         }
         .toolbar {
@@ -397,14 +424,14 @@ struct PlaylistDetailView: View {
                 size: .full,
                 cornerRadius: Metrics.radiusHeader,
                 playlistID: playlist.id,
-                fallbackText: playlist.name
+                fallbackText: name
             )
             .aspectRatio(1, contentMode: .fit)
             .frame(maxWidth: Metrics.detailArtwork)
             .shadow(radius: 12, y: 6)
 
             VStack(spacing: 4) {
-                Text(playlist.name)
+                Text(name)
                     .font(.title2.weight(.bold))
                     .multilineTextAlignment(.center)
 
@@ -424,11 +451,11 @@ struct PlaylistDetailView: View {
 
             PlayShuffleButtons(
                 onPlay: {
-                    appState.player.play(songs: playable, startingAt: 0, source: playlist.name)
+                    appState.player.play(songs: playable, startingAt: 0, source: name)
                 },
                 onShuffle: {
                     appState.player.play(
-                        songs: playable, startingAt: 0, source: playlist.name, shuffled: true
+                        songs: playable, startingAt: 0, source: name, shuffled: true
                     )
                 }
             )
@@ -453,8 +480,8 @@ struct PlaylistDetailView: View {
         Task {
             let mix = await appState.radio.mix(seed: seed, scope: scope.scope)
             appState.startRadio(
-                named: "\(playlist.name) Radio", songs: mix,
-                station: .radio(seedIDs: songs.map(\.id), title: "\(playlist.name) Radio")
+                named: "\(name) Radio", songs: mix,
+                station: .radio(seedIDs: songs.map(\.id), title: "\(name) Radio")
             )
         }
     }

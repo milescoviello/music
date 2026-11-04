@@ -5,6 +5,7 @@ struct RediscoverView: View {
     @Environment(AppState.self) private var appState
     @Environment(LibraryScopeStore.self) private var scope
 
+    @State private var loadedGeneration: Int?
     @State private var model = RediscoverModel()
 
     var body: some View {
@@ -72,7 +73,11 @@ struct RediscoverView: View {
         }
         .refreshable { await model.load(appState: appState, scope: scope.scope) }
         .task(id: scope.generation) {
+            // Not each time the screen comes back into view: that drew a new random
+            // Never Played every time. Pull to refresh for a new one.
+            guard loadedGeneration != scope.generation else { return }
             await model.load(appState: appState, scope: scope.scope)
+            if !Task.isCancelled { loadedGeneration = scope.generation }
         }
     }
 

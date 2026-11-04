@@ -27,7 +27,39 @@ final class DownloadCenter {
         didSet {
             let present = catalog.groupIDs
             if present != groups { groups = present }
+            copies = Self.copies(in: catalog)
         }
+    }
+
+    /// Downloaded songs by recording, for the same song in the other library: it streamed,
+    /// and offline would not play at all, with its copy on the phone all along.
+    @ObservationIgnored private var copies: [String: (songID: String, albumID: String?)] = [:]
+
+    private static func copies(in catalog: DownloadCatalog) -> [String: (songID: String, albumID: String?)] {
+        var found: [String: (songID: String, albumID: String?)] = [:]
+        for entry in catalog.entries.values {
+            found[PlaylistMembership.recording(entry.song)] = (entry.song.id, entry.song.albumId)
+        }
+        return found
+    }
+
+    /// A downloaded copy of `song` from the other library. Never one on the same album:
+    /// two tracks of one album with one name are different songs.
+    private func copy(of song: Song) -> String? {
+        guard let copy = copies[PlaylistMembership.recording(song)], copy.songID != song.id,
+              copy.albumID != song.albumId || song.albumId == nil
+        else { return nil }
+        return copy.songID
+    }
+
+    /// This song, or its copy in the other library, is on the device.
+    func isDownloaded(_ song: Song) -> Bool {
+        isDownloaded(song.id) || copy(of: song).map { isDownloaded($0) } == true
+    }
+
+    /// The file to play for this song: its own, or its copy's from the other library.
+    func localURL(for song: Song) -> URL? {
+        localURL(for: song.id) ?? copy(of: song).flatMap { localURL(for: $0) }
     }
     /// The albums and playlists with a download here or on its way, by group id. Its own
     /// property, changed only when one appears or goes, for the long-press menus on every
@@ -153,7 +185,7 @@ final class DownloadCenter {
     /// True when every track in the list is local -- the condition the crossfade
     /// engine needs, since it cannot stream.
     func isFullyLocal(_ songs: [Song]) -> Bool {
-        !songs.isEmpty && songs.allSatisfy { isDownloaded($0.id) }
+        !songs.isEmpty && songs.allSatisfy { isDownloaded($0) }
     }
 
     // MARK: - Writing

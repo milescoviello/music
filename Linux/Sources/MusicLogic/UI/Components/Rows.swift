@@ -89,7 +89,7 @@ final class SongRowView {
 
     private func refreshMarks(_ song: Song) {
         let app = env.app
-        downloaded.isVisible = app.downloads.isDownloaded(song.id)
+        downloaded.isVisible = app.downloads.isDownloaded(song)
         heart.isVisible = app.userState.isStarred(song)
         let isCurrent = song.isSameRecording(as: app.player.currentSong)
         title.setCSS("current", isCurrent)

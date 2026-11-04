@@ -143,12 +143,14 @@ private struct ToolbarDownloadRing: View {
 struct DownloadedBadge: View {
     @Environment(DownloadCenter.self) private var downloads
 
-    let songID: String
+    let song: Song
+    private var songID: String { song.id }
 
     var body: some View {
         // Not `status(for:)`: that reads the fraction, and this draws the same arrow
         // whatever it is, so every row on screen redrew on every percent for nothing.
-        if downloads.isDownloaded(songID) {
+        // Its copy in the other library counts: it is what plays.
+        if downloads.isDownloaded(song) {
             Image(systemName: "arrow.down.circle.fill")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)

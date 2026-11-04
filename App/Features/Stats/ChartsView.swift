@@ -96,7 +96,8 @@ struct ChartsView: View {
             }
         }
         .onChange(of: spanRaw) { period = nil }
-        .task(id: "\(spanRaw)-\(scope.generation)") {
+        // The length is in the key too: Top 50 kept All Time's albums at 25.
+        .task(id: "\(spanRaw)-\(scope.generation)-\(limit)") {
             guard span == .all else { return }
             serverAlbums = (try? await appState.client.mostPlayedAlbums(size: limit, scope: scope.scope)) ?? []
         }

@@ -13,6 +13,7 @@ final class CollectionDownloadButton {
     private let songs: @MainActor () -> [Song]
     private var fraction: Double?
     private var complete = false
+    private var ring: DrawingArea?
 
     init(_ env: Env, groupID: String, groupName: String, songs: @escaping @MainActor () -> [Song]) {
         self.env = env
@@ -24,6 +25,7 @@ final class CollectionDownloadButton {
             reference.value?.draw(cairo, width: width, height: height)
         }
         root = Button(child: ring, "flat")
+        self.ring = ring
         reference.value = self
         root.keep(self)
         root.onClicked { reference.value?.toggle() }
@@ -34,6 +36,14 @@ final class CollectionDownloadButton {
             button.refresh()
             ring.redraw()
         }
+    }
+
+    /// Its songs arrived or changed. A page loads them after building the button, and the
+    /// button only looks again when a download changes: it stayed greyed out, and a
+    /// downloaded album showed the plain arrow, until something downloaded.
+    func songsChanged() {
+        refresh()
+        ring?.redraw()
     }
 
     private func refresh() {

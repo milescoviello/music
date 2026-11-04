@@ -111,7 +111,13 @@ struct AlbumListView: View {
                 sort = initialSort
                 didApplyInitialSort = true
             }
+            // Again only when what is listed changed. SwiftUI runs this every time the
+            // screen comes back into view, after an album opened from it was closed, and
+            // reloading then emptied the grid and threw away how far it had been scrolled.
+            let key = LoadKey(sort: sort, scope: scope.generation, genre: genre, decade: decade)
+            guard key != loadedKey else { return }
             await reload()
+            if !Task.isCancelled { loadedKey = key }
         }
     }
 
@@ -129,6 +135,8 @@ struct AlbumListView: View {
         guard let genre else { return downloaded }
         return downloaded.filter { $0.genre?.caseInsensitiveCompare(genre) == .orderedSame }
     }
+
+    @State private var loadedKey: LoadKey?
 
     private struct LoadKey: Equatable {
         let sort: AlbumSort

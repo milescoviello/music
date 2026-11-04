@@ -5,6 +5,7 @@ struct HomeView: View {
     @Environment(LibraryScopeStore.self) private var scope
 
     @State private var model = HomeModel()
+    @State private var loaded: (generation: Int, at: Date)?
     /// -1 means both libraries. Its own setting, not the browsing scope.
     @AppStorage(LibraryScopeStore.mixesKey) private var mixFolderID = -1
     /// Plexamp's home editor: which shelves, in what order.
@@ -80,7 +81,12 @@ struct HomeView: View {
                 await model.load(appState: appState, scope: scope.scope)
             }
             .task(id: scope.generation) {
+                // Every time Home comes back into view, SwiftUI runs this again: More in a
+                // Genre reshuffled each time an album opened from Home was closed, and every
+                // shelf was fetched again. Now for a new library, or once ten minutes old.
+                if let loaded, loaded.generation == scope.generation, Date.now.timeIntervalSince(loaded.at) < 600 { return }
                 await model.load(appState: appState, scope: scope.scope)
+                if !Task.isCancelled { loaded = (scope.generation, .now) }
             }
             // Separate from the shelves above: this one is built from a dozen requests
             // and only once a day, so it must not hold up the rest of Home or be redone

@@ -41,7 +41,7 @@ extension AppState {
     /// the player holds a track it can't reach rather than skip through the rest. All of
     /// them when none is here, so a tap still starts something and says why it can't play.
     func playableHere(_ songs: [Song]) -> [Song] {
-        let here = songs.filter { downloads.localURL(for: $0.id) != nil || streamCache.anyFile(for: $0.id) != nil }
+        let here = songs.filter { downloads.localURL(for: $0) != nil || streamCache.anyFile(for: $0.id) != nil }
         return here.isEmpty ? songs : here
     }
 }

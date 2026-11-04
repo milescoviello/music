@@ -55,6 +55,9 @@ extension Song {
     /// different recording, and stays unlit.
     func isSameRecording(as other: Song?) -> Bool {
         guard let other else { return false }
-        return id == other.id || PlaylistMembership.recording(self) == PlaylistMembership.recording(other)
+        if id == other.id { return true }
+        // Two tracks of one album with one name ("Allegro", "Interlude") are not copies.
+        if let album = albumId, album == other.albumId { return false }
+        return PlaylistMembership.recording(self) == PlaylistMembership.recording(other)
     }
 }

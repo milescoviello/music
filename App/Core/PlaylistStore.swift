@@ -53,6 +53,7 @@ final class PlaylistStore {
     func load() async {
         guard let client, let appState else { return }
         isLoading = true
+        loadedAt = .now
         // The list as last seen, at once: waiting for the server first meant a blank list
         // for the whole request timeout away from home, where the server never answers.
         if playlists.isEmpty, let saved = await appState.cache.load([Playlist].self, for: CacheKey.playlists) {
@@ -70,6 +71,17 @@ final class PlaylistStore {
 
     private static func sorted(_ playlists: [Playlist]) -> [Playlist] {
         playlists.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    @ObservationIgnored private var loadedAt: Date?
+
+    /// Loads again when the list is more than a minute old: for the Playlists screens and
+    /// Add to Playlist. Loaded once only, a playlist made on the other device, or a count
+    /// changed there, stayed missing until a pull to refresh or a relaunch.
+    func refreshIfStale(after seconds: TimeInterval = 60) async {
+        guard !isLoading else { return }
+        if let loadedAt, Date.now.timeIntervalSince(loadedAt) < seconds { return }
+        await load()
     }
 
     /// Loads once. Used by menus, which must not re-fetch every time they open.

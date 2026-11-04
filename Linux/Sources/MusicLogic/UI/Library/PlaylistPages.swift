@@ -30,7 +30,7 @@ enum PlaylistList {
             }
             footer.isVisible = !playlists.isEmpty
         }
-        Task { await store.loadIfNeeded() }
+        Task { await store.refreshIfStale() }
 
         return Page.make("Playlists", content: body) { bar in
             bar.end(MenuButton(icon: "list-add-symbolic", "flat") {
@@ -167,16 +167,34 @@ enum PlaylistPage {
             bar.end(download.root)
         }
 
+        var current = playlist
         func load() {
             loader.run({ () -> (detail: PlaylistDetail, isSaved: Bool)? in
                 let found = await app.playlist(playlist.id)
                 return found.detail.map { ($0, found.isSaved) }
             }) { found in
                 songs = found.detail.songs
-                return content(env, playlist: playlist, detail: found.detail, isSaved: found.isSaved, reload: load)
+                download.songsChanged()
+                return content(env, playlist: current, detail: found.detail, isSaved: found.isSaved, reload: load)
             }
         }
         load()
+
+        // The playlist as the store has it: renamed from here, or a song added from the
+        // player laid over this page, the title and the songs stayed as they were.
+        func stamp(_ entry: Playlist?) -> String? {
+            entry.map { "\($0.name)\u{1F}\($0.songCount ?? 0)\u{1F}\($0.changed ?? "")" }
+        }
+        var seen = stamp(app.playlistStore.playlists.first { $0.id == playlist.id })
+        page.observe {
+            let entry = app.playlistStore.playlists.first { $0.id == playlist.id }
+            let now = stamp(entry)
+            guard now != seen, let entry else { return }
+            seen = now
+            current = PlaylistRef(id: playlist.id, name: entry.name, coverArt: playlist.coverArt)
+            page.title = entry.name
+            load()
+        }
         return page
     }
 

@@ -252,7 +252,7 @@ struct AlbumDetailView: View {
         async let info = try? client.albumInfo(id: id)
         if let artistID = detail?.artistId,
            let artist = try? await client.artistDetail(id: artistID) {
-            moreByArtist = artist.albums.filter { $0.id != id }
+            moreByArtist = SearchRanking.moreBy(artist.albums, than: Album(id: id, name: detail?.name ?? "", artist: detail?.artist))
         }
         review = await info?.plainNotes
         sonicallySimilar = await appState.sonic.similarAlbums(to: id) ?? []

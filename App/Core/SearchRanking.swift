@@ -47,6 +47,15 @@ enum SearchRanking {
         unique(albums) { "\(comparable($0.name))\u{1F}\(comparable($0.artist ?? ""))" }
     }
 
+    /// An artist's other albums, for "More by": one of each, and not this one in either
+    /// library. Filtering out only this album's id left its copy from the other library,
+    /// and every other album twice.
+    static func moreBy(_ albums: [Album], than current: Album) -> [Album] {
+        let key = { (album: Album) in "\(comparable(album.name))\u{1F}\(comparable(album.artist ?? ""))" }
+        let this = key(current)
+        return oneOfEach(albums.filter { $0.id != current.id && key($0) != this })
+    }
+
     /// One of each recording by title and artist, the first kept -- what mixes and
     /// playlists already treat as the same song. The two folders' copies of a song have
     /// different ids, so de-duplicating by id kept both.

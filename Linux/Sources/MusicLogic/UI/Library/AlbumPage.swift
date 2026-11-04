@@ -36,6 +36,7 @@ enum AlbumPage {
             Loader.empty("Couldn't Load This Album", icon: "network-offline-symbolic", description: "It could not be loaded, and there is no saved copy.")
         }) { detail in
             songs = detail.songs
+            download.songsChanged()
             favourite.observe {
                 let starred = app.userState.isStarred(id: album.id, serverValue: detail.starred != nil)
                 favourite.setCSS("accent", starred)
@@ -115,7 +116,7 @@ enum AlbumPage {
             async let similarAlbums = app.sonic.similarAlbums(to: album.id)
             var more: [Album] = []
             if let artistID = detail.artistId, let artist = try? await client.artistDetail(id: artistID) {
-                more = artist.albums.filter { $0.id != album.id }
+                more = SearchRanking.moreBy(artist.albums, than: Album(id: album.id, name: detail.name, artist: detail.artist))
             }
             let review = await info?.plainNotes
             let similar = await similarAlbums

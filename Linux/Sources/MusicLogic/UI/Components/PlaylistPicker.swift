@@ -119,7 +119,7 @@ enum PlaylistPicker {
 
         fill()
         Task {
-            await store.loadIfNeeded()
+            await store.refreshIfStale()
             guard alive.isAlive else { return }
             if choice.rows.isEmpty { fill() }
             readMembership()

@@ -258,6 +258,7 @@ final class Shell {
         Task { await app.playlistSync.sync() }
         app.downloads.resumeWaiting()
         Task { await app.mostPlayed.refresh() }
+        Task { await app.playlistStore.refreshIfStale() }
         Task { await app.queueSync.check(localSavedAt: app.player.lastSavedAt) }
     }
 

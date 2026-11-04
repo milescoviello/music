@@ -1027,13 +1027,18 @@ private struct ArtworkColorBackdrop: View {
         }
         .animation(.easeInOut(duration: 0.6), value: color)
         .task(id: coverArt) {
-            guard let image = await artwork.image(for: coverArt, size: .thumb) else { return }
+            // A song with no cover, or none here offline, goes back to the plain dark: it
+            // kept the colour of the cover before.
+            guard let image = await artwork.image(for: coverArt, size: .thumb) else {
+                if !Task.isCancelled { color = Color(white: 0.12) }
+                return
+            }
             // Off the main thread: it makes a Core Image context and renders with it, once
             // per track, and on the main thread that landed just as the new track's screen
             // was being drawn.
             let average = await Task.detached(priority: .userInitiated) { image.averageColor }.value
-            guard let average, !Task.isCancelled else { return }
-            color = average
+            guard !Task.isCancelled else { return }
+            color = average ?? Color(white: 0.12)
         }
     }
 }
