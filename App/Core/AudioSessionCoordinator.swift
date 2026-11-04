@@ -97,9 +97,8 @@ final class AudioSessionCoordinator {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self else { return }
-                setUpAgain()
-                onMediaServicesReset?()
+                self?.setUpAgain()
+                self?.onMediaServicesReset?()
             }
         })
 
