@@ -66,7 +66,7 @@ struct Album: Codable, Identifiable, Hashable, Sendable {
     var kind: ReleaseKind { ReleaseKind(album: self) }
 }
 
-/// `{ "name": "Warp" }` — the shape OpenSubsonic uses for genres and record labels alike.
+/// `{ "name": "Saltbox" }` — the shape OpenSubsonic uses for genres and record labels alike.
 struct NamedItem: Codable, Hashable, Sendable {
     let name: String
 }

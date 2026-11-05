@@ -149,7 +149,7 @@ final class PlaybackController {
     ///
     /// The line names the track that started waiting, not whichever is current when the
     /// wait ends: a track that never played and was skipped used to hand its wait to the
-    /// next one ("Cigarette Daydreams … waited 30s", on 11-02, was "Weird Fishes"' wait).
+    /// next one, so a track that played at once was logged as having waited 30 s.
     private func bufferingChanged() {
         if isBuffering {
             bufferingSince = .now
@@ -752,7 +752,7 @@ final class PlaybackController {
     /// stuck waiting for data is skipped because of the network, not the song.
     private func noteSkip() {
         // Not past a track that would not play: that is the app failing, not a verdict on
-        // the song ("Tonight, Tonight" counted against after the media server restarted).
+        // the song (one counted as skipped after the media server restarted).
         guard let song = currentSong, isPlaying, !isBuffering, output.holdsCurrent,
               SkipMemory.isEarly(position: elapsed, duration: duration)
         else { return }
@@ -1136,7 +1136,7 @@ final class PlaybackController {
         } else if elapsed > duration, elapsed > 0 {
             // The file is longer than anything claiming to know its length.
             //
-            // Panchiko's "Ginkgo" is the case that found this: the server says 157.4 s,
+            // The case that found this: the server says 157.4 s for one song,
             // while its own size and bitrate imply 214 s — the FLAC's STREAMINFO is wrong,
             // and AVFoundation, which decodes the actual stream, keeps playing past the
             // end. Trusting the metadata left the slider parked at 2:37 with audio still
@@ -1403,7 +1403,7 @@ final class PlaybackController {
 
     /// The position on disk, at most ten seconds old, while a track plays. Saved before
     /// only at transitions and on going to the background, so a force-quit, which gives
-    /// no warning, brought the song back at the start (11-03, "Breathe in the Air").
+    /// no warning, brought the song back at the start.
     /// Locally only: the server's copy follows the transitions as before.
     private func savePosition() {
         lastPositionSave = .now

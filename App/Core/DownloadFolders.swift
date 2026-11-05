@@ -296,8 +296,8 @@ struct DownloadFolders: Sendable {
             .filter { seen.insert($0.id).inserted }
     }
 
-    /// Every word has to appear somewhere — title, artist or album — so "ok radiohead"
-    /// finds OK Computer. Case and accents never decide it.
+    /// Every word has to appear somewhere — title, artist or album — so "harbor lanterns"
+    /// finds The Lanterns' Glass Harbor. Case and accents never decide it.
     func search(_ query: String) -> SearchResults {
         let words = Self.fold(query).split(whereSeparator: \.isWhitespace)
         guard !words.isEmpty else { return SearchResults() }

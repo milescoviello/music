@@ -98,24 +98,24 @@ struct SeekbarLevelsTests {
     }
 
     @Test func aReplyThatCannotBeReadHoldsBackOnlyItsOwnTrack() async {
-        // What happened at 12:51 on 11-02: "Californication" answered with NaN, and
-        // "All I Need", a second later, was never asked about at all.
+        // As it happened on a phone: one track's reply had NaN in it, and the next track,
+        // a second later, was never asked about at all.
         var time = clock
-        await service.answer("californication", with: .failure(unreadableReply))
-        await service.answer("all-i-need", with: .success([-11, -9]))
+        await service.answer("unreadable", with: .failure(unreadableReply))
+        await service.answer("next", with: .success([-11, -9]))
         let store = store { time }
-        await store.load("californication")
-        await store.load("all-i-need")
-        #expect(store.levels(for: "all-i-need") == [-11, -9])
+        await store.load("unreadable")
+        await store.load("next")
+        #expect(store.levels(for: "next") == [-11, -9])
 
         // The unreadable one is asked again later, like a track not analysed yet --
         // by which time the service has analysed it again.
-        await store.load("californication")
-        #expect(await service.asked == ["californication", "all-i-need"])
-        await service.answer("californication", with: .success([-14, -8]))
+        await store.load("unreadable")
+        #expect(await service.asked == ["unreadable", "next"])
+        await service.answer("unreadable", with: .success([-14, -8]))
         time += SeekbarLevelsStore.notAnalysedRetry
-        await store.load("californication")
-        #expect(store.levels(for: "californication") == [-14, -8])
+        await store.load("unreadable")
+        #expect(store.levels(for: "unreadable") == [-14, -8])
     }
 
     @Test func noReadingsIsNoLevels() async {

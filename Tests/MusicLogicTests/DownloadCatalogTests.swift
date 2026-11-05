@@ -220,7 +220,7 @@ struct DownloadCatalogTests {
 /// than no plan.
 struct DownloadQualityTests {
     private var song: Song {
-        var song = Song(id: "a", title: "Let It Happen")
+        var song = Song(id: "a", title: "Slow Satellite")
         song.duration = 466
         song.size = 102_063_654
         return song

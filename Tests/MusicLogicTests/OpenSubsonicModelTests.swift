@@ -7,7 +7,7 @@ import Testing
 /// predates them must still produce albums and songs rather than an empty screen.
 struct OpenSubsonicModelTests {
     @Test func aSongCachedBeforeTheNewFieldsStillDecodes() throws {
-        let legacy = Data(#"{"id":"s1","title":"Let It Happen","duration":467}"#.utf8)
+        let legacy = Data(#"{"id":"s1","title":"Slow Satellite","duration":467}"#.utf8)
         let song = try JSONDecoder().decode(Song.self, from: legacy)
         #expect(song.id == "s1")
         #expect(song.replayGain == nil)
@@ -18,7 +18,7 @@ struct OpenSubsonicModelTests {
         let json = Data(#"""
         {"id":"s1","title":"T",
          "replayGain":{"trackGain":-8.4,"albumGain":-7.9,"trackPeak":0.98,"albumPeak":1.0},
-         "albumArtists":[{"id":"ar1","name":"Tame Impala"}],
+         "albumArtists":[{"id":"ar1","name":"The Lowlight Club"}],
          "artists":[{"id":"ar2","name":"Guest"}],"artistId":"ar2"}
         """#.utf8)
         let song = try JSONDecoder().decode(Song.self, from: json)
@@ -29,7 +29,7 @@ struct OpenSubsonicModelTests {
     }
 
     @Test func anAlbumWithNoReleaseTypesIsAnAlbum() {
-        let album = Album(id: "a", name: "Currents")
+        let album = Album(id: "a", name: "Undertow Hours")
         #expect(album.kind == .album)
     }
 
@@ -52,8 +52,8 @@ struct OpenSubsonicModelTests {
     }
 
     @Test func biographiesLoseTheirReadMoreLink() {
-        let raw = #"Tame Impala is the project of Kevin Parker. <a href="https://www.last.fm/music/Tame+Impala">Read more on Last.fm</a>"#
-        #expect(ServerText.plain(raw) == "Tame Impala is the project of Kevin Parker.")
+        let raw = #"The Lowlight Club is the project of Jo Marsh. <a href="https://www.last.fm/music/The+Lowlight+Club">Read more on Last.fm</a>"#
+        #expect(ServerText.plain(raw) == "The Lowlight Club is the project of Jo Marsh.")
         #expect(ServerText.plain("  ") == nil)
         #expect(ServerText.plain(#"<a href="x">Read more</a>"#) == nil)
         #expect(ServerText.plain(nil) == nil)
@@ -70,10 +70,10 @@ struct OpenSubsonicModelTests {
 struct FolderModelTests {
     @Test func aDirectorySplitsIntoFoldersAndSongsInPlayingOrder() throws {
         let json = #"""
-        {"id":"d","name":"Kid A","child":[
-            {"id":"s2","title":"Kid A","isDir":false,"track":2,"suffix":"flac"},
+        {"id":"d","name":"Glass Harbor","child":[
+            {"id":"s2","title":"Glass Harbor","isDir":false,"track":2,"suffix":"flac"},
             {"id":"sub","title":"Bonus","isDir":true,"coverArt":"c"},
-            {"id":"s1","title":"Everything In Its Right Place","isDir":false,"track":1}
+            {"id":"s1","title":"Harbor Lights at Dawn","isDir":false,"track":1}
         ]}
         """#
         let directory = try JSONDecoder().decode(MusicDirectory.self, from: Data(json.utf8))

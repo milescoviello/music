@@ -258,7 +258,7 @@ struct PlaybackQueueTests {
 
     @Test func snapshotRoundTripsThroughJSON() throws {
         var queue = PlaybackQueue.make(
-            tracks: songs(6), startingAt: 3, shuffled: true, source: "Kid A"
+            tracks: songs(6), startingAt: 3, shuffled: true, source: "Glass Harbor"
         )
         queue.repeatMode = .all
 
@@ -269,7 +269,7 @@ struct PlaybackQueueTests {
         #expect(restored.queue.order == queue.order)
         #expect(restored.queue.position == queue.position)
         #expect(restored.queue.repeatMode == .all)
-        #expect(restored.queue.sourceDescription == "Kid A")
+        #expect(restored.queue.sourceDescription == "Glass Harbor")
         #expect(restored.positionSeconds == 42.5)
     }
 

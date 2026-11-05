@@ -62,7 +62,7 @@ struct HermesResultsTests {
     @Test func lyricMatchKeepsItsTimestamp() throws {
         let result = try decode(LyricSearchResult.self, """
         {"status":"ok","matches":[
-          {"song_id":"s1","title":"Laputa","artist":"Panchiko","line":"runnin' through","at_ms":84200}
+          {"song_id":"s1","title":"Paper Moons","artist":"The Lanterns","line":"walkin' home slow","at_ms":84200}
         ]}
         """)
         #expect(result.found.first?.atMs == 84_200)
@@ -71,7 +71,7 @@ struct HermesResultsTests {
 
     @Test func noteSplitsIntoParagraphs() throws {
         let note = try decode(HermesNote.self, """
-        {"status":"ok","kind":"album","name":"D>E>A>T>H>M>E>T>A>L",
+        {"status":"ok","kind":"album","name":"L>O>W>L>A>N>D",
          "text":"One.\\n\\nTwo.\\n\\n\\nThree.","sources":["https://example.com"]}
         """)
         #expect(note.paragraphs == ["One.", "Two.", "Three."])
@@ -80,16 +80,16 @@ struct HermesResultsTests {
 
     @Test func healthReportDecodesDuplicateGroups() throws {
         let report = try decode(HealthReport.self, """
-        {"status":"ok","total_tracks":25784,"missing_year":112,"missing_artwork":2232,
+        {"status":"ok","total_tracks":18250,"missing_year":90,"missing_artwork":1500,
          "duplicate_groups":[
-           {"title":"Let It Happen","artist":"Tame Impala","copies":[
+           {"title":"Paper Moons","artist":"Glass Harbor","copies":[
              {"song_id":"a","path":"Music/x.flac","library":"Music"},
              {"song_id":"b","path":"My Music/x.flac","library":"My Music"}]}]}
         """)
-        #expect(report.totalTracks == 25_784)
+        #expect(report.totalTracks == 18_250)
         #expect(report.duplicateGroups?.first?.copies.count == 2)
         // Stable id so a refreshed list does not reshuffle.
-        #expect(report.duplicateGroups?.first?.id == "Tame Impala|Let It Happen")
+        #expect(report.duplicateGroups?.first?.id == "Glass Harbor|Paper Moons")
     }
 }
 
@@ -101,8 +101,8 @@ struct VibeTitleTests {
     }
 
     @Test func leavesAcronymsAlone() {
-        // "MF DOOM" must not become "Mf Doom".
-        #expect(VibeTitle.sanitised("MF DOOM beats") == "MF DOOM Beats")
+        // "DJ MOTH" must not become "Dj Moth".
+        #expect(VibeTitle.sanitised("DJ MOTH beats") == "DJ MOTH Beats")
     }
 
     @Test func collapsesWhitespaceAndNewlines() {

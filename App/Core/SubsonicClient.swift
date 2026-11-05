@@ -496,7 +496,7 @@ actor SubsonicClient {
     ///
     /// Subsonic has no "all songs by artist" call, and `getTopSongs` is not it: that is
     /// Last.fm's global chart matched to local files by title, which on this server finds one
-    /// Nirvana track out of 67. So this is `getArtist` plus one `getAlbum` per album, fetched
+    /// artist's track out of 67. So this is `getArtist` plus one `getAlbum` per album, fetched
     /// concurrently and reassembled in album order, because a discography that arrives in
     /// whichever order the requests answered is not a discography.
     func artistSongs(id: String) async throws -> [Song] {

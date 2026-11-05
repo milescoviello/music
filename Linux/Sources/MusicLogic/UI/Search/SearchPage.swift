@@ -22,7 +22,7 @@ enum SearchPage {
             let trimmed = text.trimmingCharacters(in: .whitespaces)
             generation += 1
             let current = generation
-            // One letter too: "k" is a whole title ("K.", Cigarettes After Sex).
+            // One letter too: a single letter can be a whole title ("Q.").
             guard !trimmed.isEmpty else {
                 stack.visibleName = "idle"
                 return
@@ -144,7 +144,7 @@ enum SearchPage {
         }
         if outcome.isCorrectionOnly {
             // Nothing matched what was typed, so these are the library's nearest words --
-            // for an artist not in the library ("clairo"), something else entirely. Asking
+            // for an artist not in the library ("nerio"), something else entirely. Asking
             // for it stays a click away, as it is under No Results.
             body.append(Button("Ask Hermes to Find “\(query)”", "pill") { env.open(.requestMusic(query)) }.halign(GTK_ALIGN_START))
         }

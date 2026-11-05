@@ -16,10 +16,10 @@ def column(*lines):
 
 class Normalising(unittest.TestCase):
     def test_case_accents_and_punctuation_do_not_matter(self):
-        self.assertEqual(normalised("Don’t   STOP, café!"), "don t stop cafe")
+        self.assertEqual(normalised("Won’t   WAIT, café!"), "won t wait cafe")
 
     def test_other_scripts_stay(self):
-        self.assertEqual(normalised("ねぇ あんたわかっちゃいない"), "ねぇ あんたわかっちゃいない")
+        self.assertEqual(normalised("ねぇ 今日は雨かな"), "ねぇ 今日は雨かな")
 
 
 class Parsing(unittest.TestCase):
@@ -49,36 +49,36 @@ class Parsing(unittest.TestCase):
 class Searching(unittest.TestCase):
     def setUp(self):
         self.index = LyricIndex([
-            track("a", "Do I Wanna Know?", "Arctic Monkeys",
-                  "Have you got colour in your cheeks?", "Do you ever get that fear"),
-            track("b", "Somewhere Else", "Someone", "the colour of the sky", "in your cheeks"),
-            track("c", "Words Apart", "Band", "cheeks red, you got colour in them"),
-            track("d", "Do I Wanna Know? (Live)", "Arctic Monkeys",
-                  "Have you got colour in your cheeks?"),
+            track("a", "Low Tide Letters", "The Lanterns",
+                  "Have you got salt in your hair?", "Do you ever hear the tide"),
+            track("b", "Somewhere Else", "Someone", "the salt of the sea", "in your hair"),
+            track("c", "Words Apart", "Band", "hair wet, you got salt in it"),
+            track("d", "Low Tide Letters (Live)", "The Lanterns",
+                  "Have you got salt in your hair?"),
         ])
 
     def test_the_phrase_in_one_line_comes_first(self):
-        hits = self.index.search("got colour in your cheeks")
+        hits = self.index.search("got salt in your hair")
         self.assertEqual(hits[0].id, "a")
-        self.assertEqual(hits[0].line, "Have you got colour in your cheeks?")
+        self.assertEqual(hits[0].line, "Have you got salt in your hair?")
 
     def test_a_phrase_running_into_the_next_line(self):
-        hits = self.index.search("colour of the sky in your")
+        hits = self.index.search("salt of the sea in your")
         self.assertEqual([hit.id for hit in hits], ["b"])
 
     def test_every_word_in_a_line_in_any_order(self):
-        hits = self.index.search("colour cheeks got")
+        hits = self.index.search("salt hair got")
         self.assertEqual(hits[0].score, 2)
         self.assertIn("c", [hit.id for hit in hits])
 
     def test_one_row_per_song(self):
-        # "Do I Wanna Know? (Live)" is a different title, so it stays; the same title and
+        # "Low Tide Letters (Live)" is a different title, so it stays; the same title and
         # artist twice would not.
         index = LyricIndex([track("x", "Same", "A", "a line here"), track("y", "Same", "A", "a line here")])
         self.assertEqual(len(index.search("line here")), 1)
 
     def test_too_short_or_absent(self):
-        self.assertEqual(self.index.search("co"), [])
+        self.assertEqual(self.index.search("sa"), [])
         self.assertEqual(self.index.search("nothing like this anywhere"), [])
 
 

@@ -43,7 +43,7 @@ struct PlaybackQueueStoreTests {
 
     @Test func aSavedQueueComesBackAsItWas() async throws {
         let folder = try directory()
-        var queue = PlaybackQueue.make(tracks: songs(6), startingAt: 3, shuffled: true, source: "Kid A")
+        var queue = PlaybackQueue.make(tracks: songs(6), startingAt: 3, shuffled: true, source: "Glass Harbor")
         queue.repeatMode = .all
         queue.insertNext([Song(id: "next", title: "Next")])
         let savedAt = Date(timeIntervalSince1970: 1_000_000)
@@ -59,7 +59,7 @@ struct PlaybackQueueStoreTests {
         #expect(restored.queue.current?.id == queue.current?.id)
         #expect(restored.queue.repeatMode == .all)
         #expect(restored.queue.isShuffled)
-        #expect(restored.queue.sourceDescription == "Kid A")
+        #expect(restored.queue.sourceDescription == "Glass Harbor")
         #expect(restored.queue.lastAddedTrackIndex == queue.lastAddedTrackIndex)
         #expect(restored.queue.listID == queue.listID)
         #expect(restored.positionSeconds == 42.5)

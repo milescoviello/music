@@ -45,9 +45,9 @@ struct LibraryFacetsTests {
 
     @Test func labelsAreGroupedBiggestFirst() {
         let labels = LibraryFacets.labels([
-            album("a", labels: ["Warp"]), album("b", labels: ["Warp", "XL"]), album("c", labels: [" "]),
+            album("a", labels: ["Saltbox"]), album("b", labels: ["Saltbox", "Kiln"]), album("c", labels: [" "]),
         ])
-        #expect(labels.map(\.name) == ["Warp", "XL"])
+        #expect(labels.map(\.name) == ["Saltbox", "Kiln"])
         #expect(labels[0].albums.count == 2)
     }
 
@@ -88,9 +88,9 @@ struct LibraryFacetsTests {
 struct SearchRankingTests {
     @Test func anExactArtistBeatsAnAlbumOfTheSameName() throws {
         var results = SearchResult3()
-        results.artist = [Artist(id: "a", name: "Portishead")]
-        results.album = [Album(id: "b", name: "Portishead")]
-        guard case let .artist(artist) = SearchRanking.topResult(for: "portishead", in: results) else {
+        results.artist = [Artist(id: "a", name: "Glass Harbor")]
+        results.album = [Album(id: "b", name: "Glass Harbor")]
+        guard case let .artist(artist) = SearchRanking.topResult(for: "glass harbor", in: results) else {
             Issue.record("expected an artist"); return
         }
         #expect(artist.id == "a")
@@ -98,17 +98,17 @@ struct SearchRankingTests {
 
     @Test func anExactAlbumBeatsAPrefixArtist() {
         var results = SearchResult3()
-        results.artist = [Artist(id: "a", name: "Dummy Band")]
-        results.album = [Album(id: "b", name: "Dummy")]
-        guard case let .album(album) = SearchRanking.topResult(for: "Dummy", in: results) else {
+        results.artist = [Artist(id: "a", name: "Lowland Band")]
+        results.album = [Album(id: "b", name: "Lowland")]
+        guard case let .album(album) = SearchRanking.topResult(for: "Lowland", in: results) else {
             Issue.record("expected an album"); return
         }
         #expect(album.id == "b")
     }
 
     @Test func accentsCaseAndTheDoNotMatter() {
-        #expect(SearchRanking.normalised("The Beatles") == SearchRanking.normalised("beatles"))
-        #expect(SearchRanking.normalised("Sigur Rós") == "sigur ros")
+        #expect(SearchRanking.normalised("The Lanterns") == SearchRanking.normalised("lanterns"))
+        #expect(SearchRanking.normalised("Fjöra Lund") == "fjora lund")
     }
 
     @Test func noPlausibleMatchMeansNoTopResult() {

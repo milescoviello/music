@@ -57,7 +57,7 @@ struct AlphabetRail: View {
     }
 
     /// The rail's bucket for a title: initial letter, or "#" for anything else, with
-    /// leading articles ignored so "The Beatles" files under B.
+    /// leading articles ignored so "The Lanterns" files under L.
     static func bucket(for title: String) -> String {
         let stripped = Self.withoutLeadingArticle(title)
         guard let first = stripped.first?.uppercased() else { return "#" }

@@ -11,9 +11,9 @@ struct DownloadFoldersTests {
 
     private func song(
         _ id: String,
-        album: String = "OK Computer",
+        album: String = "Glass Harbor",
         albumID: String? = "al1",
-        artist: String = "Radiohead",
+        artist: String = "Mira Vale",
         track: Int = 1,
         disc: Int? = nil,
         duration: Int = 200
@@ -60,17 +60,17 @@ struct DownloadFoldersTests {
 
     @Test func anAlbumDownloadIsOneFolderInTrackOrder() {
         let folders = DownloadFolders(catalog: catalog(done: [
-            entry(song("b", track: 2), group: "al1", groupName: "OK Computer"),
-            entry(song("a", track: 1), group: "al1", groupName: "OK Computer"),
-            entry(song("c", track: 1, disc: 2), group: "al1", groupName: "OK Computer"),
+            entry(song("b", track: 2), group: "al1", groupName: "Glass Harbor"),
+            entry(song("a", track: 1), group: "al1", groupName: "Glass Harbor"),
+            entry(song("c", track: 1, disc: 2), group: "al1", groupName: "Glass Harbor"),
         ]))
 
         #expect(folders.albums.count == 1)
         #expect(folders.playlists.isEmpty)
         let album = folders.albums[0]
         #expect(album.kind == .album)
-        #expect(album.name == "OK Computer")
-        #expect(album.artist == "Radiohead")
+        #expect(album.name == "Glass Harbor")
+        #expect(album.artist == "Mira Vale")
         #expect(album.songs.map(\.id) == ["a", "b", "c"])
         #expect(album.byteCount == 3_000)
         #expect(album.duration == 600)
@@ -79,7 +79,7 @@ struct DownloadFoldersTests {
     /// The user's own words: a single song is never a loose row.
     @Test func aSingleSongLandsInItsAlbumsFolder() {
         let folders = DownloadFolders(catalog: catalog(done: [
-            entry(song("a", track: 1), group: "al1", groupName: "OK Computer"),
+            entry(song("a", track: 1), group: "al1", groupName: "Glass Harbor"),
             entry(song("z", track: 9)),
         ]))
 
@@ -89,10 +89,10 @@ struct DownloadFoldersTests {
 
     @Test func aSingleSongOnItsOwnMakesAnAlbumFolder() {
         let folders = DownloadFolders(catalog: catalog(done: [
-            entry(song("z", album: "Kid A", albumID: "al2")),
+            entry(song("z", album: "Paper Moons", albumID: "al2")),
         ]))
 
-        #expect(folders.albums.map(\.name) == ["Kid A"])
+        #expect(folders.albums.map(\.name) == ["Paper Moons"])
         #expect(folders.albums[0].songs.map(\.id) == ["z"])
         #expect(folders.playlists.isEmpty)
     }
@@ -128,7 +128,7 @@ struct DownloadFoldersTests {
     @Test func anAlbumFolderIncludesItsSongsFromAPlaylist() {
         let folders = DownloadFolders(catalog: catalog(done: [
             entry(song("a", track: 1), group: "pl1", groupName: "Mix"),
-            entry(song("b", track: 2), group: "al1", groupName: "OK Computer"),
+            entry(song("b", track: 2), group: "al1", groupName: "Glass Harbor"),
         ]))
 
         #expect(folders.albums.first?.songs.map(\.id) == ["a", "b"])
@@ -208,7 +208,7 @@ struct DownloadFoldersTests {
     @Test func aCachedOrderBringsInSongsFiledElsewhere() {
         let folders = DownloadFolders(
             catalog: catalog(done: [
-                entry(song("a", track: 1), group: "al1", groupName: "OK Computer"),
+                entry(song("a", track: 1), group: "al1", groupName: "Glass Harbor"),
                 entry(song("p", albumID: "x1"), group: "pl1", groupName: "Mix"),
             ]),
             playlistOrders: ["pl1": ["p", "a", "missing"]]
@@ -257,15 +257,15 @@ struct DownloadFoldersTests {
 
     @Test func nameIgnoresCaseAccentsAndALeadingThe() {
         let folders = DownloadFolders(catalog: catalog(done: [
-            entry(song("a", album: "The Bends", albumID: "al1"), group: "al1"),
-            entry(song("b", album: "amnesiac", albumID: "al2"), group: "al2"),
+            entry(song("a", album: "The Brambles", albumID: "al1"), group: "al1"),
+            entry(song("b", album: "atlas of rain", albumID: "al2"), group: "al2"),
             entry(song("c", album: "Électrique", albumID: "al3"), group: "al3"),
         ]))
 
         let byName = folders.sorted(folders.albums, by: .name, ascending: true)
-        #expect(byName.map(\.name) == ["amnesiac", "The Bends", "Électrique"])
+        #expect(byName.map(\.name) == ["atlas of rain", "The Brambles", "Électrique"])
         let reversed = folders.sorted(folders.albums, by: .name, ascending: false)
-        #expect(reversed.map(\.name) == ["Électrique", "The Bends", "amnesiac"])
+        #expect(reversed.map(\.name) == ["Électrique", "The Brambles", "atlas of rain"])
     }
 
     @Test func playAllFollowsTheShownOrderWithoutRepeats() {
@@ -282,33 +282,33 @@ struct DownloadFoldersTests {
     // MARK: - Search
 
     @Test func searchFindsFoldersAndSongsByEveryWord() {
-        var lucky = Song(id: "l", title: "Lucky")
-        lucky.album = "OK Computer"
-        lucky.albumId = "al1"
-        lucky.artist = "Radiohead"
+        var sundial = Song(id: "l", title: "Sundial")
+        sundial.album = "Glass Harbor"
+        sundial.albumId = "al1"
+        sundial.artist = "Mira Vale"
 
         let folders = DownloadFolders(catalog: catalog(done: [
-            entry(lucky, group: "al1", groupName: "OK Computer"),
-            entry(song("n", album: "Nevermind", albumID: "al2", artist: "Nirvana"), group: "al2"),
-            entry(song("r", album: "Road", albumID: "al3", artist: "Röyksopp"), group: "pl1", groupName: "Road Trip"),
+            entry(sundial, group: "al1", groupName: "Glass Harbor"),
+            entry(song("n", album: "Low Tide", albumID: "al2", artist: "Fenwick"), group: "al2"),
+            entry(song("r", album: "Road", albumID: "al3", artist: "Söderlund"), group: "pl1", groupName: "Road Trip"),
         ]))
 
-        let byAlbum = folders.search("ok radiohead")
-        #expect(byAlbum.albums.map(\.name) == ["OK Computer"])
+        let byAlbum = folders.search("gl mira")
+        #expect(byAlbum.albums.map(\.name) == ["Glass Harbor"])
         #expect(byAlbum.songs.map(\.id) == ["l"])
 
-        let byTitle = folders.search("LUCKY")
+        let byTitle = folders.search("SUNDIAL")
         #expect(byTitle.albums.isEmpty)
         #expect(byTitle.songs.map(\.id) == ["l"])
 
         let byPlaylist = folders.search("road trip")
         #expect(byPlaylist.playlists.map(\.name) == ["Road Trip"])
 
-        let accentless = folders.search("royksopp")
+        let accentless = folders.search("soderlund")
         #expect(accentless.songs.map(\.id) == ["r"])
 
         #expect(folders.search("   ").isEmpty)
-        #expect(folders.search("portishead").isEmpty)
+        #expect(folders.search("zephyrine").isEmpty)
     }
 
     // MARK: - Removing
@@ -317,7 +317,7 @@ struct DownloadFoldersTests {
         let folders = DownloadFolders(catalog: catalog(
             done: [
                 entry(song("a", track: 1), group: "pl1", groupName: "Mix"),
-                entry(song("b", track: 2), group: "al1", groupName: "OK Computer"),
+                entry(song("b", track: 2), group: "al1", groupName: "Glass Harbor"),
                 entry(song("p", albumID: "x1"), group: "pl1", groupName: "Mix"),
             ],
             waiting: [entry(song("w", albumID: "x2"), group: "pl1", groupName: "Mix")]
@@ -336,7 +336,7 @@ struct DownloadFoldersTests {
             entry(song("a"), group: "al1"),
             entry(song("p", albumID: "x1"), group: "al1-not-an-album", groupName: "Mix"),
         ]))
-        #expect(folders.folder(id: "album:al1")?.name == "OK Computer")
+        #expect(folders.folder(id: "album:al1")?.name == "Glass Harbor")
         #expect(folders.folder(id: "playlist:al1-not-an-album")?.name == "Mix")
         #expect(folders.folder(id: "album:nope") == nil)
     }

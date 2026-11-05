@@ -113,7 +113,7 @@ final class MusicRequestService {
         defer { isSending = false }
 
         // Taken *before* the request is sent, so anything that shows up afterwards is
-        // unambiguously new. Without it, "do I have Hybrid Theory" would report itself
+        // unambiguously new. Without it, "do I have Glass Harbor" would report itself
         // satisfied by the tracks that were already there.
         let baseline = await snapshot(for: trimmed)
         let requestID = UUID()
@@ -237,7 +237,7 @@ final class MusicRequestService {
     }
 
     /// `search3` tokenises on whitespace, so the separators people type between artist
-    /// and album ("Radiohead - In Rainbows") have to go or the query matches nothing.
+    /// and album ("The Lanterns - Glass Harbor") have to go or the query matches nothing.
     static func searchTerms(from text: String) -> String {
         let stripped = text.replacingOccurrences(
             of: "[\\-–—_/|:]+",

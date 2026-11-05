@@ -192,7 +192,7 @@ struct BeatMatchTests {
     /// 11.6 ms grid. The outgoing one is only steady over its last two bars.
     @Test func realBeatsFromTheService() throws {
         let outgoing = SonicClient.Rhythm(
-            id: "0Q4cn3k7QSzm6XhVGMvfHy", bpm: 150.19, confidence: 2.48,
+            id: "outgoing-a", bpm: 150.19, confidence: 2.48,
             beats: [
                 114.695, 115.101, 115.496, 115.891, 116.286, 116.68, 117.087, 117.493, 117.888,
                 118.282, 118.689, 119.095, 119.49, 119.885, 120.291, 120.686, 121.092, 121.498,
@@ -203,7 +203,7 @@ struct BeatMatchTests {
             key: nil, scale: nil, keyStrength: nil, duration: 130.31, loudness: nil
         )
         let incoming = SonicClient.Rhythm(
-            id: "47ey5wcfGEq6VOe5aOSLqm", bpm: 147.51, confidence: 1.623,
+            id: "incoming-a", bpm: 147.51, confidence: 1.623,
             beats: [
                 0.395, 0.813, 1.231, 1.649, 2.067, 2.485, 2.902, 3.32, 3.738, 4.156, 4.574, 4.992,
                 5.41, 5.828, 6.246, 6.653, 7.082, 7.512, 7.93, 8.359, 8.777, 9.195, 9.613, 10.031,
@@ -227,7 +227,7 @@ struct BeatMatchTests {
     /// for the last few: never matched to a track at the tempo it started at.
     @Test func aRealRitardandoIsLeftAlone() {
         let outgoing = SonicClient.Rhythm(
-            id: "00BukajWg5OwVIO3UlXk4H", bpm: 115.3, confidence: 3.285,
+            id: "outgoing-b", bpm: 115.3, confidence: 3.285,
             beats: [
                 333.88, 334.402, 334.925, 335.435, 335.946, 336.469, 336.991, 337.502, 338.024,
                 338.547, 339.058, 339.58, 340.091, 340.602, 341.124, 341.635, 342.169, 342.692,

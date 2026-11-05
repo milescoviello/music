@@ -4,10 +4,11 @@ import Foundation
 /// goes to the server.
 ///
 /// `search3` matches each word of a query against the start of a word in a name, exactly.
-/// Verified on this server: "cigarets after sex" finds nothing, and "k" finds nothing at
-/// all, while "K." finds Cigarettes After Sex's "K.". The server's matching is left alone;
-/// the query is put right instead. A word the library spells another way ("k" for "K.",
-/// "acdc" for "AC/DC", "cafune" for "CAFUNÉ") takes the library's spelling, a word it does
+/// Verified on this server: an artist misspelt by one letter finds nothing, and a single
+/// letter finds nothing at all, while the letter with its full stop finds the song of that
+/// name. The server's matching is left alone; the query is put right instead. A word the
+/// library spells another way ("q" for "Q.", "abcd" for "AB/CD", "cafe" for "CAFÉ")
+/// takes the library's spelling, a word it does
 /// not have at all takes the closest one it does, and two words run together are split.
 /// The corrected query is searched as well as the typed one, never instead of it.
 struct SearchVocabulary: Codable, Sendable, Equatable {
@@ -28,7 +29,7 @@ struct SearchVocabulary: Codable, Sendable, Equatable {
         for name in names {
             for token in name.split(whereSeparator: \.isWhitespace) {
                 // Brackets and quotes round a word are the name's, not the word's: "(Live)"
-                // is searched as "Live". A full stop stays, since "K." is what finds "K.".
+                // is searched as "Live". A full stop stays, since "Q." is what finds "Q.".
                 let spelling = String(token).trimmingCharacters(in: wrapping)
                 let key = normalised(spelling)
                 guard !key.isEmpty else { continue }
@@ -55,8 +56,8 @@ struct SearchVocabulary: Codable, Sendable, Equatable {
 
     private static let wrapping = CharacterSet(charactersIn: "()[]{}\"“”‘’'«»,;:!?")
 
-    /// Case, accents, width and punctuation do not make two words different: "K." is "k",
-    /// "AC/DC" is "acdc", "Don’t" is "dont".
+    /// Case, accents, width and punctuation do not make two words different: "Q." is "q",
+    /// "AB/CD" is "abcd", "Don’t" is "dont".
     static func normalised(_ text: String) -> String {
         let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
         var kept = String.UnicodeScalarView()
@@ -83,9 +84,10 @@ struct SearchVocabulary: Codable, Sendable, Equatable {
     /// One word, or nil to send it as it is.
     ///
     /// The order was found on the real library, 61,037 names: a one-letter slip is put
-    /// right before two words run together are split, or "radiohed" became "Radio Hed"
-    /// and "kesoku" became "KE Soku". Words are compared whole, never by how they start:
-    /// matching starts made "clairo" "Clairvoyants" and "swfit" "Switch".
+    /// right before two words run together are split, or a band's name typed one letter
+    /// wrong came back as two other words from the library. Words are compared whole,
+    /// never by how they start: matching starts made "nerio" "Nerivale" and "maya drfit"
+    /// "maya Driven".
     func correction(forWord token: String) -> String? {
         let key = Self.normalised(token)
         guard !key.isEmpty else { return nil }
@@ -151,7 +153,7 @@ struct SearchVocabulary: Codable, Sendable, Equatable {
         return remaining.isEmpty
     }
 
-    /// Two words run together: "tameimpala", "pinkfloyd".
+    /// Two words run together: "paleorchid", "ironmeadow".
     private func split(_ key: String) -> String? {
         let scalars = Array(key.unicodeScalars)
         guard scalars.count >= 5 else { return nil }
@@ -169,8 +171,8 @@ struct SearchVocabulary: Codable, Sendable, Equatable {
     }
 
     /// Edits between `a` and `b`, or nil when there are more than `limit`. An edit is an
-    /// insertion, a deletion, a substitution, or two neighbours swapped ("imapla" is one
-    /// from "impala").
+    /// insertion, a deletion, a substitution, or two neighbours swapped ("orhcid" is one
+    /// from "orchid").
     static func distance(_ a: [Unicode.Scalar], _ b: [Unicode.Scalar], limit: Int) -> Int? {
         let n = a.count, m = b.count
         if abs(n - m) > limit { return nil }

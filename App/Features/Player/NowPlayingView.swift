@@ -581,7 +581,7 @@ struct NowPlayingView: View {
 // views of their own, so that reading `queue` for them makes a queue edit redraw them and
 // not the whole player.
 
-/// Where the queue came from: "Kid A", or just "Queue".
+/// Where the queue came from: "Glass Harbor", or just "Queue".
 private struct QueueSourceText: View {
     @Environment(AppState.self) private var appState
 

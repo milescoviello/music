@@ -82,12 +82,12 @@ struct ChartsTests {
             ChartPlay(songID: id, title: id, artist: artist, album: "Greatest Hits", at: when)
         }
         let albums = Charts.topAlbums([
-            play("a", artist: "Queen", date(2026, 3, 1)),
-            play("a", artist: "Queen", date(2026, 3, 2)),
-            play("b", artist: "ABBA", date(2026, 4, 1)),
+            play("a", artist: "Northwind", date(2026, 3, 1)),
+            play("a", artist: "Northwind", date(2026, 3, 2)),
+            play("b", artist: "Calder Bay", date(2026, 4, 1)),
         ], in: period, limit: 10)
         #expect(albums.map(\.plays) == [2, 1])
-        #expect(albums.map(\.subtitle) == ["Queen", "ABBA"])
+        #expect(albums.map(\.subtitle) == ["Northwind", "Calder Bay"])
         #expect(Set(albums.map(\.id)).count == 2)
     }
 
@@ -99,39 +99,39 @@ struct ChartsTests {
             album.playCount = plays
             return album
         }
-        // The server's Most Played as it stood in November 2026, abridged: each copy in
-        // its own place, with its own plays.
+        // A server's Most Played as it lists copies: each in its own place, with its own
+        // plays.
         let merged = Charts.mergingCopies([
-            album("dm", "D>E>A>T>H>M>E>T>A>L", "panchiko", 857),
-            album("ht2", "Hybrid Theory", "linkin park", 367),
-            album("ht1", "Hybrid Theory", "linkin park", 339),
-            album("cu2", "Currents", "tame impala", 308),
-            album("cu1", "Currents", "tame impala", 229),
-            album("ok2", "OK Computer", "radiohead", 190),
-            album("gh", "Greatest Hits", "queen", 150),
-            album("gh2", "Greatest Hits", "abba", 150),
+            album("nt", "N>O>R>T>H", "orchid lane", 840),
+            album("pl2", "Paper Lanterns", "the vales", 360),
+            album("pl1", "Paper Lanterns", "the vales", 330),
+            album("lt2", "Low Tide", "fenwick", 300),
+            album("lt1", "Low Tide", "fenwick", 220),
+            album("gb", "Glass Harbor", "mira vale", 190),
+            album("gr", "Greatest Hits", "northwind", 150),
+            album("gr2", "Greatest Hits", "calder bay", 150),
         ])
-        #expect(merged.map(\.id) == ["dm", "ht2", "cu2", "ok2", "gh", "gh2"])
-        #expect(merged.map(\.playCount) == [857, 706, 537, 190, 150, 150])
+        #expect(merged.map(\.id) == ["nt", "pl2", "lt2", "gb", "gr", "gr2"])
+        #expect(merged.map(\.playCount) == [840, 690, 520, 190, 150, 150])
     }
 
     @Test func aSongOrAlbumInBothFoldersIsOneRowWithAllItsPlays() {
         let period = ChartPeriod.current(.year, now: date(2026, 10, 17), calendar: calendar)
         // The two library folders' copies: the same tags, different song and album ids.
         func play(_ songID: String, _ title: String, albumID: String, _ when: Date) -> ChartPlay {
-            ChartPlay(songID: songID, title: title, artist: "Tame Impala", album: "Currents",
-                      albumID: albumID, artistID: "tame", at: when)
+            ChartPlay(songID: songID, title: title, artist: "Mira Vale", album: "Low Tide",
+                      albumID: albumID, artistID: "mira", at: when)
         }
         let plays = [
-            play("one-1", "Yes I'm Changing", albumID: "currents-1", date(2026, 3, 1)),
-            play("one-1", "Yes I'm Changing", albumID: "currents-1", date(2026, 3, 2)),
-            play("two-1", "Yes I'm Changing", albumID: "currents-2", date(2026, 3, 3)),
-            play("one-2", "Eventually", albumID: "currents-1", date(2026, 3, 4)),
-            play("one-2", "Eventually", albumID: "currents-1", date(2026, 3, 5)),
+            play("one-1", "Paper Moons", albumID: "tide-1", date(2026, 3, 1)),
+            play("one-1", "Paper Moons", albumID: "tide-1", date(2026, 3, 2)),
+            play("two-1", "Paper Moons", albumID: "tide-2", date(2026, 3, 3)),
+            play("one-2", "Slow Return", albumID: "tide-1", date(2026, 3, 4)),
+            play("one-2", "Slow Return", albumID: "tide-1", date(2026, 3, 5)),
         ]
 
         let tracks = Charts.topTracks(plays, in: period, limit: 10)
-        #expect(tracks.map(\.title) == ["Yes I'm Changing", "Eventually"])
+        #expect(tracks.map(\.title) == ["Paper Moons", "Slow Return"])
         #expect(tracks.map(\.plays) == [3, 2])
         // Played from the copy heard last.
         #expect(tracks.first?.songID == "two-1")
@@ -139,6 +139,6 @@ struct ChartsTests {
         let albums = Charts.topAlbums(plays, in: period, limit: 10)
         #expect(albums.count == 1)
         #expect(albums.first?.plays == 5)
-        #expect(albums.first?.albumID == "currents-1")
+        #expect(albums.first?.albumID == "tide-1")
     }
 }

@@ -13,10 +13,10 @@ struct ArtistDetailView: View {
     /// World popularity first, then the rest of the catalogue.
     ///
     /// `getTopSongs` really is a global chart — Last.fm's, through Navidrome's agent — and
-    /// asked for 50 it returns 50: Tame Impala comes back led by *Loser* and *Dracula*, its
-    /// current singles, not by anything this library has played. What it is bad at is
-    /// *matching* that chart to local files: Nirvana has 67 tracks here and one matched,
-    /// Radiohead 322 and three, because Last.fm's titles and the library's disagree about
+    /// asked for 50 it returns 50: an artist comes back led by its current singles, not by
+    /// anything this library has played. What it is bad at is
+    /// *matching* that chart to local files: an artist with 67 tracks here had one matched,
+    /// another with 322 had three, because Last.fm's titles and the library's disagree about
     /// remaster suffixes and punctuation.
     ///
     /// So the chart supplies the head of the list and the catalogue supplies the tail,

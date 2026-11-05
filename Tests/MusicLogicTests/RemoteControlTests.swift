@@ -32,7 +32,7 @@ struct RemoteControlTests {
     }
 
     @Test func playingSongsCarriesTheSongsAndLeavesDefaultsOut() throws {
-        let command = RemoteCommand.playSongs(songs(3), from: 1, source: "Kid A")
+        let command = RemoteCommand.playSongs(songs(3), from: 1, source: "Glass Harbor")
         let object = try json(command)
         #expect(object["shuffled"] == nil)
         #expect(object["paused"] == nil)

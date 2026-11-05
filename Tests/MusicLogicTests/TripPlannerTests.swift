@@ -93,8 +93,8 @@ struct TripPlannerTests {
     /// different ids, and downloading both is the worst possible use of the space this
     /// screen exists to save.
     @Test func theSameRecordingIsNotPackedTwice() {
-        let first = group("a", songs: [song("id1", title: "Laputa", artist: "Panchiko")])
-        let second = group("b", songs: [song("id2", title: "laputa", artist: "panchiko")])
+        let first = group("a", songs: [song("id1", title: "Paper Lanterns", artist: "Mira Vale")])
+        let second = group("b", songs: [song("id2", title: "paper lanterns", artist: "mira vale")])
 
         let plan = TripPlanner.plan(
             groups: [first, second],

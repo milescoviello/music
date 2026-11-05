@@ -208,7 +208,7 @@ struct StationTests {
     }
 
     @Test func mixTitlesNameTheirArtists() {
-        #expect(Station.artistMix(ids: ["1"], names: ["Radiohead"]).title == "Radiohead Mix")
+        #expect(Station.artistMix(ids: ["1"], names: ["Mira Vale"]).title == "Mira Vale Mix")
         #expect(Station.artistMix(ids: ["1", "2", "3"], names: ["A", "B", "C"]).title == "A, B & 1 More")
     }
 }

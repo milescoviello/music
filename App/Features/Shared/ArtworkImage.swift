@@ -38,8 +38,8 @@ struct ArtworkImage: View {
         // whole reason non-square covers used to break the layout.
         //
         // `scaledToFill` sizes a view to *cover* what it was offered, so for art that is
-        // not square it reports a size larger than the space it was given -- "My Old Ways"
-        // is 600x542, which came back 10.7% too wide. `.clipped()` only clips the
+        // not square it reports a size larger than the space it was given -- art
+        // of 600x542 came back 10.7% too wide. `.clipped()` only clips the
         // drawing; it does nothing to the reported size. Anywhere that size was trusted
         // rather than pinned with an explicit frame -- the player's artwork mode, the
         // album and playlist headers -- the whole screen grew, so the art looked
@@ -168,7 +168,7 @@ struct ArtistArtwork: View {
 }
 
 extension String {
-    /// "Red Hot Chili Peppers" -> "RH"
+    /// "Mira Vale Quartet" -> "MV"
     var monogram: String {
         let words = split(separator: " ").prefix(2)
         return words.compactMap { $0.first }.map(String.init).joined().uppercased()

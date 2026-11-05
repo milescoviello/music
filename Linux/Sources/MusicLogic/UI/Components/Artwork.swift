@@ -150,7 +150,7 @@ private enum Canvas {
 }
 
 extension String {
-    /// "Red Hot Chili Peppers" -> "RH"
+    /// "Mira Vale Quartet" -> "MV"
     var monogram: String {
         let words = split(separator: " ").prefix(2)
         return words.compactMap { $0.first }.map(String.init).joined().uppercased()

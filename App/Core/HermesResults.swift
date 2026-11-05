@@ -202,7 +202,7 @@ enum VibeTitle {
             .filter { !$0.isEmpty }
 
         let titled = words.prefix(6).map { word -> String in
-            // Words already shouting are left alone; "MF DOOM" should not become "Mf Doom".
+            // Words already shouting are left alone; "DJ MOTH" should not become "Dj Moth".
             if word.count > 1, word == word.uppercased() { return word }
             return word.prefix(1).uppercased() + word.dropFirst().lowercased()
         }

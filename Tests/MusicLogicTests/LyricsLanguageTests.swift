@@ -28,12 +28,12 @@ struct LyricsLanguageTests {
 
     @Test func kanaSettlesItAsJapanese() {
         // A recognizer can take kanji-heavy lines for Chinese; one kana is enough to know.
-        let lines = ["罪と罰", "×と○と罪と"]
+        let lines = ["夜と雨", "△と○と罪と"]
         #expect(LyricsLanguage.resolve(lines: lines, tag: "eng", detected: "zh-Hans") == "ja")
     }
 
     @Test func aStrayKanaDoesNotMakeChineseJapanese() {
-        let lines = ["我の世界", "你是我的唯一", "永远爱你"]
+        let lines = ["我の城市", "今天下雨了", "我们在河边走"]
         #expect(LyricsLanguage.resolve(lines: lines, tag: nil, detected: "zh-Hans") == "zh-Hans")
     }
 
@@ -48,12 +48,12 @@ struct LyricsLanguageTests {
     }
 
     @Test func theEnglishChorusOfAJapaneseSongIsLeftAlone() {
-        let lines = ["君の名前を呼んだ", "Baby, I love you", "", "♪", "ずっと一緒に"]
+        let lines = ["川の向こうで待ってる", "We walk until morning", "", "♪", "また明日ね"]
         #expect(LyricsLanguage.linesToTranslate(lines) == [0, 4])
     }
 
     @Test func everyLineWithWordsIsTranslatedFromALatinScript() {
-        let lines = ["Te quiero", "", "♪ ♪", "Baby, I love you", "Siempre"]
+        let lines = ["Te quiero", "", "♪ ♪", "We walk until morning", "Siempre"]
         #expect(LyricsLanguage.linesToTranslate(lines) == [0, 3, 4])
     }
 
@@ -65,8 +65,8 @@ struct LyricsLanguageTests {
     }
 
     @Test func cyrillicLettersTellTheLanguage() {
-        // Ukrainian: "Ще не вмерла України і слава, і воля".
-        #expect(LyricsLanguage.guess(["Ще не вмерла України і слава, і воля", "Ще нам, браття молодії, усміхнеться доля"]) == "uk")
+        // Ukrainian: і, ї and є.
+        #expect(LyricsLanguage.guess(["Ранок у місті, і сонце над рікою", "Ми йдемо додому, бо їсти хочеться"]) == "uk")
         // Russian: ы and э.
         #expect(LyricsLanguage.guess(["Мы будем жить, и это наша песня", "Ты знаешь, что я здесь"]) == "ru")
         // Bulgarian: ъ as a vowel, and no ы or э.
@@ -74,7 +74,7 @@ struct LyricsLanguageTests {
     }
 
     @Test func noGuessWithoutEnoughCyrillic() {
-        #expect(LyricsLanguage.guess(["Hello darkness my old friend"]) == nil)
+        #expect(LyricsLanguage.guess(["Good morning to the quiet street"]) == nil)
         #expect(LyricsLanguage.guess(["Да"]) == nil)
     }
 }

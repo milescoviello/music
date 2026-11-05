@@ -146,9 +146,9 @@ struct MixEngineTests {
     /// collapsing them a mix shows the same recording twice and looks careless.
     @Test func twoCopiesOfTheSameRecordingCountAsOne() {
         let candidates = [
-            song("copy1", "Heart to Heart", "Mac DeMarco"),
-            song("copy2", "heart to heart ", "mac demarco"),
-            song("other", "Chamber of Reflection", "Mac DeMarco"),
+            song("copy1", "Fern and Feather", "Ollie Brandt"),
+            song("copy2", "fern and feather ", "ollie brandt"),
+            song("other", "Room of Echoes", "Ollie Brandt"),
         ]
         var generator = MixEngine.DayRandom(day: .now)
         let chosen = MixEngine.choose(

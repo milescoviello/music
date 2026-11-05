@@ -298,7 +298,7 @@ struct AlbumDetailView: View {
     }
 
     /// Plexamp's codec badge and the release facts the header has no room for:
-    /// "FLAC 24/96 · Warp · Released 3 June 1997 · Electronic, IDM".
+    /// "FLAC 24/96 · Saltbox · Released 3 June 2004 · Electronic, Ambient".
     private var details: String {
         var parts: [String] = []
         if let format = format { parts.append(format) }

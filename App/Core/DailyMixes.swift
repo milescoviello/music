@@ -820,7 +820,7 @@ final class DailyMixes {
                         (try? await client.topSongs(artist: artist, count: 8)) ?? [], in: scope
                     )
                     // `getTopSongs` is Last.fm's global chart, and Navidrome matches it to
-                    // local files by title — badly. Nirvana has 67 tracks here and one
+                    // local files by title — badly. One artist with 67 tracks here had one
                     // matched. A thin answer means poor matching, not an unknown artist.
                     if songs.count < 3 {
                         let extra = try? await client.search(query: artist, songCount: 12, scope: scope)

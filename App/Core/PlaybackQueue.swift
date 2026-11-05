@@ -33,7 +33,7 @@ struct PlaybackQueue: Codable, Sendable {
     var position: Int = 0
     var repeatMode: RepeatMode = .off
     var isShuffled: Bool = false { didSet { listID = UUID() } }
-    /// "Kid A", "Freedom" -- shown in the player as the source of the queue.
+    /// "Glass Harbor", "Road Trip" -- shown in the player as the source of the queue.
     var sourceDescription: String = "" { didSet { listID = UUID() } }
     /// Index into `tracks` of the last song put in with Play Next or Add to Up Next:
     /// where the next Add to Up Next goes. Optional so a queue saved before it existed

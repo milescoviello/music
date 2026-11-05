@@ -5,7 +5,7 @@ import Testing
 
 /// What Add to Playlist says a playlist already has, and what it leaves out when adding.
 struct PlaylistMembershipTests {
-    private func song(_ id: String, _ title: String, artist: String = "Radiohead", album: String = "In Rainbows") -> Song {
+    private func song(_ id: String, _ title: String, artist: String = "Mira Vale", album: String = "Glass Harbor") -> Song {
         var song = Song(id: id, title: title)
         song.artist = artist
         song.album = album
@@ -13,8 +13,8 @@ struct PlaylistMembershipTests {
     }
 
     @Test func theOtherLibrarysCopyCountsAsAlreadyThere() {
-        let mine = song("music-1", "All I Need")
-        let theirs = song("my-music-1", "All I Need")
+        let mine = song("music-1", "Paper Moons")
+        let theirs = song("my-music-1", "Paper Moons")
         let held = PlaylistMembership(of: [mine], in: [theirs])
         #expect(held.hasAll)
         #expect(held.summary == "Already added")
@@ -22,8 +22,8 @@ struct PlaylistMembershipTests {
     }
 
     @Test func caseAndOuterSpacesDoNotMakeANewRecording() {
-        let tagged = song("a", "All I Need ", artist: "radiohead")
-        #expect(PlaylistMembership(of: [song("b", "All I Need")], in: [tagged]).hasAll)
+        let tagged = song("a", "Paper Moons ", artist: "mira vale")
+        #expect(PlaylistMembership(of: [song("b", "Paper Moons")], in: [tagged]).hasAll)
     }
 
     @Test func theSameTitleOnAnotherAlbumIsAnotherSong() {
@@ -51,24 +51,24 @@ struct PlaylistMembershipTests {
     }
 
     @Test func repeatsAmongTheSongsAreAddedOnce() {
-        let one = song("a", "Reckoner")
-        let copy = song("b", "Reckoner")
+        let one = song("a", "Slow Return")
+        let copy = song("b", "Slow Return")
         #expect(PlaylistMembership.missing([one, one, copy], from: []).map(\.id) == ["a"])
         #expect(PlaylistMembership(of: [one, copy], in: []).total == 1)
     }
 
     @Test func nothingAskedIsNeverFull() {
-        #expect(!PlaylistMembership(of: [], in: [song("a", "Nude")]).hasAll)
+        #expect(!PlaylistMembership(of: [], in: [song("a", "Sundial")]).hasAll)
     }
 
     /// The row of the copy not playing lights up too; a live version does not.
     @Test func theOtherLibrarysCopyIsTheSameRecording() {
-        var playing = Song(id: "music", title: "All They Wanted", artist: "Panchiko")
-        playing.album = "Ferric Oxide"
-        var copy = Song(id: "mine", title: "All They Wanted", artist: "Panchiko")
-        copy.album = "Ferric Oxide"
-        var live = Song(id: "live", title: "All They Wanted", artist: "Panchiko")
-        live.album = "Live in Nottingham"
+        var playing = Song(id: "music", title: "Quiet Engines", artist: "The Lanterns")
+        playing.album = "Coastline Static"
+        var copy = Song(id: "mine", title: "Quiet Engines", artist: "The Lanterns")
+        copy.album = "Coastline Static"
+        var live = Song(id: "live", title: "Quiet Engines", artist: "The Lanterns")
+        live.album = "Live at the Granary"
         #expect(copy.isSameRecording(as: playing))
         #expect(!live.isSameRecording(as: playing))
         #expect(!copy.isSameRecording(as: nil))

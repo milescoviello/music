@@ -112,7 +112,7 @@ enum Station: Codable, Hashable, Sendable, Identifiable {
         "easy listening", "chillout", "acoustic", "instrumental", "ambient", "experimental",
     ]
 
-    /// "Radiohead, Portishead & 2 more Mix".
+    /// "The Lanterns, Mira Vale & 2 more Mix".
     private static func mixTitle(_ names: [String], fallback: String) -> String {
         switch names.count {
         case 0: return fallback

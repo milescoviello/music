@@ -81,22 +81,22 @@ class ReleaseRadar(unittest.TestCase):
             create table artist (id text, name text, mbz_artist_id text);
             create table annotation (item_id text, item_type text, play_count int, play_date text);
             create table album (name text, album_artist text, album_artist_id text);
-            insert into artist values ('a1', 'Panchiko', 'mb-panchiko');
-            insert into annotation values ('a1', 'artist', 1700, '2026-11-03');
-            insert into album values ('Ginkgo', 'Panchiko', 'a1');
+            insert into artist values ('a1', 'Mira Vale', 'mb-a1');
+            insert into annotation values ('a1', 'artist', 120, '2026-11-03');
+            insert into album values ('Glass Harbor', 'Mira Vale', 'a1');
         """)
         connection.commit()
         connection.close()
         self.path = folder / "radar.json"
 
     def fetch(self, path, params):
-        self.assertEqual(params["artist"], "mb-panchiko")
+        self.assertEqual(params["artist"], "mb-a1")
         return {"release-groups": [
-            {"id": "g1", "title": "Ginkgo", "primary-type": "Album", "first-release-date": "2025-04-04"},
-            {"id": "g2", "title": "Ginkgo (Deluxe Edition)", "primary-type": "Album", "first-release-date": "2026-09-01"},
-            {"id": "g3", "title": "Rise and Fall", "primary-type": "Single", "first-release-date": "2026-10-10"},
-            {"id": "g4", "title": "Live in Nottingham", "primary-type": "Album", "secondary-types": ["Live"], "first-release-date": "2026-08-01"},
-            {"id": "g5", "title": "Deathmetal", "primary-type": "Album", "first-release-date": "2000"},
+            {"id": "g1", "title": "Glass Harbor", "primary-type": "Album", "first-release-date": "2025-04-04"},
+            {"id": "g2", "title": "Glass Harbor (Deluxe Edition)", "primary-type": "Album", "first-release-date": "2026-09-01"},
+            {"id": "g3", "title": "Quiet Orbit", "primary-type": "Single", "first-release-date": "2026-10-10"},
+            {"id": "g4", "title": "Live in Harborview", "primary-type": "Album", "secondary-types": ["Live"], "first-release-date": "2026-08-01"},
+            {"id": "g5", "title": "Early Static", "primary-type": "Album", "first-release-date": "2000"},
             {"id": "g6", "title": "Coming Soon", "primary-type": "EP", "first-release-date": "2026-12-01"},
         ]}
 
@@ -117,7 +117,7 @@ class ReleaseRadar(unittest.TestCase):
     def test_only_new_and_missing_releases(self):
         radar = Radar(self.db, self.path, fetch=self.fetch)
         items = radar.build(today=date(2026, 11, 3))
-        self.assertEqual([item["title"] for item in items], ["Coming Soon", "Rise and Fall"])
+        self.assertEqual([item["title"] for item in items], ["Coming Soon", "Quiet Orbit"])
         self.assertTrue(items[0]["upcoming"])
         self.assertIn("coverartarchive.org/release-group/g3", items[1]["cover"])
 

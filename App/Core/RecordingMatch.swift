@@ -4,9 +4,8 @@ import Foundation
 /// known: for plays of songs the server no longer has (`HistoryRepair`).
 enum RecordingMatch {
     /// By title, artist and album; failing that, by title and artist when every match is
-    /// on one album, which is a song retagged onto its real album ("Singles" to "Petals
-    /// to Thorns"). Punctuation does not count: "blink‐182" with a Unicode hyphen is
-    /// blink-182.
+    /// on one album, which is a song retagged onto its real album ("Singles" to the
+    /// album's title). Punctuation does not count: "lo‐fi" with a Unicode hyphen is lo-fi.
     static func song(title: String, artist: String, album: String, in candidates: [Song]) -> Song? {
         let title = key(title), artist = key(artist)
         let matches = candidates.filter { key($0.title) == title && key($0.artist ?? "") == artist }

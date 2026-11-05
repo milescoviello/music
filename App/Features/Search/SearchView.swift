@@ -208,7 +208,7 @@ struct SearchView: View {
 
             if let outcome, outcome.isCorrectionOnly {
                 // Nothing matched what was typed, so these are the library's nearest words
-                // -- which for an artist not in the library ("clairo") is something else
+                // -- which for an artist not in the library ("nerio") is something else
                 // entirely. Asking for it has to stay a tap away, as it is under No Results.
                 NavigationLink(value: Destination.requestMusic(outcome.query)) {
                     Label("Ask Hermes to find “\(outcome.query)”", systemImage: "arrow.down.heart")
@@ -410,7 +410,7 @@ struct SearchView: View {
     /// The debounce is the `.task(id:)` itself: a keystroke cancels the previous
     /// task, so sleeping at the top is all that is needed. No Combine, no timers.
     ///
-    /// One letter is searched too: "k" is a whole song title ("K.", Cigarettes After Sex),
+    /// One letter is searched too: a single letter can be a whole song title ("Q."),
     /// and the two-letter minimum this had meant it could never be found.
     private func search() async {
         let trimmed = query.trimmingCharacters(in: .whitespaces)

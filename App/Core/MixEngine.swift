@@ -53,7 +53,7 @@ enum MixEngine {
     /// A recording someone plays, with every copy of it that was found.
     struct Played: Sendable {
         /// Most-played copy first. The library has most songs twice, and each copy keeps
-        /// its own count, so "Laputa" can be 70 plays here and 65 there.
+        /// its own count, so one song can be 70 plays here and 65 there.
         var ids: [String]
         var title: String
         var artist: String?

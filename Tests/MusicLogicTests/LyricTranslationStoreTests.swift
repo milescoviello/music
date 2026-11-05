@@ -12,23 +12,23 @@ struct LyricTranslationStoreTests {
     }
 
     @Test func aTranslationIsKeptForNextTime() async {
-        let lines = ["君の名は", "", "Baby"]
-        await store().save(["Your name", nil, "Baby"], of: lines, songID: "a")
+        let lines = ["夜の川", "", "Baby"]
+        await store().save(["The river at night", nil, "Baby"], of: lines, songID: "a")
 
         // A later launch reads it from Caches.
-        #expect(await store().translations(songID: "a", lines: lines) == ["Your name", nil, "Baby"])
+        #expect(await store().translations(songID: "a", lines: lines) == ["The river at night", nil, "Baby"])
     }
 
     @Test func changedLyricsAreNotShownTheOldTranslation() async {
         let store = store()
-        await store.save(["Your name"], of: ["君の名は"], songID: "a")
-        #expect(await store.translations(songID: "a", lines: ["君の名は。"]) == nil)
-        #expect(await store.translations(songID: "b", lines: ["君の名は"]) == nil)
+        await store.save(["The river at night"], of: ["夜の川"], songID: "a")
+        #expect(await store.translations(songID: "a", lines: ["夜の川。"]) == nil)
+        #expect(await store.translations(songID: "b", lines: ["夜の川"]) == nil)
     }
 
     @Test func aTranslationThatDoesNotFitItsLinesIsNotKept() async {
         let store = store()
-        await store.save(["Your name"], of: ["君の名は", "罪"], songID: "a")
-        #expect(await store.translations(songID: "a", lines: ["君の名は", "罪"]) == nil)
+        await store.save(["The river at night"], of: ["夜の川", "罪"], songID: "a")
+        #expect(await store.translations(songID: "a", lines: ["夜の川", "罪"]) == nil)
     }
 }

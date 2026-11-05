@@ -236,8 +236,8 @@ enum Charts {
     /// first; ties keep the order they came in.
     ///
     /// For the server's all-time lists, which listed such copies once each with part of
-    /// the plays: in November 2026 four of the ten Most Played albums were a second copy
-    /// of one above them, and the most played song of all, 222 plays, showed as 117.
+    /// the plays: four of the ten Most Played albums were a second copy of one above
+    /// them, and the most played song of all showed about half its plays.
     static func mergingCopies<T>(
         _ items: [T],
         key: (T) -> String,

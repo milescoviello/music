@@ -2,7 +2,7 @@ import Foundation
 
 /// Plexamp's Top Result: the one thing a search most probably meant, shown above the
 /// lists. An exact name beats a prefix, and an artist beats an album beats a song at the
-/// same strength — typing "Portishead" means the band before the album or the track.
+/// same strength — typing "The Lanterns" means the band before the album or the track.
 enum SearchRanking {
     enum TopResult: Sendable {
         case artist(Artist)
@@ -28,9 +28,9 @@ enum SearchRanking {
     /// that are the query first, then those that start with it, then the server's order.
     ///
     /// One copy because the library's two folders overlap by about 40%, so "All" found
-    /// most songs twice -- "Nineteen Cigarettes" by Postcards, twice, one under the other.
-    /// And the order because `search3` ranks by its own idea of relevance: "k." listed
-    /// "B.B.K." and "It's O.K." above the song actually called "K.".
+    /// most songs twice, one under the other.
+    /// And the order because `search3` ranks by its own idea of relevance: "q." listed
+    /// titles that merely contain "Q." above the song actually called "Q.".
     static func arranged(_ results: SearchResult3, for query: String) -> SearchResult3 {
         let wanted = comparable(query)
         return SearchResult3(

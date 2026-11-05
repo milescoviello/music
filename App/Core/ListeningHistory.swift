@@ -264,7 +264,7 @@ final class ListeningHistory {
         rank(plays(in: window), name: \.album, artist: \.artist, limit: limit)
     }
 
-    /// By title and artist, for the same reason: Radiohead's "Creep" is not TLC's.
+    /// By title and artist, for the same reason: two artists' songs of one title are two songs.
     func topSongs(in window: Window, limit: Int = 10) -> [Ranked] {
         rank(plays(in: window), name: \.title, artist: \.artist, limit: limit)
     }

@@ -3,7 +3,7 @@ import Foundation
 /// Navidrome's stand-in for a missing cover: a blue "navidrome" record, the same 1024 px
 /// WebP whatever size is asked for, sent with a 200 like a real cover.
 ///
-/// Kept as if it were the album's own, it stayed after the album got a cover: Ginkgo's
+/// Kept as if it were the album's own, it stayed after the album got a cover: an album's
 /// songs showed the record on the phone long after its `cover.jpg` was in place (their
 /// cover ids never change, so nothing fetched again). Recognised, it is not kept, and the
 /// app draws its own placeholder, the initials, until there is a cover.

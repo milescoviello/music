@@ -19,10 +19,10 @@ struct RecordingMatchTests {
 
     @Test func theSameAlbumWins() {
         let found = match(
-            "All the Small Things", "blink‐182", "Enema of the State",
+            "All the Quiet Hours", "pine‐204", "Map of the Harbor",
             in: [
-                song("live", "All the Small Things", "blink-182", "The Mark, Tom and Travis Show"),
-                song("studio", "All the Small Things", "blink-182", "Enema of the State"),
+                song("live", "All the Quiet Hours", "pine-204", "Live from the Pier"),
+                song("studio", "All the Quiet Hours", "pine-204", "Map of the Harbor"),
             ]
         )
         #expect(found?.id == "studio")
@@ -30,18 +30,18 @@ struct RecordingMatchTests {
 
     @Test func aSongRetaggedOntoItsAlbumIsFound() {
         let found = match(
-            "Romantic Homicide", "d4vd", "Singles",
-            in: [song("new", "Romantic Homicide", "d4vd", "Petals to Thorns")]
+            "Velvet Static", "k9lo", "Singles",
+            in: [song("new", "Velvet Static", "k9lo", "Thorns and Rivers")]
         )
         #expect(found?.id == "new")
     }
 
     @Test func twoOtherAlbumsAreNotGuessedBetween() {
         let found = match(
-            "Creep", "Radiohead", "Singles",
+            "Tin Kettle", "Mira Vale", "Singles",
             in: [
-                song("a", "Creep", "Radiohead", "Pablo Honey"),
-                song("b", "Creep", "Radiohead", "Live at the Astoria"),
+                song("a", "Tin Kettle", "Mira Vale", "Brass Orchard"),
+                song("b", "Tin Kettle", "Mira Vale", "Live at the Granary"),
             ]
         )
         #expect(found == nil)
@@ -49,16 +49,16 @@ struct RecordingMatchTests {
 
     @Test func anotherArtistsSongIsNotTaken() {
         let found = match(
-            "Creep", "Radiohead", "Pablo Honey",
-            in: [song("a", "Creep", "TLC", "CrazySexyCool")]
+            "Tin Kettle", "Mira Vale", "Brass Orchard",
+            in: [song("a", "Tin Kettle", "Calder Bay", "Bright Rooms")]
         )
         #expect(found == nil)
     }
 
     @Test func punctuationAndCaseDoNotCount() {
         let found = match(
-            "What’s My Age Again?", "Blink-182", "Enema of the State",
-            in: [song("a", "What's My Age Again", "blink‐182", "Enema Of The State")]
+            "Where’s the Lighthouse?", "Pine-204", "Map of the Harbor",
+            in: [song("a", "Where's the Lighthouse", "pine‐204", "Map Of The Harbor")]
         )
         #expect(found?.id == "a")
     }

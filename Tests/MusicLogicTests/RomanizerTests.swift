@@ -4,8 +4,8 @@ import Testing
 
 struct RomanizerTests {
     @Test func onlyLettersOutsideLatinNeedIt() {
-        #expect(Romanizer.needsRomanization("ハルカリノオカワリ"))
-        #expect(Romanizer.needsRomanization("×と○と罪と"))
+        #expect(Romanizer.needsRomanization("ミドリノオカワリ"))
+        #expect(Romanizer.needsRomanization("△と○と罪と"))
         #expect(Romanizer.needsRomanization("Привет"))
         #expect(Romanizer.needsRomanization("I love you 사랑해"))
         #expect(!Romanizer.needsRomanization("Déjà vu, ça va"))
@@ -99,8 +99,8 @@ struct RomanizerTests {
     }
 
     @Test func aWordTheTokenizerCouldNotReadFallsBackToTheTransform() {
-        let tokens: [Romanizer.Token] = [.init(text: "ハルカ"), .init(text: "リ", reading: "ri")]
-        #expect(Romanizer.joinJapanese(tokens) == "haruka ri")
+        let tokens: [Romanizer.Token] = [.init(text: "ミドリ"), .init(text: "リ", reading: "ri")]
+        #expect(Romanizer.joinJapanese(tokens) == "midori ri")
     }
 
     #if canImport(Darwin)
@@ -115,12 +115,12 @@ struct RomanizerTests {
         #expect(!line.contains("mao"))
     }
 
-    @Test func titlesFromTheLibraryComeOutLatin() throws {
-        for title in ["ハルカリノオカワリ", "×と○と罪と"] {
+    @Test func titlesInKanaKanjiAndSymbolsComeOutLatin() throws {
+        for title in ["ミドリノオカワリ", "△と○と罪と"] {
             let line = try #require(Romanizer.romanize(title, style: .japanese))
             #expect(!Romanizer.needsRomanization(line), "\(title) -> \(line)")
         }
-        let sin = try #require(Romanizer.romanize("×と○と罪と", style: .japanese))
+        let sin = try #require(Romanizer.romanize("△と○と罪と", style: .japanese))
         #expect(sin.contains("tsumi"))
     }
     #endif
