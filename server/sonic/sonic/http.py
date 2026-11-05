@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
 from .config import TAGS
+from .links import history_links
 from .logs import LIMIT, LogBox
 
 log = logging.getLogger("sonic.http")
@@ -70,6 +71,8 @@ def make_handler(service):
          lambda match, q: service.taste.since(_int(q, "since", 0, 0, 2**62), q.get("device", [""])[0],
                                               _int(q, "limit", 5000, 1, 5000))),
         (re.compile(r"^/v1/radar$"), lambda match, q: service.radar.answer()),
+        (re.compile(r"^/v1/history/links$"),
+         lambda match, q: {"links": history_links(service.config.data_dir / "history-links.json")}),
         (re.compile(r"^/healthz$"), lambda match, q: {"ok": True}),
     ]
 

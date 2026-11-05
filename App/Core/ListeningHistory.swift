@@ -18,8 +18,9 @@ final class ListeningHistory {
         var id = UUID()
         /// `var` for `relink`: the server gives a song a new id when its file moves.
         var songID: String
-        let title: String
-        let artist: String
+        /// `var`, like the album, for a song linked by hand to a copy under another name.
+        var title: String
+        var artist: String
         var album: String
         let genre: String?
         /// Seconds, so totals do not need the library to answer.
@@ -141,11 +142,14 @@ final class ListeningHistory {
             guard let link = links[plays[index].songID] else { continue }
             var play = plays[index]
             play.songID = link.songID
+            play.title = link.title
+            play.artist = link.artist
             play.album = link.album
             play.albumID = link.albumID
             if let artistID = link.artistID { play.artistID = artistID }
             if let coverArt = link.coverArt { play.coverArt = coverArt }
-            guard play.songID != plays[index].songID || play.album != plays[index].album
+            guard play.songID != plays[index].songID || play.title != plays[index].title
+                || play.artist != plays[index].artist || play.album != plays[index].album
                 || play.albumID != plays[index].albumID || play.artistID != plays[index].artistID
                 || play.coverArt != plays[index].coverArt
             else { continue }

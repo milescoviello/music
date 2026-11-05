@@ -165,6 +165,17 @@ struct SonicClient: Sendable {
         try await getIfPresent("v1/lyrics/search", ["q": query, "limit": String(limit)], as: LyricHits.self)?.items ?? []
     }
 
+    /// Songs to point plays at by hand: old song id → new, for the ones the history repair
+    /// cannot find by name (a translated title, the artist in another script). Kept on the
+    /// server in `data/history-links.json`. Empty from a service too old to have them.
+    func historyLinks() async throws -> [String: String] {
+        try await getIfPresent("v1/history/links", [:], as: HistoryLinks.self)?.links ?? [:]
+    }
+
+    private struct HistoryLinks: Decodable {
+        var links: [String: String]
+    }
+
     /// Hands a Send Logs report to the service, which keeps it as a file in its `data/logs`
     /// on the server. Returns the file's name. A service too old to take one answers 404.
     func sendLogs(_ text: String, source: String) async throws -> String {

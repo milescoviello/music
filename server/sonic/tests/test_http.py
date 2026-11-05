@@ -24,6 +24,7 @@ class Answers(unittest.TestCase):
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
         self.base = f"http://127.0.0.1:{server.server_address[1]}"
+        self.data_dir = Path(folder.name)
 
     def get(self, path):
         try:
@@ -52,6 +53,23 @@ class Answers(unittest.TestCase):
     def test_not_analysed_is_a_404(self):
         self.start(None)
         self.assertEqual(self.get("/v1/tracks/a/levels")[0], 404)
+
+    def test_history_links_are_old_to_new_ids(self):
+        self.start(None)
+        self.assertEqual(json.loads(self.get("/v1/history/links")[1]), {"links": {}})
+        (self.data_dir / "history-links.json").write_text(json.dumps({"links": {
+            "old": {"to": "new", "why": "the single, gone; the album's copy"},
+            "self": {"to": "self"},
+            "broken": {"why": "no id"},
+        }}))
+        self.assertEqual(json.loads(self.get("/v1/history/links")[1]), {"links": {"old": "new"}})
+
+    def test_unreadable_history_links_are_none(self):
+        self.start(None)
+        (self.data_dir / "history-links.json").write_text("{not json")
+        with self.assertLogs("sonic", level="WARNING"):
+            status, body = self.get("/v1/history/links")
+        self.assertEqual((status, json.loads(body)), (200, {"links": {}}))
 
 
 if __name__ == "__main__":
