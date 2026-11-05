@@ -3,9 +3,8 @@
 The apps repair their listening history once a day: a song the server no longer has is
 looked for by title, artist and album, and taken only when it is plainly the same
 recording. Some are not plain. A single deleted in a cleanup can survive as the album's
-copy under a translated title ("Guitar, Loneliness and Blue Planet" as "Guitar to Kodoku
-to Aoi Wakusei"), or with the artist in another script (inabakumori as 稲葉曇). Those
-are listed in `data/history-links.json`, checked by hand:
+copy under a translated title, or with the artist's name in another script. Those are
+listed in `data/history-links.json`, which is not in the repository, checked by hand:
 
     {"links": {"<old song id>": {"to": "<new song id>", "why": "…"}}}
 

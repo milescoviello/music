@@ -6,7 +6,7 @@ import Foundation
 /// libraries, retagged, its folder renamed), and a song a new id when its file moves. The
 /// history keeps the ids from the moment of each play. On 2026-11-04, 142 of the laptop's
 /// 830 plays pointed at albums that no longer existed: Most Played in October showed
-/// Jar of Flies (68 plays) as initials, and its row opened nothing.
+/// one of the most played albums as initials, and its row opened nothing.
 ///
 /// Runs at most once a day. Every song played is looked up by id, a hundred per request.
 /// A song whose album has a new id takes that album's id and artwork. A song the server
@@ -70,8 +70,8 @@ enum HistoryRepair {
         let alive = Dictionary(current.filter { $0.missing != true }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
 
         // Moved: the song is there, and some of its plays name another album id or none.
-        // Every play, not the latest: Jar of Flies' latest plays had the new id, and the
-        // 68 before them the old one.
+        // Every play, not the latest: an album's latest plays can have the new id and
+        // every one before them the old one.
         var movedAlbums: [String: Set<String>] = [:]
         for play in appState.history.plays {
             guard let song = alive[play.songID], let albumID = song.albumId, albumID != play.albumID else { continue }
