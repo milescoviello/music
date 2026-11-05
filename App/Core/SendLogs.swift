@@ -33,7 +33,7 @@ extension AppState {
 
         let connection: [LogReport.Row] = [
             .init(label: "Server", value: credentials?.baseURL.host ?? "Not signed in"),
-            .init(label: "Network", value: reachability.isOnline ? "Online" : "Offline"),
+            .init(label: "Network", value: reachability.isOnline ? "Online (\(reachability.network))" : "Offline"),
             .init(label: "Showing cached data", value: isShowingCachedData ? "Yes" : "No"),
             .init(label: "Sonic", value: sonic.status.map { "\($0.analysed) of \($0.tracks) analysed" }
                 ?? "Not connected\(sonic.lastError.map { ": \($0)" } ?? "")"),
@@ -51,6 +51,11 @@ extension AppState {
         let stalled = downloads.catalog.pending.keys.filter { downloads.progress[$0] == nil }.count
         if stalled > 0 {
             sync.append(.init(label: "Stalled downloads", value: "\(stalled)"))
+        }
+        // Which songs, how far, and whether anything is fetching them: "2 tracks not
+        // downloading" (2026-11-04) came with a count and nothing to tell them by.
+        for (index, line) in (await downloads.waitingSummary()).enumerated() {
+            sync.append(.init(label: "Waiting \(index + 1)", value: line))
         }
         sync.append(.init(label: "Daily mixes", value: "\(mixes.mixes.count) built"))
 

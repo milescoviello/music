@@ -241,7 +241,9 @@ final class DownloadCenter {
         // in between read every song as not downloaded and queued it all again. In one
         // assignment, so `progress`'s observers hear of a whole album once.
         progress.merge(queued.map { ($0.entry.song.id, 0.0) }) { current, _ in current }
+        for (entry, _) in queued { askedAt[entry.song.id] = .now }
         isDownloading = true
+        watch()
 
         Task {
             // In the same task as the new songs, and first, so the screen is never handed
@@ -302,6 +304,12 @@ final class DownloadCenter {
 
     @ObservationIgnored private var isResuming = false
     @ObservationIgnored private var retryScheduled = false
+    /// When each transfer was asked for, so one "just asked for" is told from one whose
+    /// transfer has gone: both have a progress entry and no task.
+    @ObservationIgnored private var askedAt: [String: Date] = [:]
+    /// Each running transfer's bytes when last looked at, for one that has stopped.
+    @ObservationIgnored private var lastBytes: [String: (bytes: Int64, at: Date)] = [:]
+    @ObservationIgnored private var watchdog: Task<Void, Never>?
 
     /// Starts again every song still waiting with no transfer behind it.
     ///
@@ -316,12 +324,18 @@ final class DownloadCenter {
         isResuming = true
         Task {
             defer { isResuming = false }
-            let running = Set(await session.allTasks.compactMap(\.taskDescription))
+            let tasks = await session.allTasks
+            let running = Set(tasks.compactMap(\.taskDescription))
             var restarted: [String: Double] = [:]
-            // Not one with a progress entry either: that is a download just asked for,
-            // whose transfer is created once its catalog write lands.
-            let orphans = catalog.pending.values.filter {
-                !running.contains($0.song.id) && progress[$0.song.id] == nil
+            // Not one just asked for either, whose transfer is created once its catalog
+            // write lands. A progress entry alone no longer says that: a transfer iOS
+            // cancelled left one behind, and the song was skipped here until the next
+            // launch, "downloading" all the while.
+            let orphans = catalog.pending.values.filter { entry in
+                let id = entry.song.id
+                guard !running.contains(id) else { return false }
+                guard progress[id] != nil, let asked = askedAt[id] else { return true }
+                return Date.now.timeIntervalSince(asked) > 30
             }
             for entry in orphans {
                 guard let request = Self.request(for: entry.song, quality: entry.quality, signer: signer) else {
@@ -331,11 +345,79 @@ final class DownloadCenter {
                 task.taskDescription = entry.song.id
                 task.resume()
                 restarted[entry.song.id] = 0
+                askedAt[entry.song.id] = .now
             }
             guard !restarted.isEmpty else { return }
-            progress.merge(restarted) { current, _ in current }
+            progress.merge(restarted) { _, new in new }
             isDownloading = true
-            await Diagnostics.shared.record("download", "resumed \(restarted.count) waiting")
+            watch()
+            let names = orphans.prefix(3).map { "“\($0.song.title)”" }.joined(separator: ", ")
+            await Diagnostics.shared.record("download", "resumed \(restarted.count) waiting: \(names)\(orphans.count > 3 ? "…" : "")")
+        }
+    }
+
+    /// Every two minutes while anything is arriving and the app runs: a transfer that has
+    /// received nothing for five is cancelled and asked for again, and one whose transfer
+    /// has gone is started again. Before this a download could sit at "downloading" for
+    /// a whole day with nothing in the log (2026-11-04: two of them).
+    private func watch() {
+        guard watchdog == nil else { return }
+        watchdog = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(120))
+                guard let self, !progress.isEmpty || !catalog.pending.isEmpty else { break }
+                await checkStalls()
+                resumeWaiting()
+            }
+            self?.watchdog = nil
+        }
+    }
+
+    private func checkStalls() async {
+        let now = Date.now
+        for task in await session.allTasks {
+            guard let id = task.taskDescription, catalog.pending[id] != nil else { continue }
+            if task.state == .suspended {
+                task.resume()
+                continue
+            }
+            guard task.state == .running else { continue }
+            let bytes = task.countOfBytesReceived
+            if let last = lastBytes[id], last.bytes == bytes {
+                guard now.timeIntervalSince(last.at) > 300 else { continue }
+                let title = catalog.pending[id]?.song.title ?? id
+                let percent = Int((progress[id] ?? 0) * 100)
+                await Diagnostics.shared.record("download", "“\(title)” (\(id)) stalled at \(percent)% for five minutes: asked for again")
+                lastBytes[id] = nil
+                progress.removeValue(forKey: id)
+                askedAt[id] = nil
+                task.cancel()
+            } else {
+                lastBytes[id] = (bytes, now)
+            }
+        }
+    }
+
+    /// The songs waiting, for a report: each one's title, how far it is, and whether a
+    /// transfer is behind it.
+    func waitingSummary() async -> [String] {
+        let tasks = await session.allTasks
+        var states: [String: URLSessionTask.State] = [:]
+        for task in tasks { if let id = task.taskDescription { states[id] = task.state } }
+        return catalog.pending.values.sorted { $0.addedAt < $1.addedAt }.prefix(8).map { entry in
+            let id = entry.song.id
+            let percent = progress[id].map { "\(Int($0 * 100))%" } ?? "no progress"
+            let transfer: String
+            switch states[id] {
+            case .running?: transfer = "transferring"
+            case .suspended?: transfer = "transfer suspended"
+            case .canceling?: transfer = "transfer cancelling"
+            case .completed?: transfer = "transfer completed"
+            case nil: transfer = "no transfer"
+            @unknown default: transfer = "transfer in an unknown state"
+            }
+            let age = Int(Date.now.timeIntervalSince(entry.addedAt) / 60)
+            return "“\(entry.song.title)” (\(id)): \(percent), \(transfer), asked for \(age) min ago"
         }
     }
 
@@ -448,6 +530,8 @@ final class DownloadCenter {
     /// complete with no file.
     func taskFinished(songID: String, byteCount: Int64) {
         progress.removeValue(forKey: songID)
+        askedAt[songID] = nil
+        lastBytes[songID] = nil
         Task {
             catalog = await store.complete(songID: songID, byteCount: byteCount)
             isDownloading = !progress.isEmpty
@@ -470,6 +554,29 @@ final class DownloadCenter {
             retryScheduled = false
             resumeWaiting()
         }
+    }
+
+    /// A transfer that finished, or was cancelled by iOS, for a song no longer waiting:
+    /// the file is let go. It used to be left "downloading" for good, with nothing in the
+    /// log; a playlist sync asking for a song it already had was one way to get there.
+    func taskOrphaned(songID: String, what: String) {
+        guard progress[songID] != nil else { return }
+        progress.removeValue(forKey: songID)
+        askedAt[songID] = nil
+        lastBytes[songID] = nil
+        isDownloading = !progress.isEmpty
+        let title = catalog.entries[songID]?.song.title ?? songID
+        Task { await Diagnostics.shared.record("download", "“\(title)” (\(songID)) \(what), but was no longer waiting") }
+    }
+
+    /// Cancelled by iOS rather than by a removal: waiting still, so it is asked for again.
+    func taskCancelled(songID: String) {
+        guard catalog.pending[songID] != nil else {
+            taskOrphaned(songID: songID, what: "was cancelled")
+            return
+        }
+        guard progress[songID] != nil else { return }
+        taskInterrupted(songID: songID, reason: "cancelled by iOS")
     }
 
     /// `reason` is what went wrong, for the log: a title alone could not say.
@@ -585,7 +692,10 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
             guard let target else { return nil }
             return target.isCatalogLoaded ? target.catalog.pending[songID] : Self.pendingOnDisk(songID)
         }
-        guard let entry else { return }
+        guard let entry else {
+            MainActor.assumeIsolated { target?.taskOrphaned(songID: songID, what: "finished") }
+            return
+        }
 
         // Synchronous, inline, before this method returns.
         let destination = entry.url
@@ -616,7 +726,12 @@ final class DownloadSessionDelegate: NSObject, URLSessionDownloadDelegate, @unch
         // Either `remove` — the catalog is already updated — or iOS, which cancels the
         // transfers of an app being replaced; those are started again at the next launch
         // by `resumeWaiting`.
-        if (error as NSError).code == NSURLErrorCancelled { return }
+        if (error as NSError).code == NSURLErrorCancelled {
+            // A removal has already cleared it; anything else still waiting is asked for
+            // again rather than left "downloading".
+            MainActor.assumeIsolated { center?.taskCancelled(songID: songID) }
+            return
+        }
         let interrupted = (error as? URLError).map { Self.isInterruption($0.code) } ?? false
         let reason = Diagnostics.describe(error)
         MainActor.assumeIsolated {
