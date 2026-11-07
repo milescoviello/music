@@ -177,6 +177,16 @@ enum SettingsPages {
             direction
         })
 
+        let skips = env.app.skips
+        let skipsSwitch = SwitchRow("Skips Shape What Plays", isOn: skips.shapesWhatPlays) { skips.shapesWhatPlays = $0 }
+        page.add(PreferencesGroup("Skips", description: """
+        Skips are always counted. With this on, a song skipped in its first 30 seconds also plays \
+        less in mixes, radio, Autoplay and shuffle, and two recent skips leave it out until it is \
+        played through or a few weeks pass.
+        """) {
+            skipsSwitch
+        })
+
         page.observe {
             preamp.isSensitive = audio.loudnessLeveling
             limiter.isSensitive = audio.loudnessLeveling

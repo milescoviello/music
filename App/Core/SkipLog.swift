@@ -1,20 +1,39 @@
 import Foundation
+import Observation
 
-/// The skips `SkipMemory` reads, kept on this device: the server never hears of them.
+/// Skips by hand early in a song, kept on this device and shared with the others through
+/// `TasteSync`.
+///
+/// They are always counted, for the stats. Whether they also change what plays -- songs
+/// skipped play less in the mixes, radio, Autoplay and shuffle, and two recent skips leave
+/// one out for a while (`SkipMemory`) -- is a setting, off unless it is turned on.
 ///
 /// Small, so read at launch and written whole, a few seconds after the last skip.
 @MainActor
+@Observable
 final class SkipLog {
-    private(set) var skips: [SkipMemory.Skip] = []
-    private let url = Paths.root.appendingPathComponent("skips.json")
+    @ObservationIgnored private(set) var skips: [SkipMemory.Skip] = []
+    @ObservationIgnored private let url = Paths.root.appendingPathComponent("skips.json")
     /// A year of skipping at ten a day: they fade out of any score long before.
-    private let limit = 3_000
-    private var saveTask: Task<Void, Never>?
-    private var isLoaded = false
+    @ObservationIgnored private let limit = 3_000
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var isLoaded = false
     /// The play log, whose full plays forgive earlier skips. Set by `AppState`.
-    weak var history: ListeningHistory?
+    @ObservationIgnored weak var history: ListeningHistory?
+
+    private static let shapesKey = "skips.shapeWhatPlays"
+
+    /// Whether skips change what plays. Off by default: a skip is a mood more often than
+    /// a verdict, and he would rather the mixes did not hold one against a song.
+    var shapesWhatPlays: Bool {
+        didSet {
+            UserDefaults.standard.set(shapesWhatPlays, forKey: Self.shapesKey)
+            SettingsLog.changed("Skips Shape What Plays", from: oldValue, to: shapesWhatPlays)
+        }
+    }
 
     init() {
+        shapesWhatPlays = UserDefaults.standard.bool(forKey: Self.shapesKey)
         let url = url
         Task { [weak self] in
             let stored = await Task.detached(priority: .utility) { () -> [SkipMemory.Skip] in
@@ -34,8 +53,10 @@ final class SkipLog {
             songID: song.id, title: song.title, artist: song.artist ?? "", at: .now, position: position
         ))
         if skips.count > limit { skips.removeFirst(skips.count - limit) }
-        let left = avoided().contains(MixEngine.identity(song))
-        let line = "“\(song.title)” (\(song.id)) skipped at \(LogReport.clock(position)): \(left ? "now left out of mixes and radio" : "counts against it")"
+        var line = "“\(song.title)” (\(song.id)) skipped at \(LogReport.clock(position))"
+        if shapesWhatPlays {
+            line += avoided().contains(MixEngine.identity(song)) ? ": now left out of mixes and radio" : ": counts against it"
+        }
         Task { await Diagnostics.shared.record("skips", line) }
         scheduleSave()
     }
@@ -52,8 +73,10 @@ final class SkipLog {
         return fresh.count
     }
 
-    /// The faded skips per recording, a full play since forgiving them.
+    /// The faded skips per recording, a full play since forgiving them. None while skips
+    /// do not shape what plays, so nothing that reads them holds a skip against a song.
     func penalties(now: Date = .now) -> [String: Double] {
+        guard shapesWhatPlays else { return [:] }
         let plays = (history?.plays ?? []).map { (identity: MixEngine.identity(title: $0.title, artist: $0.artist), at: $0.at) }
         return SkipMemory.penalties(skips: skips, plays: plays, now: now)
     }

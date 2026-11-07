@@ -230,7 +230,8 @@ final class AutoplayService {
             )
             let songs = await songs(for: option)
             guard !Task.isCancelled else { return nil }
-            // Songs skipped early lately stay out of radio; an album is kept whole.
+            // Songs skipped early lately stay out of radio, when skips shape what plays;
+            // an album is kept whole.
             let fresh = AutoplayRules.fresh(
                 songs,
                 queued: Set(appState.player.queue.tracks.map(\.id)),

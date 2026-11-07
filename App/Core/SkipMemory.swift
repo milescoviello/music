@@ -1,6 +1,7 @@
 import Foundation
 
-/// Songs skipped by hand soon after they start, so the mixes stop serving them.
+/// Songs skipped by hand soon after they start, so the mixes stop serving them -- when
+/// that is turned on (`SkipLog.shapesWhatPlays`); otherwise the skips are only counted.
 ///
 /// A skip only counts against a song when it was playing, early (the first 30 seconds,
 /// or the first half of something shorter than a minute) and by hand. Skipping one that

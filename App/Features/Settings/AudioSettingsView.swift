@@ -7,6 +7,7 @@ import SwiftUI
 /// read local files — so the old "downloaded tracks only" switch and its caveat are gone.
 /// Every control takes effect on the track already playing, within a fraction of a second.
 struct AudioSettingsView: View {
+    @Environment(AppState.self) private var appState
     @Environment(AudioSettings.self) private var audio
     @Environment(AutoplayService.self) private var autoplay
 
@@ -78,6 +79,21 @@ struct AudioSettingsView: View {
                 When the queue is about to run out, keep going with whatever is chosen at \
                 the bottom of Up Next — the next album, a radio, the same decade. Never \
                 with repeat on, and never for a station or a mix, which keep themselves going.
+                """)
+            }
+
+            Section {
+                Toggle("Skips Shape What Plays", isOn: Binding(
+                    get: { appState.skips.shapesWhatPlays },
+                    set: { appState.skips.shapesWhatPlays = $0 }
+                ))
+            } header: {
+                Text("Skips")
+            } footer: {
+                Text("""
+                Skips are always counted. With this on, a song skipped in its first 30 \
+                seconds also plays less in mixes, radio, Autoplay and shuffle, and two recent \
+                skips leave it out until it is played through or a few weeks pass.
                 """)
             }
         }
