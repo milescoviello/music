@@ -769,7 +769,9 @@ final class NowPlaying {
         row.observe {
             play.icon = player.isPlaying ? "media-playback-pause-symbolic" : "media-playback-start-symbolic"
             play.tooltip(player.isPlaying ? "Pause" : "Play")
-            next.opacity(player.queue.hasUpNext ? 1 : 0.4)
+            // At the end, next goes on into Autoplay's songs, so it is only dimmed when
+            // there is nothing at all to go to.
+            next.opacity(player.canGoNext ? 1 : 0.4)
             back.isVisible = settings.showsSkipButtons
             forward.isVisible = settings.showsSkipButtons
             back.tooltip("Back \(settings.skipBackSeconds) Seconds")

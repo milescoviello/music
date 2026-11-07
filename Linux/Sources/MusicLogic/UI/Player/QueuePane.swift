@@ -3,7 +3,8 @@ import Foundation
 
 /// The play queue, Plexamp's way: three tabs, BACK TO what already played, UP NEXT, and
 /// RELATED tracks to the one playing — Plexamp's queue under or beside its player.
-/// Autoplay's choices sit at the end of Up Next, shown as what they are.
+/// Autoplay's choices sit at the end of Up Next, shown as what they are, with the songs
+/// the selected one will play listed under them.
 @MainActor
 final class QueuePane {
     enum Tab: Int, CaseIterable {
@@ -96,6 +97,8 @@ final class QueuePane {
             _ = env.app.autoplay.options
             _ = env.app.autoplay.selected
             _ = env.app.autoplay.isActive
+            _ = env.app.autoplay.isAdding
+            _ = env.app.autoplay.upcoming
             reference.value?.rebuildAutoplay()
         }
         root.observe {
@@ -282,6 +285,18 @@ final class QueuePane {
             cards.append(button)
         }
         autoplay.append(ScrolledWindow(cards, horizontal: GTK_POLICY_AUTOMATIC, vertical: GTK_POLICY_NEVER).propagatesNaturalHeight())
+
+        // What the selected card will play when the queue runs out, so the end of the
+        // queue says what is coming. Clicking one adds them now and plays from it.
+        if let from = service.upcomingOption, !service.upcoming.isEmpty {
+            autoplay.append(Label("Then, from \(from.title):", "caption", "dim").xalign(0).ellipsize().margin(horizontal: 6, vertical: 0))
+            let list = ListBox(boxed: false)
+            for (index, song) in service.upcoming.enumerated() {
+                let actions: [Menu.Item] = [.action("Play from Here") { service.play(fromUpcoming: index) }]
+                list.append(row(song, actions: actions, marked: false)) { service.play(fromUpcoming: index) }
+            }
+            autoplay.append(list)
+        }
         autoplay.isVisible = true
     }
 }

@@ -9,6 +9,17 @@ struct AutoplayTests {
         return song
     }
 
+    /// What an option adds is what Up Next showed: nothing already queued, nothing twice,
+    /// nothing skipped lately, no more than its count.
+    @Test func autoplayAddsOnlyFreshSongs() {
+        let songs = ["a", "b", "b", "c", "d", "e"].map { song($0) }
+        let fresh = AutoplayRules.fresh(
+            songs, queued: ["a"], avoided: [MixEngine.identity(song("c"))], limit: 2
+        )
+        #expect(fresh.map(\.id) == ["b", "d"])
+        #expect(AutoplayRules.fresh(songs, queued: Set(songs.map(\.id)), avoided: [], limit: 30).isEmpty)
+    }
+
     @Test func autoplayIsOnlyOfferedForAShortQueueWithRepeatOff() {
         #expect(AutoplayRules.isActive(repeatMode: .off, upNextCount: 0, isSelfExtending: false))
         #expect(!AutoplayRules.isActive(repeatMode: .all, upNextCount: 0, isSelfExtending: false))

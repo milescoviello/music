@@ -30,6 +30,8 @@ final class NowPlayingCenter {
         var speed: Double = 1
         var queueIndex = 0
         var queueCount = 0
+        /// Next goes somewhere: a track up next, or Autoplay's at the end.
+        var canGoNext = false
         var artURL: URL?
         var artSongID: String?
     }
@@ -73,7 +75,8 @@ final class NowPlayingCenter {
         isPlaying: Bool,
         speed: Float = 1,
         queueIndex: Int,
-        queueCount: Int
+        queueCount: Int,
+        canGoNext: Bool? = nil
     ) {
         let previous = state
         let sameSong = previous.song?.id == song.id
@@ -86,6 +89,7 @@ final class NowPlayingCenter {
         state.speed = Double(speed)
         state.queueIndex = queueIndex
         state.queueCount = queueCount
+        state.canGoNext = canGoNext ?? (queueIndex + 1 < queueCount)
         // Artwork belongs to the previous track until the new one arrives.
         if state.artSongID != song.id {
             state.artURL = nil
@@ -96,8 +100,8 @@ final class NowPlayingCenter {
         if !sameSong || previous.duration != duration { changed["Metadata"] = metadata() }
         if previous.isPlaying != isPlaying || previous.song == nil { changed["PlaybackStatus"] = playbackStatus() }
         if previous.speed != state.speed { changed["Rate"] = g_variant_new_double(state.speed) }
-        if previous.queueIndex != queueIndex || previous.queueCount != queueCount || previous.song == nil {
-            changed["CanGoNext"] = g_variant_new_boolean(canGoNext ? 1 : 0)
+        if previous.canGoNext != state.canGoNext || previous.song == nil {
+            changed["CanGoNext"] = g_variant_new_boolean(state.canGoNext ? 1 : 0)
             changed["CanGoPrevious"] = g_variant_new_boolean(1)
         }
         emitChanged(changed)
@@ -137,7 +141,7 @@ final class NowPlayingCenter {
 
     // MARK: - Values
 
-    private var canGoNext: Bool { state.queueIndex + 1 < state.queueCount }
+    private var canGoNext: Bool { state.canGoNext }
 
     private static func position(_ state: State, at time: Date) -> Double {
         guard state.isPlaying else { return state.elapsed }

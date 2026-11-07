@@ -4,7 +4,8 @@ import Foundation
 ///
 /// A skip only counts against a song when it was playing, early (the first 30 seconds,
 /// or the first half of something shorter than a minute) and by hand. Skipping one that
-/// would not load is the network's fault, not the song's. Each skip fades with the same
+/// would not load is the network's fault, not the song's, and skipping one moments after
+/// arriving at it is passing it on the way somewhere else. Each skip fades with the same
 /// 30-day half-life as everything else in the mixes, and a song played through since
 /// its last skip is forgiven: a mood is not a verdict.
 enum SkipMemory {
@@ -25,6 +26,18 @@ enum SkipMemory {
     static func isEarly(position: Double, duration: Double) -> Bool {
         guard position < 30 else { return false }
         return duration <= 0 || duration >= 60 || position < duration / 2
+    }
+
+    /// Seconds after a move by hand within which a skip is only passing the song.
+    static let passingThrough: TimeInterval = 3
+
+    /// Whether a skip is on the way past a song rather than a verdict on it: it comes
+    /// moments after the last move by hand -- a skip, a step back, a jump, a list started
+    /// -- before the song has played more than those moments. The first skip of a run is
+    /// about the song that was playing and counts; the ones that follow it do not.
+    static func isPassingThrough(sinceLastMove: TimeInterval?, position: Double) -> Bool {
+        guard let sinceLastMove, sinceLastMove >= 0 else { return false }
+        return sinceLastMove < passingThrough && position < passingThrough
     }
 
     /// Per recording (`MixEngine.identity`), the faded skips since its last full play.

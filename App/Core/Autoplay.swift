@@ -101,6 +101,18 @@ enum AutoplayRules {
         return available.first { $0 != .silence }
     }
 
+    /// What an option's songs add: those not already in the queue and not skipped early
+    /// lately -- unless it is an album, which is kept whole -- up to its count.
+    static func fresh(_ songs: [Song], queued: Set<String>, avoided: Set<String>, limit: Int) -> [Song] {
+        var seen = queued
+        var kept: [Song] = []
+        for song in songs where kept.count < limit && !avoided.contains(MixEngine.identity(song)) {
+            guard seen.insert(song.id).inserted else { continue }
+            kept.append(song)
+        }
+        return kept
+    }
+
     /// What to try, in order, when the queue runs out: the selection, then every other
     /// choice on offer, then Library Radio, which always has something. Autoplay used to
     /// try the selection alone, so a choice that came back empty -- no next album, a radio

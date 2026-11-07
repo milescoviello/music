@@ -20,6 +20,21 @@ struct SkipMemoryTests {
         #expect(!SkipMemory.isEarly(position: 25, duration: 40))
     }
 
+    /// Skipping to the end of a queue went through a dozen songs in a few seconds, and
+    /// each one counted. The first skip of a run is a verdict; the ones that follow are not.
+    @Test func skipsMomentsAfterAMoveArePassingThrough() {
+        // The song that was playing, skipped a minute into the queue: counts.
+        #expect(!SkipMemory.isPassingThrough(sinceLastMove: nil, position: 0))
+        #expect(!SkipMemory.isPassingThrough(sinceLastMove: 60, position: 12))
+        // The songs after it, each skipped moments after arriving: passing through.
+        #expect(SkipMemory.isPassingThrough(sinceLastMove: 0.2, position: 0))
+        #expect(SkipMemory.isPassingThrough(sinceLastMove: 2.5, position: 2))
+        // Given a few seconds to be heard, it is a verdict again.
+        #expect(!SkipMemory.isPassingThrough(sinceLastMove: 4, position: 3.5))
+        // A song reached by a move and then played on, then skipped: counts.
+        #expect(!SkipMemory.isPassingThrough(sinceLastMove: 2, position: 5))
+    }
+
     @Test func twoRecentSkipsLeaveASongOutAndOneDoesNot() {
         let once = SkipMemory.penalties(skips: [skip("A", daysAgo: 1)], plays: [], now: now)
         #expect(SkipMemory.avoided(once).isEmpty)

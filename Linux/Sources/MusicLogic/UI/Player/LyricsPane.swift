@@ -28,6 +28,10 @@ final class LyricsPane {
 
     init(env: Env) {
         self.env = env
+        // The note is put back at the top of the lines on every load, after they are
+        // cleared -- which let go of the last reference to it, and the next load crashed
+        // on the freed label. The pane keeps one of its own.
+        g_object_ref_sink(translationNote.widget)
         scroller = ScrolledWindow(Clamp(lines.margin(horizontal: 24, vertical: 120), maximum: 720)).vexpand()
         let stack = Stack()
         stack.add(scroller, name: "lyrics")

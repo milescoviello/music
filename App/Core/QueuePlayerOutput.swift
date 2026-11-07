@@ -92,6 +92,8 @@ final class QueuePlayerOutput: AudioOutput {
 
     /// `AVPlayerItem` is single-use, so these map live items back to songs and taps.
     private var itemToSongID: [ObjectIdentifier: String] = [:]
+    /// When each item was made: how long one that has not opened has been trying.
+    private var itemMade: [ObjectIdentifier: Date] = [:]
     private var tapContexts: [ObjectIdentifier: AudioTap.Context] = [:]
     /// Items whose tap is attached, or definitely will not be. Only these may start:
     /// a track that begins unprocessed and then jumps by its ReplayGain is worse than
@@ -256,6 +258,13 @@ final class QueuePlayerOutput: AudioOutput {
         return item.status != .failed
     }
 
+    var unopened: (songID: String, since: Date)? {
+        guard let item = players[active].currentItem, item.status == .unknown else { return nil }
+        let id = ObjectIdentifier(item)
+        guard let songID = itemToSongID[id], let made = itemMade[id] else { return nil }
+        return (songID, made)
+    }
+
     /// Feeds the visualiser from every item made after this, which in practice is every
     /// item: the controller sets it before anything is loaded.
     func setSpectrumSink(_ buffer: AudioSampleBuffer?) {
@@ -415,6 +424,7 @@ final class QueuePlayerOutput: AudioOutput {
             player.defaultRate = rate
         }
         itemToSongID.removeAll()
+        itemMade.removeAll()
         tapContexts.removeAll()
         readyItems.removeAll()
         plannedFade = nil
@@ -441,6 +451,8 @@ final class QueuePlayerOutput: AudioOutput {
         item.audioTimePitchAlgorithm = .spectral
         let id = ObjectIdentifier(item)
         itemToSongID[id] = song.id
+        itemMade = itemMade.filter { itemToSongID[$0.key] != nil }
+        itemMade[id] = .now
         // An item that cannot be opened says so only through its status.
         statusObservations = statusObservations.filter { itemToSongID[$0.key] != nil }
         // `@Sendable`, so it is never taken for main-actor code: KVO may call it from

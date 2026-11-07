@@ -5,8 +5,10 @@ import Observation
 ///
 /// A few seconds after the end of the queue changes, every choice that makes sense for
 /// it is worked out *concretely* — not "Next Album" but the album itself, with its cover —
-/// and shown as a carousel at the bottom of Up Next. The one selected is added when the
-/// last track is nearly over, early enough to fade or run gaplessly into it.
+/// and shown as a carousel at the bottom of Up Next, with the songs the selected one will
+/// add listed under it: Up Next says what is coming, rather than ending at the last track.
+/// Those songs are added when the last track is nearly over, early enough to fade or run
+/// gaplessly into, or at once when next is pressed on it or one of them is tapped.
 ///
 /// The selection is remembered separately for a queue that ended with an album and one
 /// that did not, as Plexamp does: after an album you usually want the next one, after a
@@ -48,6 +50,12 @@ final class AutoplayService {
     private(set) var selected: AutoplayChoice?
     private(set) var endedWithAlbum = false
     private(set) var isAdding = false
+    /// What the selection will add, worked out with the options: shown under the
+    /// carousel, and added as it is, so what was shown is what plays.
+    private(set) var upcoming: [Song] = []
+    /// The option `upcoming` is from: the selection, or the next one on offer when that
+    /// had nothing new.
+    private(set) var upcomingOption: Option?
 
     var isEnabled: Bool {
         didSet {
@@ -71,6 +79,9 @@ final class AutoplayService {
     @ObservationIgnored private var queueKey: String?
     @ObservationIgnored private var computeTask: Task<Void, Never>?
     @ObservationIgnored private var addTask: Task<Bool, Never>?
+    @ObservationIgnored private var previewTask: Task<Void, Never>?
+    /// The end of the queue `upcoming` was worked out for.
+    @ObservationIgnored private var upcomingKey: String?
 
     init() {
         let defaults = UserDefaults.standard
@@ -83,9 +94,10 @@ final class AutoplayService {
         self.appState = appState
     }
 
-    /// Whether the carousel applies to the queue as it stands.
+    /// Whether the carousel applies to the queue as it stands. Not while another device
+    /// is being played to: its own Autoplay decides what it plays next.
     var isActive: Bool {
-        guard isEnabled, let player = appState?.player else { return false }
+        guard isEnabled, let player = appState?.player, player.remote == nil else { return false }
         return AutoplayRules.isActive(
             repeatMode: player.queue.repeatMode,
             upNextCount: player.queue.upNextCount,
@@ -100,8 +112,10 @@ final class AutoplayService {
     // MARK: - Choosing
 
     func select(_ choice: AutoplayChoice) {
+        let changed = choice != selected
         selected = choice
         UserDefaults.standard.set(choice.rawValue, forKey: endedWithAlbum ? Key.albumChoice : Key.otherChoice)
+        if changed { preview() }
     }
 
     private func preferred(endedWithAlbum: Bool) -> AutoplayChoice {
@@ -119,6 +133,7 @@ final class AutoplayService {
             computeTask?.cancel()
             options = []
             queueKey = nil
+            clearUpcoming()
             return
         }
 
@@ -128,6 +143,7 @@ final class AutoplayService {
         guard key != queueKey else { return }
         queueKey = key
         options = []
+        clearUpcoming()
 
         computeTask?.cancel()
         computeTask = Task { [weak self] in
@@ -173,6 +189,72 @@ final class AutoplayService {
             "autoplay",
             "after “\(last.title)”: \(built.map(\.choice.title).joined(separator: ", ")); chose \(selected?.title ?? "nothing")"
         )
+        preview()
+    }
+
+    // MARK: - What comes next
+
+    /// Works out `upcoming` for the selection, replacing whatever it was.
+    private func preview() {
+        previewTask?.cancel()
+        upcoming = []
+        upcomingOption = nil
+        upcomingKey = nil
+        guard isActive, !options.isEmpty else { return }
+        let key = queueKey
+        previewTask = Task { [weak self] in
+            guard let self, let picked = await self.pick(), !Task.isCancelled, self.queueKey == key else { return }
+            self.upcoming = picked.songs
+            self.upcomingOption = picked.option
+            self.upcomingKey = key
+        }
+    }
+
+    private func clearUpcoming() {
+        previewTask?.cancel()
+        previewTask = nil
+        upcoming = []
+        upcomingOption = nil
+        upcomingKey = nil
+    }
+
+    /// The selection's songs, or -- when it has nothing new to give -- the next option's,
+    /// down to Library Radio. Nil with Silence chosen, or when nothing has anything.
+    private func pick() async -> (option: Option, songs: [Song])? {
+        guard let appState else { return nil }
+        for choice in AutoplayRules.attempts(selected: selected, available: options.map(\.choice)) {
+            guard !Task.isCancelled else { return nil }
+            let option = options.first { $0.choice == choice } ?? Option(
+                choice: .libraryRadio, title: AutoplayChoice.libraryRadio.title,
+                subtitle: "Anything from your library", plan: .library
+            )
+            let songs = await songs(for: option)
+            guard !Task.isCancelled else { return nil }
+            // Songs skipped early lately stay out of radio; an album is kept whole.
+            let fresh = AutoplayRules.fresh(
+                songs,
+                queued: Set(appState.player.queue.tracks.map(\.id)),
+                avoided: option.choice.isAlbum ? [] : appState.skips.avoided(),
+                limit: option.choice.trackCount
+            )
+            if !fresh.isEmpty { return (option, fresh) }
+            await Diagnostics.shared.record("autoplay", "\(option.choice.title) had nothing new (\(songs.count) found)")
+        }
+        return nil
+    }
+
+    /// One of the songs under the carousel, tapped: Autoplay's songs go on now, and play
+    /// from that one.
+    func play(fromUpcoming index: Int) {
+        guard let appState, appState.player.remote == nil, upcoming.indices.contains(index),
+              let option = upcomingOption
+        else { return }
+        let songs = upcoming
+        let player = appState.player
+        let first = player.queue.order.count
+        player.append(songs)
+        Task { await Diagnostics.shared.record("autoplay", "added \(songs.count) from \(option.title), playing from #\(index + 1)") }
+        player.jump(toOrderIndex: first + index)
     }
 
     private func option(for choice: AutoplayChoice, last: Song, artist: ArtistDetail?, similar: [Artist]) async -> Option? {
@@ -245,10 +327,10 @@ final class AutoplayService {
 
     // MARK: - Adding
 
-    /// Adds tracks to the end of the queue: the selected option's, or -- when that has
-    /// nothing new to give -- the next option's, down to Library Radio. Returns whether
-    /// anything was added; safe to call repeatedly, as the player does while the last
-    /// track ends.
+    /// Adds tracks to the end of the queue: the songs shown under the carousel, or -- when
+    /// those are not ready or no longer fit -- the selected option's, falling back to the
+    /// next option's down to Library Radio. Returns whether anything was added; safe to
+    /// call repeatedly, as the player does while the last track ends.
     ///
     /// The options are worked out here if they are not ready yet. They are built a few
     /// seconds after the end of the queue changes, from several requests; a last track
@@ -268,38 +350,30 @@ final class AutoplayService {
                 self.computeTask?.cancel()
                 await self.compute()
             }
-            let attempts = AutoplayRules.attempts(selected: self.selected, available: self.options.map(\.choice))
-            guard !attempts.isEmpty else {
+            if AutoplayRules.attempts(selected: self.selected, available: self.options.map(\.choice)).isEmpty {
                 await Diagnostics.shared.record("autoplay", "Silence chosen: stopping")
                 return false
             }
-            for choice in attempts {
-                let option = self.options.first { $0.choice == choice } ?? Option(
-                    choice: .libraryRadio, title: AutoplayChoice.libraryRadio.title,
-                    subtitle: "Anything from your library", plan: .library
-                )
-                let songs = await self.songs(for: option)
-                guard appState.player.playGeneration == generation, appState.player.remote == nil else {
-                    await Diagnostics.shared.record("autoplay", "another queue was started meanwhile: adding nothing")
-                    return false
-                }
+            // What Up Next is showing, once it is ready, is what goes on.
+            await self.previewTask?.value
+            var picked: (option: Option, songs: [Song])?
+            if let option = self.upcomingOption, self.upcomingKey == self.queueKey {
                 let queued = Set(appState.player.queue.tracks.map(\.id))
-                // Songs skipped early lately stay out of radio; an album is kept whole.
-                let isAlbum = [.previousAlbum, .nextAlbum, .similarAlbum].contains(option.choice)
-                let avoided: Set<String> = isAlbum ? [] : appState.skips.avoided()
-                let fresh = songs
-                    .filter { !queued.contains($0.id) && !avoided.contains(MixEngine.identity($0)) }
-                    .prefix(option.choice.trackCount)
-                guard !fresh.isEmpty else {
-                    await Diagnostics.shared.record("autoplay", "\(option.choice.title) had nothing new (\(songs.count) found)")
-                    continue
-                }
-                appState.player.append(Array(fresh))
-                await Diagnostics.shared.record("autoplay", "added \(fresh.count) from \(option.title)")
-                return true
+                let songs = self.upcoming.filter { !queued.contains($0.id) }
+                if !songs.isEmpty { picked = (option, songs) }
             }
-            await Diagnostics.shared.record("autoplay", "nothing to add from any option")
-            return false
+            if picked == nil { picked = await self.pick() }
+            guard appState.player.playGeneration == generation, appState.player.remote == nil else {
+                await Diagnostics.shared.record("autoplay", "another queue was started meanwhile: adding nothing")
+                return false
+            }
+            guard let picked else {
+                await Diagnostics.shared.record("autoplay", "nothing to add from any option")
+                return false
+            }
+            appState.player.append(picked.songs)
+            await Diagnostics.shared.record("autoplay", "added \(picked.songs.count) from \(picked.option.title)")
+            return true
         }
         addTask = task
         let added = await task.value

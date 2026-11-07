@@ -60,6 +60,8 @@ enum Style {
     /* Cards in grids and shelves. */
     .card-button { padding: 6px; border-radius: 12px; background: none; }
     .card-button:hover { background-color: alpha(currentColor, 0.06); }
+    /* The Autoplay card that is chosen, ringed as the phone rings it. */
+    .card-button.suggested-action { background-color: alpha(var(--accent-bg-color), 0.16); box-shadow: inset 0 0 0 2px var(--accent-color); color: #ffffff; }
     .card-title { font-weight: 600; }
     .card-subtitle { opacity: 0.6; font-size: 0.9em; }
     gridview > child { padding: 4px; border-radius: 12px; }

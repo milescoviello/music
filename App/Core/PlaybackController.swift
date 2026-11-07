@@ -98,6 +98,17 @@ final class PlaybackController {
     private var retryTask: Task<Void, Never>?
     private var retryAttempt = 0
 
+    /// When a track was last moved to by hand -- a skip, a step back, a jump, a list
+    /// started -- so a skip that follows within moments counts as passing it, not as a
+    /// verdict on it.
+    @ObservationIgnored private var lastMoveByHand: Date?
+
+    /// How long a track may take to open before it is asked for again, and how often it
+    /// has been for the track now playing.
+    private static let openPatience: TimeInterval = 12
+    @ObservationIgnored private var openWatch: Task<Void, Never>?
+    @ObservationIgnored private var reopened: (songID: String, count: Int)?
+
     // MARK: - The log
 
     /// Where each track was found when the output asked, for the log: a stream that
@@ -536,6 +547,7 @@ final class PlaybackController {
     ) {
         guard !songs.isEmpty else { return }
         playGeneration += 1
+        lastMoveByHand = .now
         if let remote {
             remote.send(.playSongs(songs, from: index, source: source, shuffled: shuffled, startAt: seconds, station: station))
             recordStart(of: songs, source: source, station: station)
@@ -650,6 +662,13 @@ final class PlaybackController {
         // it was left. Pressing play is asking for it, so it is loaded again.
         if !output.holdsCurrent {
             reloadCurrent()
+        } else if let stuck = output.unopened, stuck.songID == queue.current?.id,
+                  Date.now.timeIntervalSince(stuck.since) > Self.openPatience {
+            // Asked for long ago and never opened: on 11-06 a stream started as the phone
+            // went to sleep sat that way for twenty minutes, and play then waited on it
+            // for twenty seconds more. A new request is made instead.
+            noteReopen(queue.current, after: Date.now.timeIntervalSince(stuck.since))
+            reloadCurrent()
         }
         startOutput()
     }
@@ -664,6 +683,36 @@ final class PlaybackController {
         session.noteIsPlaying(true)
         publishNowPlaying(force: true)
         persist()
+        watchOpening()
+    }
+
+    /// A track that has not opened a while after it was asked for is asked for again,
+    /// twice at most. Its request can die without the item ever failing -- the network
+    /// dropping, the phone asleep -- and then it waits, silent, for as long as it is left.
+    /// Timed on its own rather than by the output's ticks, which stop while nothing plays.
+    private func watchOpening() {
+        openWatch?.cancel()
+        guard output.unopened != nil else { return }
+        openWatch = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.openPatience))
+            guard let self, !Task.isCancelled, isPlaying, remote == nil,
+                  let stuck = output.unopened, let current = queue.current, stuck.songID == current.id,
+                  Date.now.timeIntervalSince(stuck.since) >= Self.openPatience
+            else { return }
+            let tries = reopened?.songID == current.id ? reopened?.count ?? 0 : 0
+            guard tries < 2 else { return }
+            noteReopen(current, after: Date.now.timeIntervalSince(stuck.since))
+            reloadCurrent()
+            startOutput()
+        }
+    }
+
+    private func noteReopen(_ song: Song?, after waited: TimeInterval) {
+        guard let song else { return }
+        let tries = reopened?.songID == song.id ? reopened?.count ?? 0 : 0
+        reopened = (song.id, tries + 1)
+        let line = "“\(song.title)” (\(song.id)) had not opened after \(Diagnostics.duration(waited)): asking for it again"
+        Task { await Diagnostics.shared.record("playback", line) }
     }
 
     func pause() {
@@ -726,11 +775,42 @@ final class PlaybackController {
         if let remote { remote.send(RemoteCommand(.next)); return }
         logSkip("skipped")
         noteSkip()
+        lastMoveByHand = .now
         guard queue.advance() else {
-            pause()
+            continueIntoAutoplay()
             return
         }
         rebuildOutput(startPlaying: isPlaying, seekTo: 0)
+    }
+
+    /// Whether next goes anywhere: a track up next, or -- on the last one -- Autoplay's,
+    /// which next now goes on into. Another device being played to decides for itself.
+    var canGoNext: Bool {
+        queue.hasUpNext || remote != nil || appState?.autoplay.isActive == true
+    }
+
+    /// Next on the last track goes on into what Autoplay has lined up -- what Up Next
+    /// shows under the carousel -- as the end of the track would, rather than stopping
+    /// there. Without Autoplay, or with Silence chosen, it pauses, as it always did.
+    private func continueIntoAutoplay() {
+        guard let autoplay = appState?.autoplay, autoplay.isActive else {
+            pause()
+            return
+        }
+        let generation = playGeneration
+        let from = queue.current?.id
+        let wasPlaying = isPlaying
+        Task {
+            let added = await autoplay.extend()
+            // Not if the queue moved meanwhile: another list, a jump, a second press of
+            // next that already went on.
+            guard playGeneration == generation, remote == nil, queue.current?.id == from else { return }
+            if added, queue.advance() {
+                rebuildOutput(startPlaying: wasPlaying, seekTo: 0)
+            } else {
+                pause()
+            }
+        }
     }
 
     /// Rewinds first, the way every native player does, and only then goes back.
@@ -745,6 +825,7 @@ final class PlaybackController {
             return
         }
         logSkip("went back from")
+        lastMoveByHand = .now
         rebuildOutput(startPlaying: isPlaying, seekTo: 0)
     }
 
@@ -754,9 +835,25 @@ final class PlaybackController {
         // Not past a track that would not play: that is the app failing, not a verdict on
         // the song (one counted as skipped after the media server restarted).
         guard let song = currentSong, isPlaying, !isBuffering, output.holdsCurrent,
-              SkipMemory.isEarly(position: elapsed, duration: duration)
+              SkipMemory.isEarly(position: elapsed, duration: currentLength)
         else { return }
+        // On the way past it: skipping to the end of a queue on 11-06 went through
+        // fourteen songs in eight seconds, and each one counted against its song.
+        let sinceMove = lastMoveByHand.map { Date.now.timeIntervalSince($0) }
+        if SkipMemory.isPassingThrough(sinceLastMove: sinceMove, position: elapsed) {
+            let line = "“\(song.title)” (\(song.id)) passed over at \(LogReport.clock(elapsed)): not counted"
+            Task { await Diagnostics.shared.record("skips", line) }
+            return
+        }
         appState?.skips.record(song, at: elapsed)
+    }
+
+    /// The length of the track playing. Straight after a move the output can still be
+    /// reporting the one before -- a skip logged "at 0:00 of 7:08" for a 2:37 song -- so
+    /// in its first seconds the queue's own figure is taken.
+    private var currentLength: Double {
+        if elapsed < 3, let known = currentSong?.duration, known > 0 { return Double(known) }
+        return duration
     }
 
     /// A skip, in the log: which track, how far into it, by hand. Five songs starting
@@ -765,7 +862,7 @@ final class PlaybackController {
     /// track's end or past one that would not play, goes through the output instead.
     private func logSkip(_ what: String, to target: String? = nil) {
         guard let song = currentSong else { return }
-        var line = "\(what) “\(song.title)” (\(song.id)) at \(LogReport.clock(elapsed)) of \(LogReport.clock(duration))"
+        var line = "\(what) “\(song.title)” (\(song.id)) at \(LogReport.clock(elapsed)) of \(LogReport.clock(currentLength))"
         if let target { line += ", to \(target)" }
         Task { await Diagnostics.shared.record("playback", line) }
     }
@@ -809,6 +906,7 @@ final class PlaybackController {
             logSkip("jumped from", to: "#\(index + 1) of \(queue.order.count)")
             noteSkip()
         }
+        lastMoveByHand = .now
         queue.jump(toOrderIndex: index)
         rebuildOutput(startPlaying: true, seekTo: 0)
     }
@@ -1355,7 +1453,8 @@ final class PlaybackController {
             isPlaying: isPlaying,
             speed: speed,
             queueIndex: queue.position,
-            queueCount: queue.order.count
+            queueCount: queue.order.count,
+            canGoNext: canGoNext
         )
 
         if let artwork = appState?.artwork {

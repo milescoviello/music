@@ -107,7 +107,9 @@ final class NowPlayingCenter {
         isPlaying: Bool,
         speed: Float = 1,
         queueIndex: Int,
-        queueCount: Int
+        queueCount: Int,
+        // The lock screen's next is always on: next on the last track goes into Autoplay.
+        canGoNext: Bool = true
     ) {
         // Mutate a local copy and assign once: in-place read-modify-write of
         // nowPlayingInfo is slow and not thread-safe in practice.

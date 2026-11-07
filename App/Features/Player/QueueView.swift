@@ -165,6 +165,24 @@ struct QueueView: View {
                         .listRowInsets(EdgeInsets())
                         .moveDisabled(true)
                         .deleteDisabled(true)
+
+                    // What the selected card will play when the queue runs out, so the
+                    // end of the queue says what is coming, as the desktop's does once
+                    // they are added. Tapping one adds them now and plays from it.
+                    ForEach(Array(autoplay.upcoming.enumerated()), id: \.offset) { index, song in
+                        Button {
+                            autoplay.play(fromUpcoming: index)
+                        } label: {
+                            SongRow(song: song, style: .withArtwork)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(Color.clear)
+                        .moveDisabled(true)
+                        .deleteDisabled(true)
+                        .contextMenu {
+                            SongMenu(song: song)
+                        }
+                    }
                 }
             } header: {
                 pinnedHeader
@@ -403,6 +421,15 @@ private struct AutoplayCarousel: View {
                     }
                 }
                 .padding(.horizontal, 24)
+            }
+
+            if let from = autoplay.upcomingOption, !autoplay.upcoming.isEmpty {
+                Text("Then, from \(from.title):")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 4)
             }
         }
         .padding(.vertical, 12)

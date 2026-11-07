@@ -33,6 +33,11 @@ protocol AudioOutput: AnyObject {
     /// current track failed to load; resuming then is silence, so the controller loads
     /// it again instead.
     var holdsCurrent: Bool { get }
+    /// The current track while it has still not opened, and when it was asked for; nil
+    /// once it has, or with nothing loaded. A request that died -- the phone asleep in
+    /// the middle of it, a network that dropped -- leaves a track that neither opens nor
+    /// fails, and playing it waits for ever.
+    var unopened: (songID: String, since: Date)? { get }
     /// For the sleep-timer fade. Multiplies with any crossfade ramp, never replaces it.
     var volume: Float { get set }
     /// Playback speed, pitch preserved. 1 is normal.
@@ -78,4 +83,6 @@ protocol AudioOutput: AnyObject {
 extension AudioOutput {
     /// An output that cannot say why it waits says nothing.
     var waitingReason: String? { nil }
+    /// One that fetches its own bytes and reports its failures has nothing stuck to tell.
+    var unopened: (songID: String, since: Date)? { nil }
 }

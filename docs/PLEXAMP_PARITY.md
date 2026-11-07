@@ -37,7 +37,7 @@ ahead is already half that).
 |---|---|
 | Play Next / Add to Up Next / Add to Queue | Same three insert points, in every song, album, playlist and selection menu; Up Next only once something was added (`PlaybackQueue.swift`) |
 | Earlier tab, Clear Play Queue, Save as Playlist | Queue screen tabs and menu; Clear keeps the current track |
-| Autoplay carousel | Plexamp's choices per context, defaults, 30/20 track sizes, remembered per context, added 30 s before the end, Album Direction setting (`Autoplay.swift`, `QueueExtenders.swift`) |
+| Autoplay carousel | Plexamp's choices per context, defaults, 30/20 track sizes, remembered per context, the selected option's songs listed under it, added 30 s before the end (or at once on next or a tap), Album Direction setting (`Autoplay.swift`, `QueueExtenders.swift`) |
 | Guest DJs | Stretch, Gemini, Twofer, Freeze, Contempo, Groupie with Plexamp's filters and insertion rules (`GuestDJ.swift`, `QueueExtenders.swift`). Friendgänger needs shared servers — not applicable |
 | Quick skip | 10/15/30/45 s, default 10 back / 30 forward, off by default |
 | Playback speed | 0.5–2× in tenths, from the player menu |
@@ -117,7 +117,10 @@ crossfades (`music/beatmatch-crossfade`).
   with album" = last two queue tracks share an album. Album choices: Silence, Next/Previous
   Album, Similar Album, Artist Mix, Artist Radio, Track Radio, Similar Artists, Decade,
   Library Radio; otherwise Silence, Similar Artists, Track Radio, Decade, Library Radio.
-  Adds 30 tracks, 20 for radio. Computed 3 s after the queue's end changes.
+  Adds 30 tracks, 20 for radio. Computed 3 s after the queue's end changes, with the
+  selected option's songs worked out then and listed under the carousel; those exact
+  songs are what get added. Next on the last track goes into them instead of pausing.
+  Not offered while playing to another device, whose own Autoplay decides.
 - **Guest DJs:** filters — not queued (id or title with its last bracket removed), rating
   unset or ≥ 5/10, 90 s–10 min, not generated before. Per-track DJs act once on each
   non-generated track, inserting after it (Stretch 3, Gemini 1, Twofer 1). Pool DJs
@@ -140,8 +143,10 @@ crossfades (`music/beatmatch-crossfade`).
 2. **Tap attach delay** — first track starts within a moment, not after the 1.5 s fallback.
 3. **Stream cache** — Settings → Streaming & Caching shows "In Use" growing while playing;
    a skipped-to track starts instantly from cache; airplane mode mid-queue keeps playing.
-4. **Autoplay** — carousel appears at the end of Up Next after ~3 s; the selected option
-   is appended ~30 s before the last track ends.
+4. **Autoplay** — carousel appears at the end of Up Next after ~3 s, with the selected
+   option's songs under it ("Then, from …"); picking another card swaps them. They are
+   appended ~30 s before the last track ends; next on the last track, or tapping one of
+   them, adds them at once.
 5. **Guest DJ** — pick DJ Gemini from the player menu, watch picks (✦) appear after tracks.
 6. **Stations** — Home → Stations, play Time Travel; it should top itself up forever.
 7. **AirPlay** — the processing tap and two players with AirPlay 2.
