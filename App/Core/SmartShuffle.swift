@@ -46,3 +46,36 @@ enum SmartShuffle {
         return result
     }
 }
+
+/// A radio that is not the same songs every time from the same seed. Sonic's nearest
+/// neighbours to a song are always the same list, so Track Radio after one song, and a
+/// station started from it, played the same twenty each time. A radio now asks for a few
+/// times more than it plays and draws from them -- the nearest likeliest, the further ones
+/// still in with a chance -- in an order that starts near the seed without always starting
+/// on the same song.
+enum RadioVariety {
+    /// How many to ask for, to draw `count` from.
+    static func poolSize(for count: Int) -> Int {
+        min(max(count, 1) * 4, 500)
+    }
+
+    /// `count` of `ranked`, nearest first in the input, drawn at random and weighted by
+    /// nearness: a weighted random order (a uniform draw to the power of one over each
+    /// weight, highest first), cut to `count`, then put back roughly in nearness order,
+    /// each one moved by up to half the list.
+    static func draw<T, G: RandomNumberGenerator>(_ ranked: [T], count: Int, using generator: inout G) -> [T] {
+        guard count > 0, !ranked.isEmpty else { return [] }
+        let spread = Double(count) * 1.5
+        let keyed = ranked.indices.map { rank -> (rank: Int, key: Double) in
+            let weight = exp(-Double(rank) / spread)
+            let draw = Double.random(in: Double.leastNonzeroMagnitude..<1, using: &generator)
+            return (rank, pow(draw, 1 / weight))
+        }
+        let chosen = keyed.sorted { $0.key > $1.key }.prefix(count)
+        let jitter = Double(count) / 2
+        return chosen
+            .map { (rank: $0.rank, place: Double($0.rank) + Double.random(in: 0...jitter, using: &generator)) }
+            .sorted { $0.place < $1.place }
+            .map { ranked[$0.rank] }
+    }
+}

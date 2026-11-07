@@ -407,7 +407,7 @@ final class AutoplayService {
             return Array((Array(mine) + theirs).shuffled().prefix(count))
         case let .trackRadio(seed):
             let queued = appState.player.queue.tracks.map(\.id)
-            if let sonic = await appState.sonic.radio(seeds: [seed.id], excluding: queued, limit: count) {
+            if let sonic = await appState.sonic.radio(seeds: [seed.id], excluding: queued, limit: count, varied: true) {
                 return sonic
             }
             return Array(await radio.mix(seed: seed, scope: scope, size: count + 1).dropFirst())

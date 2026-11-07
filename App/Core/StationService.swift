@@ -245,7 +245,7 @@ final class StationService {
         // Sonic radio, when the analysis is there: around the original seeds and one of the
         // last few played, so it stays near where it started and still moves.
         let sonicSeeds = Array(seeds.shuffled().prefix(3)) + Array(recent.suffix(1))
-        if let sonic = await appState.sonic.radio(seeds: sonicSeeds, excluding: queue.map(\.id), limit: size) {
+        if let sonic = await appState.sonic.radio(seeds: sonicSeeds, excluding: queue.map(\.id), limit: size, varied: true) {
             return sonic
         }
 

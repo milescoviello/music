@@ -56,3 +56,36 @@ struct SmartShuffleTests {
         #expect(SmartShuffle.weight(daysSincePlayed: 1, skipPenalty: 0) < SmartShuffle.weight(daysSincePlayed: 50, skipPenalty: 0))
     }
 }
+
+/// A radio from the same seed is not the same songs each time: drawn from a wider pool,
+/// the nearest likeliest.
+struct RadioVarietyTests {
+    private let day = Date(timeIntervalSince1970: 1_793_700_000)
+    private let pool = Array(0..<80)
+
+    @Test func drawsTheCountWithoutRepeats() {
+        var generator = MixEngine.DayRandom(day: day, salt: 1)
+        let drawn = RadioVariety.draw(pool, count: 20, using: &generator)
+        #expect(drawn.count == 20)
+        #expect(Set(drawn).count == 20)
+        #expect(RadioVariety.draw([1, 2, 3], count: 20, using: &generator).sorted() == [1, 2, 3])
+        #expect(RadioVariety.poolSize(for: 20) == 80)
+    }
+
+    @Test func twoDrawsDiffer() {
+        var first = MixEngine.DayRandom(day: day, salt: 1)
+        var second = MixEngine.DayRandom(day: day, salt: 2)
+        #expect(RadioVariety.draw(pool, count: 20, using: &first) != RadioVariety.draw(pool, count: 20, using: &second))
+    }
+
+    @Test func theNearestAreLikeliest() {
+        var generator = MixEngine.DayRandom(day: day, salt: 3)
+        var near = 0, far = 0
+        for _ in 0..<200 {
+            let drawn = RadioVariety.draw(pool, count: 20, using: &generator)
+            near += drawn.filter { $0 < 10 }.count
+            far += drawn.filter { $0 >= 70 }.count
+        }
+        #expect(near > far * 4)
+    }
+}

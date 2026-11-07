@@ -87,11 +87,19 @@ final class SonicService {
     }
 
     /// A radio around the seeds' shared sound, leaving out what is already queued.
-    func radio(seeds: [String], excluding: [String] = [], limit: Int = 25) async -> [Song]? {
+    /// `varied`: drawn from a wider pool each time (`RadioVariety`) rather than the same
+    /// nearest few, for a radio someone listens to rather than a pool a mix picks from.
+    func radio(seeds: [String], excluding: [String] = [], limit: Int = 25, varied: Bool = false) async -> [Song]? {
+        let asked = varied ? RadioVariety.poolSize(for: limit) : limit
         guard isAvailable, !seeds.isEmpty,
-              let hits = try? await client.radio(seeds: seeds, excluding: excluding, limit: limit), !hits.isEmpty
+              let hits = try? await client.radio(seeds: seeds, excluding: excluding, limit: asked), !hits.isEmpty
         else { return nil }
-        return await hydrate(hits.map(\.id))
+        var ids = hits.map(\.id)
+        if varied {
+            var generator = SystemRandomNumberGenerator()
+            ids = RadioVariety.draw(ids, count: limit, using: &generator)
+        }
+        return await hydrate(ids)
     }
 
     /// Plexamp's Sonic Adventure: the tracks between two, in order.
