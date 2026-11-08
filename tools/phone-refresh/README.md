@@ -29,6 +29,14 @@ when its holder exits, however it exits. An install started by hand takes no loc
 is still looked for. Kept waiting ten minutes, the watcher says the other install may be
 stuck, and how to end it, rather than wait in silence.
 
+To have a build published a moment ago installed now, rather than at the watcher's next
+look a quarter of an hour on, run `music-phone-refresh --now`: it asks the running watcher
+(SIGUSR1), so the install still takes the lock and is recorded. Before installing a newer
+build the watcher also looks at the release again, so a build that reached the phone some
+other way, and is recorded in `state.json`, is not installed again: on 7 Nov one installed
+by hand was installed again at once, under the previous build's name, because the
+watcher went by what the release had been when it last looked.
+
 If the phone is on USB but `usbmuxd` has not listed it for a minute, the notification
 says so. That used to happen on most plug-ins until `usbmuxd` was set up as below. A
 phone that is locked, or waiting at *Trust This Computer?*, is listed but cannot be

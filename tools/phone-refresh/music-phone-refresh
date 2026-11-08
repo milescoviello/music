@@ -13,6 +13,11 @@ that never left, and seeing it again is not a new plug-in. The install waits for
 re-enumeration an iPhone does by itself 20 to 35 seconds after it is plugged in (or a
 minute, if it does not), and for usbmuxd to have listed it for 15 seconds since.
 
+To have a build published a moment ago installed now, rather than at the watcher's next
+look a quarter of an hour on: `music-phone-refresh --now`. That asks the running watcher
+(SIGUSR1), so the install still takes the lock and is recorded. One installed some other
+way and recorded in state.json is not installed again.
+
 Runs in the desktop session (KDE autostart), so it can notify and use the logged-in
 `gh` and `xtool`. State is in ~/.local/state/music-phone-refresh/state.json, the log
 beside it. tools/phone-refresh/test-music-phone-refresh replays plug-ins against fake
@@ -34,6 +39,7 @@ import fcntl
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -46,6 +52,8 @@ STATE_DIR = Path.home() / ".local" / "state" / "music-phone-refresh"
 CACHE = Path.home() / ".cache" / "music-phone"
 STATE = STATE_DIR / "state.json"
 LOG = STATE_DIR / "log.txt"
+# The running watcher's, for `--now`.
+PID = STATE_DIR / "pid"
 # One install on the phone at a time, across every app's watcher (the JellyMC app's takes
 # it too): each holds it for its whole `xtool install`. Looking for a running install and
 # then starting one is not enough. On 1 Nov the two watchers looked in the same second, both
@@ -255,6 +263,35 @@ def install(udid: str, release: dict | None, announce: bool) -> tuple[str, str, 
     return last, "Music: install failed", last[-200:] + hint
 
 
+# Set by SIGUSR1 (`--now`): look at the release on the next pass, not in a quarter of an hour.
+CHECK_NOW = False
+
+
+def ask_to_look(signum, frame) -> None:
+    global CHECK_NOW
+    CHECK_NOW = True
+
+
+def ask_now() -> int:
+    """`--now`: asks the running watcher to look for a new build at once."""
+    try:
+        with (STATE_DIR / "lock").open("a") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                pass  # held, by the running watcher
+            else:
+                print("music-phone-refresh is not running", file=sys.stderr)
+                return 1
+        pid = int(PID.read_text())
+        os.kill(pid, signal.SIGUSR1)
+    except (OSError, ValueError) as error:
+        print(f"could not reach the watcher: {error}", file=sys.stderr)
+        return 1
+    print(f"asked the watcher (pid {pid}) to look for a new build now; its log is {LOG}")
+    return 0
+
+
 @dataclass
 class Plug:
     """The phone's time on USB, from plugging in to unplugging. Neither a re-enumeration
@@ -273,6 +310,8 @@ class Plug:
 
 
 def main() -> None:
+    global CHECK_NOW
+    signal.signal(signal.SIGUSR1, ask_to_look)
     log("watching for the iPhone")
     plug: Plug | None = None
     last_release_check = 0.0
@@ -336,6 +375,10 @@ def main() -> None:
         if not plug.reenumerated and now - plug.since < REENUMERATE_SECONDS:
             continue
 
+        if CHECK_NOW:
+            CHECK_NOW = False
+            log("asked to look for a new build now")
+            last_release_check = 0.0
         # Fresh for an install owed to the plug-in, so the log names the build it installs.
         if plug.owed or now - last_release_check > RELEASE_CHECK_SECONDS:
             release = latest_release() or release
@@ -343,6 +386,15 @@ def main() -> None:
 
         state = load_state()
         reason = "phone plugged in" if plug.owed else newer_build(state, udid, release)
+        if reason and not plug.owed and last_release_check != now:
+            # The release as it was up to a quarter of an hour ago, against state.json as it
+            # is now: the phone may have been given a newer build since, by hand. On 7 Nov
+            # one installed by hand was installed again at once, under the old build's name
+            # ("build 232 is out (phone has 233)"), and would have been again at the next
+            # look. So look again, and go by what the release is now.
+            release = latest_release() or release
+            last_release_check = now
+            reason = newer_build(state, udid, release)
         if not reason:
             continue
         log(f"install due: {reason}" + (f" (try {plug.failures + 1})" if plug.failures else ""))
@@ -352,6 +404,8 @@ def main() -> None:
             plug.owed = False
             plug.failures = 0
             plug.problem = None
+            # As it is now: the install can take minutes.
+            state = load_state()
             state.setdefault("installed", {})[udid] = {
                 "build": release.get("build") if release else None,
                 "commit": release.get("commit") if release else None,
@@ -374,15 +428,17 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--now"]:
+        sys.exit(ask_now())
     # One instance only: a second, from a re-login or a manual start, would race the first
     # for the same install.
-    import fcntl
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     lock = open(STATE_DIR / "lock", "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         sys.exit(0)
+    PID.write_text(str(os.getpid()))
     while True:
         try:
             main()

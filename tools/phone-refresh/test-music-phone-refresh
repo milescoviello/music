@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -183,6 +184,12 @@ class Run:
     calls: list[dict]
     log: list[tuple[float, str]]
     timeouts: list[list[str]]
+    # state.json at the end: what the watcher believes the phone has.
+    state: dict = field(default_factory=dict)
+
+    @property
+    def phone_has(self) -> str | None:
+        return (self.state.get("installed", {}).get(UDID) or {}).get("build")
 
     @property
     def installs(self) -> list[dict]:
@@ -328,6 +335,27 @@ def scenarios() -> list[Scenario]:
             problems.append(f"{len(r.installed)} installs worked; want 2 (the plug-in, then build 150)")
         if not r.logged("build 150 is out"):
             problems.append("did not install build 150")
+        if r.phone_has != "150":
+            problems.append(f"state.json says the phone has build {r.phone_has}; want 150")
+        return problems
+
+    def by_hand(r: Run) -> list[str]:
+        problems = one_install(r, not_before=26)
+        again = [message for _, message in r.log if "is out" in message]
+        if again:
+            problems.append(f"installed again for a build the phone already had ({again[0]})")
+        if r.phone_has != "150":
+            problems.append(f"state.json says the phone has build {r.phone_has}; want 150, installed by hand")
+        return problems
+
+    def check_now(r: Run) -> list[str]:
+        problems = []
+        if len(r.installed) != 2:
+            problems.append(f"{len(r.installed)} installs worked; want 2 (the plug-in, then build 150 when asked)")
+        elif not 400 <= r.installed[1]["t"] <= 430:
+            problems.append(f"installed build 150 at t+{r.installed[1]['t']:.0f}s; want within 30 s of being asked at t+400s")
+        if r.phone_has != "150":
+            problems.append(f"state.json says the phone has build {r.phone_has}; want 150")
         return problems
 
     def cut_off(r: Run) -> list[str]:
@@ -375,6 +403,13 @@ def scenarios() -> list[Scenario]:
         Scenario("new-build", "Build 150 is published five minutes after plugging in.",
                  {"usb": usb, "listed": listed, "releases": RELEASES + [[300, "150", "5b7d9e0", "2026-10-22T06:05:00Z"]]},
                  1200, new_build),
+        Scenario("by-hand", "Build 150 is published five minutes in and installed by hand ten seconds later, "
+                 "before the watcher looks at the release again (Nov 7 23:40:41).",
+                 {"usb": usb, "listed": listed, "releases": RELEASES + [[300, "150", "5b7d9e0", "2026-10-22T06:05:00Z"]],
+                  "hand_install": [310, "150", "5b7d9e0", "2026-10-22T06:05:00Z"]}, 1200, by_hand),
+        Scenario("check-now", "Build 150 is published five minutes in; asked to look now (SIGUSR1) at 400 s.",
+                 {"usb": usb, "listed": listed, "releases": RELEASES + [[300, "150", "5b7d9e0", "2026-10-22T06:05:00Z"]],
+                  "signal_at": 400}, 600, check_now),
         Scenario("cut-off", "A second re-enumeration, 70 s in, cuts off an install that takes 40 s.",
                  {"usb": [[0, 20, 10], [24, 70, 11], [74, END, 12]], "listed": [[2, 20], [26, 70], [76, END]],
                   "xtool": [{"seconds": 40}, {"seconds": 20}]}, 400, cut_off),
@@ -446,6 +481,31 @@ def run_scenario(scenario: Scenario, watcher_path: Path, keep: bool) -> Run:
                     holder.close()
 
             clock.hooks.append(release)
+        state_file = root / "home" / ".local" / "state" / "music-phone-refresh" / "state.json"
+        if "hand_install" in scenario.spec:
+            # An install by hand, recorded in state.json as one should be.
+            at, build, commit, published = scenario.spec["hand_install"]
+            done = []
+
+            def by_hand(t: float) -> None:
+                if t >= at and not done:
+                    done.append(t)
+                    state = json.loads(state_file.read_text()) if state_file.exists() else {}
+                    state.setdefault("installed", {})[UDID] = {
+                        "build": build, "commit": commit, "published": published, "at": clock.time()
+                    }
+                    state_file.write_text(json.dumps(state))
+
+            clock.hooks.append(by_hand)
+        if "signal_at" in scenario.spec:
+            asked = []
+
+            def ask(t: float) -> None:
+                if t >= scenario.spec["signal_at"] and not asked:
+                    asked.append(t)
+                    os.kill(os.getpid(), signal.SIGUSR1)
+
+            clock.hooks.append(ask)
         timeouts: list[list[str]] = []
         real_run = subprocess.run
 
@@ -474,7 +534,8 @@ def run_scenario(scenario: Scenario, watcher_path: Path, keep: bool) -> Run:
                 log.append((datetime.fromisoformat(stamp).timestamp() - EPOCH, message))
             except ValueError:
                 log.append((log[-1][0] if log else 0, line))
-        return Run(calls, log, timeouts)
+        state = json.loads(state_file.read_text()) if state_file.exists() else {}
+        return Run(calls, log, timeouts, state)
 
 
 def everywhere(run: Run) -> list[str]:
@@ -490,7 +551,8 @@ def everywhere(run: Run) -> list[str]:
 
 
 def one_instance(watcher_path: Path, keep: bool) -> list[str]:
-    """A second watcher, started while one runs, leaves at once (real time, a few seconds)."""
+    """A second watcher, started while one runs, leaves at once, and `--now` reaches the
+    first without stopping it (real time, a few seconds)."""
     with fake_world({"usb": [], "listed": []}, keep) as root:
         log_file = root / "home" / ".local" / "state" / "music-phone-refresh" / "log.txt"
         first = subprocess.Popen([sys.executable, str(watcher_path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -507,6 +569,18 @@ def one_instance(watcher_path: Path, keep: bool) -> list[str]:
                 problems.append("the first watcher stopped")
             if log_file.exists() and log_file.read_text().count("watching for the iPhone") != 1:
                 problems.append("both watchers started watching")
+            # `--now` reaches the running one, which carries on.
+            now = subprocess.run([sys.executable, str(watcher_path), "--now"], capture_output=True, text=True, timeout=20)
+            time.sleep(0.5)
+            if now.returncode != 0:
+                problems.append(f"--now exited {now.returncode}: {now.stderr.strip()}")
+            if first.poll() is not None:
+                problems.append("--now stopped the watcher")
+            first.kill()
+            first.wait()
+            alone = subprocess.run([sys.executable, str(watcher_path), "--now"], capture_output=True, text=True, timeout=20)
+            if alone.returncode != 1 or "not running" not in alone.stderr:
+                problems.append(f"--now with no watcher running exited {alone.returncode}: {alone.stderr.strip()}")
             return problems
         except subprocess.TimeoutExpired:
             return ["the second watcher kept running alongside the first"]
@@ -572,7 +646,7 @@ def main() -> int:
         print(child.communicate()[0], end="")
         failed += child.returncode != 0
     if not options.names or "one-instance" in options.names:
-        print(f"{'FAIL' if problems else 'PASS'}  one-instance: A second watcher, started while one runs, leaves at once.")
+        print(f"{'FAIL' if problems else 'PASS'}  one-instance: A second watcher, started while one runs, leaves at once; --now reaches the first.")
         for problem in problems:
             print(f"      ✗ {problem}")
 
