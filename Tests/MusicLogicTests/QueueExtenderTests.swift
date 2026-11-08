@@ -89,8 +89,104 @@ struct AutoplayTests {
 
     @Test func radioAddsTwentyAndEverythingElseThirty() {
         #expect(AutoplayChoice.trackRadio.trackCount == 20)
+        #expect(AutoplayChoice.playlistRadio.trackCount == 20)
         #expect(AutoplayChoice.nextAlbum.trackCount == 30)
         #expect(AutoplayRules.decadeStart(of: 1994) == 1990)
+    }
+
+    /// Playlist Radio is on both carousels, and a remembered Playlist Radio that is not on
+    /// offer -- a queue of one song -- becomes Track Radio rather than whatever is first.
+    @Test func playlistRadioIsOfferedAndFallsBackToTrackRadio() {
+        #expect(AutoplayRules.choices(endedWithAlbum: true).contains(.playlistRadio))
+        #expect(AutoplayRules.choices(endedWithAlbum: false).contains(.playlistRadio))
+        #expect(AutoplayRules.selection(
+            preferred: .playlistRadio, available: [.silence, .similarArtists, .trackRadio]
+        ) == .trackRadio)
+        #expect(AutoplayRules.selection(preferred: .playlistRadio, available: [.silence, .decade]) == .decade)
+    }
+}
+
+struct PlaylistRadioTests {
+    private func song(_ id: String, title: String? = nil, album: String? = nil) -> Song {
+        var song = Song(id: id, title: title ?? id)
+        song.artist = "The Lanterns"
+        song.albumId = album ?? "album-\(id)"
+        return song
+    }
+
+    private func songs(_ count: Int) -> [Song] {
+        (0..<count).map { song("s\($0)") }
+    }
+
+    /// The playlist as it was started, in the order it plays: not what was added after
+    /// (Autoplay's own songs), and one copy of a recording the library holds twice.
+    @Test func thePoolIsThePlaylistInPlayOrder() throws {
+        let copy = song("s1-copy", title: "s1")
+        var queue = PlaybackQueue.make(
+            tracks: songs(5) + [copy], startingAt: 0, shuffled: false, source: "Road Trip"
+        )
+        queue.order = [4, 3, 2, 1, 0, 5]
+        queue.append([song("added")])
+
+        let pool = try #require(PlaylistRadio.pool(queue))
+        #expect(pool.map(\.id) == ["s4", "s3", "s2", "s1", "s0"])
+    }
+
+    /// Too few songs is Track Radio by another name, and one album has the album cards.
+    @Test func thereIsNoPoolForAFewSongsOrOneAlbum() {
+        let few = PlaybackQueue.make(tracks: songs(3), startingAt: 0, shuffled: false, source: "Few")
+        #expect(PlaylistRadio.pool(few) == nil)
+
+        let album = PlaybackQueue.make(
+            tracks: (0..<8).map { song("t\($0)", album: "glass-harbor") }, startingAt: 0, shuffled: false, source: "Glass Harbor"
+        )
+        #expect(PlaylistRadio.pool(album) == nil)
+    }
+
+    /// Five, none twice, the most recent first; all of a pool that has no more.
+    @Test func seedsAreFiveDifferentSongsMostRecentFirst() {
+        let pool = songs(40)
+        var generator = MixEngine.DayRandom(day: Date(timeIntervalSince1970: 1_800_000_000), salt: 3)
+        let seeds = PlaylistRadio.seeds(from: pool, using: &generator)
+        #expect(seeds.count == 5)
+        #expect(Set(seeds.map(\.id)).count == 5)
+        let places = seeds.compactMap { seed in pool.firstIndex { $0.id == seed.id } }
+        #expect(places == places.sorted(by: >))
+
+        #expect(PlaylistRadio.seeds(from: songs(4), using: &generator).map(\.id) == ["s3", "s2", "s1", "s0"])
+    }
+
+    /// Where the playlist ended counts most: its last quarter is drawn from more than its
+    /// first, but the first is still drawn from.
+    @Test func theRecentEndIsLikelierButNotAlone() {
+        let pool = songs(40)
+        var generator = MixEngine.DayRandom(day: Date(timeIntervalSince1970: 1_800_000_000), salt: 4)
+        var first = 0
+        var last = 0
+        for _ in 0..<400 {
+            for seed in PlaylistRadio.seeds(from: pool, using: &generator) {
+                let place = pool.firstIndex { $0.id == seed.id } ?? 0
+                if place < 10 { first += 1 }
+                if place >= 30 { last += 1 }
+            }
+        }
+        #expect(first > 0)
+        #expect(Double(last) > Double(first) * 1.5)
+    }
+
+    /// One from each seed's radio in turn, nothing twice by id or by recording, up to
+    /// the limit.
+    @Test func radiosAreTakenInTurn() {
+        let copy = song("b1-copy", title: "b1")
+        let radios = [
+            [song("a1"), song("a2"), song("a3")],
+            [song("a1"), song("b2")],
+            [copy, song("c2"), song("c3")],
+        ]
+        let mixed = PlaylistRadio.interleave(radios + [[song("b1")]], limit: 6)
+        #expect(mixed.map(\.id) == ["a1", "b1-copy", "a2", "b2", "c2", "a3"])
+        #expect(PlaylistRadio.interleave(radios, limit: 2).count == 2)
+        #expect(PlaylistRadio.interleave([], limit: 5).isEmpty)
     }
 }
 

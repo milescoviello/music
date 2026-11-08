@@ -1,7 +1,8 @@
 import Foundation
 
 /// What Plexamp's Autoplay can put on when the queue runs out. Raw values are Plexamp's own
-/// ids, so the two stored settings mean the same thing they do there.
+/// ids, so the two stored settings mean the same thing they do there -- except Playlist
+/// Radio, which Plexamp does not have, numbered well clear of them.
 enum AutoplayChoice: Int, Codable, CaseIterable, Identifiable, Sendable {
     case silence = 0
     case previousAlbum = 1
@@ -13,6 +14,7 @@ enum AutoplayChoice: Int, Codable, CaseIterable, Identifiable, Sendable {
     case decade = 9
     case libraryRadio = 10
     case trackRadio = 11
+    case playlistRadio = 100
 
     var id: Int { rawValue }
 
@@ -28,6 +30,7 @@ enum AutoplayChoice: Int, Codable, CaseIterable, Identifiable, Sendable {
         case .decade: return "Decade"
         case .libraryRadio: return "Library Radio"
         case .trackRadio: return "Track Radio"
+        case .playlistRadio: return "Playlist Radio"
         }
     }
 
@@ -41,13 +44,14 @@ enum AutoplayChoice: Int, Codable, CaseIterable, Identifiable, Sendable {
         case .artistRadio, .trackRadio, .libraryRadio: return "dot.radiowaves.left.and.right"
         case .similarArtists: return "person.2"
         case .decade: return "calendar"
+        case .playlistRadio: return "music.note.list"
         }
     }
 
     /// Plexamp adds 20 tracks of a radio and 30 of anything else.
     var trackCount: Int {
         switch self {
-        case .artistRadio, .trackRadio, .libraryRadio: return 20
+        case .artistRadio, .trackRadio, .libraryRadio, .playlistRadio: return 20
         default: return 30
         }
     }
@@ -78,13 +82,14 @@ enum AutoplayRules {
 
     /// The carousel, in Plexamp's order. After an album there are album-shaped things to
     /// go to next — the next album or the previous one, whichever the Album Direction
-    /// setting says; otherwise only the mixes.
+    /// setting says; otherwise only the mixes. Playlist Radio is offered only for a queue
+    /// with enough in it (`PlaylistRadio.pool`).
     static func choices(endedWithAlbum: Bool, albumDirection: AutoplayChoice = .nextAlbum) -> [AutoplayChoice] {
         let neighbour: AutoplayChoice = albumDirection == .previousAlbum ? .previousAlbum : .nextAlbum
         return endedWithAlbum
             ? [.silence, neighbour, .similarAlbum, .artistMix, .artistRadio,
-               .trackRadio, .similarArtists, .decade, .libraryRadio]
-            : [.silence, .similarArtists, .trackRadio, .decade, .libraryRadio]
+               .trackRadio, .playlistRadio, .similarArtists, .decade, .libraryRadio]
+            : [.silence, .playlistRadio, .similarArtists, .trackRadio, .decade, .libraryRadio]
     }
 
     /// Plexamp's defaults: the album in the chosen direction after an album, similar
@@ -95,9 +100,11 @@ enum AutoplayRules {
 
     /// The remembered choice if it is on offer, else the first that is not silence —
     /// Plexamp's fallback, so a choice that cannot be made here (no next album) does not
-    /// quietly turn into stopping.
+    /// quietly turn into stopping. Playlist Radio, not on offer for a queue of a song or
+    /// two, falls back to the radio nearest it: Track Radio.
     static func selection(preferred: AutoplayChoice, available: [AutoplayChoice]) -> AutoplayChoice? {
         if available.contains(preferred) { return preferred }
+        if preferred == .playlistRadio, available.contains(.trackRadio) { return .trackRadio }
         return available.first { $0 != .silence }
     }
 
@@ -142,5 +149,83 @@ enum AutoplayRules {
     /// 1994 → 1990.
     static func decadeStart(of year: Int) -> Int {
         year - year % 10
+    }
+}
+
+/// Playlist Radio: what comes after a playlist, from the whole of it rather than its last
+/// song. Each time, a few of its songs are drawn -- the later in the play order the
+/// likelier, so where it ended counts most -- and a radio around each is taken in turn.
+///
+/// Around each song separately, not around all of them at once: the sonic service blends
+/// several seeds into their average sound, and the average of a playlist that is half one
+/// thing and half another sounds like neither half.
+enum PlaylistRadio {
+    /// Fewer songs than this, and it would be Track Radio under another name.
+    static let minimumSongs = 4
+    /// The songs a radio is taken around, each time.
+    static let seedCount = 5
+    /// How much likelier the last song in the play order is to be drawn than the first.
+    static let recentWeight = 3.0
+    /// Songs asked for around each seed: a share of the 20, with room for the ones two
+    /// seeds share and the ones already queued.
+    static let perSeed = 8
+
+    /// What the seeds are drawn from: the queue as it was started -- the playlist, not
+    /// what was added to it after, Autoplay's own songs among them -- in play order, one
+    /// copy of each recording. Nil with too few songs, or when they are one album, which
+    /// has the album cards.
+    static func pool(_ queue: PlaybackQueue) -> [Song]? {
+        let base = queue.baseCount ?? queue.tracks.count
+        var seen: Set<String> = []
+        var songs: [Song] = []
+        for index in queue.order where index < base && queue.tracks.indices.contains(index) {
+            let song = queue.tracks[index]
+            guard seen.insert(MixEngine.identity(song)).inserted else { continue }
+            songs.append(song)
+        }
+        guard songs.count >= minimumSongs, Set(songs.map { $0.albumId ?? $0.id }).count > 1 else { return nil }
+        return songs
+    }
+
+    /// `count` of the pool, none twice, drawn with the later ones likelier, and the most
+    /// recent first. All of it, most recent first, when it has no more than `count`.
+    static func seeds<G: RandomNumberGenerator>(
+        from pool: [Song],
+        count: Int = seedCount,
+        using generator: inout G
+    ) -> [Song] {
+        guard pool.count > count else { return pool.reversed() }
+        let last = Double(pool.count - 1)
+        // Weighted sampling without replacement (Efraimidis and Spirakis): each song gets
+        // a key u^(1/weight), and the largest keys win.
+        let keyed = pool.indices.map { index -> (key: Double, index: Int) in
+            let weight = 1 + (recentWeight - 1) * Double(index) / last
+            let u = Double.random(in: Double.leastNonzeroMagnitude..<1, using: &generator)
+            return (pow(u, 1 / weight), index)
+        }
+        return keyed.sorted { $0.key > $1.key }
+            .prefix(count)
+            .map(\.index)
+            .sorted(by: >)
+            .map { pool[$0] }
+    }
+
+    /// One from each seed's radio in turn, the first seed's first, so every part of the
+    /// playlist is heard from early on. Nothing twice, by id or by recording.
+    static func interleave(_ radios: [[Song]], limit: Int) -> [Song] {
+        var ids: Set<String> = []
+        var recordings: Set<String> = []
+        var result: [Song] = []
+        let longest = radios.map(\.count).max() ?? 0
+        for row in 0..<longest {
+            for radio in radios where row < radio.count {
+                guard result.count < limit else { return result }
+                let song = radio[row]
+                guard !ids.contains(song.id), recordings.insert(MixEngine.identity(song)).inserted else { continue }
+                ids.insert(song.id)
+                result.append(song)
+            }
+        }
+        return result
     }
 }

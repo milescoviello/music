@@ -86,13 +86,21 @@ final class SonicService {
         return await hydrate(hits.map(\.id))
     }
 
+    /// Ids are 22 characters and a separator: this many is under 40 KiB of address.
+    static let maximumExcluded = 1500
+
     /// A radio around the seeds' shared sound, leaving out what is already queued.
     /// `varied`: drawn from a wider pool each time (`RadioVariety`) rather than the same
     /// nearest few, for a radio someone listens to rather than a pool a mix picks from.
+    ///
+    /// Only the last `maximumExcluded` of `excluding` go to the service: they go in the
+    /// address, and a queue of the whole library would make one longer than the service
+    /// reads (64 KiB). The rest are left to the caller, which drops what is queued anyway.
     func radio(seeds: [String], excluding: [String] = [], limit: Int = 25, varied: Bool = false) async -> [Song]? {
         let asked = varied ? RadioVariety.poolSize(for: limit) : limit
         guard isAvailable, !seeds.isEmpty,
-              let hits = try? await client.radio(seeds: seeds, excluding: excluding, limit: asked), !hits.isEmpty
+              let hits = try? await client.radio(seeds: seeds, excluding: Array(excluding.suffix(Self.maximumExcluded)), limit: asked),
+              !hits.isEmpty
         else { return nil }
         var ids = hits.map(\.id)
         if varied {

@@ -115,8 +115,12 @@ crossfades (`music/beatmatch-crossfade`).
   total capped 15 s.
 - **Autoplay:** active when repeat is off, fewer than 30 up next, not a station. "Ends
   with album" = last two queue tracks share an album. Album choices: Silence, Next/Previous
-  Album, Similar Album, Artist Mix, Artist Radio, Track Radio, Similar Artists, Decade,
-  Library Radio; otherwise Silence, Similar Artists, Track Radio, Decade, Library Radio.
+  Album, Similar Album, Artist Mix, Artist Radio, Track Radio, Playlist Radio, Similar
+  Artists, Decade, Library Radio; otherwise Silence, Playlist Radio, Similar Artists, Track
+  Radio, Decade, Library Radio. Playlist Radio is ours, not Plexamp's: offered when the
+  queue as started has 4+ recordings from more than one album, it draws 5 of them (the
+  later in play order the likelier, up to 3×), takes a varied sonic radio around each, and
+  interleaves them; a remembered Playlist Radio that is not on offer becomes Track Radio.
   Adds 30 tracks, 20 for radio. Computed 3 s after the queue's end changes, with the
   selected option's songs worked out then and listed under the carousel; those exact
   songs are what get added. Next on the last track goes into them instead of pausing.

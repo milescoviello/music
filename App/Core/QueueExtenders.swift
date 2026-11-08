@@ -34,6 +34,8 @@ final class AutoplayService {
         case artistMix(ArtistRef)
         case artistRadio(artistID: String, seed: Song)
         case trackRadio(Song)
+        /// The playlist, in play order: a few are drawn from it each time the songs are.
+        case playlistRadio(pool: [Song])
         case similarArtists(seed: Song)
         case decade(start: Int)
         case library
@@ -308,6 +310,17 @@ final class AutoplayService {
         case .trackRadio:
             return Option(choice: choice, title: "\(last.title) Radio", subtitle: choice.title, coverArt: last.coverArt, plan: .trackRadio(last))
 
+        case .playlistRadio:
+            guard let queue = appState?.player.queue, let pool = PlaylistRadio.pool(queue) else { return nil }
+            let source = queue.sourceDescription
+            // Not the last song's cover, which Track Radio's card has.
+            let cover = pool.first { $0.coverArt != nil && $0.coverArt != last.coverArt }?.coverArt ?? pool.first?.coverArt
+            return Option(
+                choice: choice, title: source.isEmpty ? choice.title : "\(source) Radio",
+                subtitle: source.isEmpty ? "From the whole queue" : choice.title,
+                coverArt: cover, plan: .playlistRadio(pool: pool)
+            )
+
         case .similarArtists:
             let names = similar.prefix(3).map(\.name)
             return Option(
@@ -411,6 +424,29 @@ final class AutoplayService {
                 return sonic
             }
             return Array(await radio.mix(seed: seed, scope: scope, size: count + 1).dropFirst())
+        case let .playlistRadio(pool):
+            var generator = SystemRandomNumberGenerator()
+            let seeds = PlaylistRadio.seeds(from: pool, using: &generator)
+            let queued = appState.player.queue.tracks.map(\.id)
+            let sonic = appState.sonic
+            let radios = await withTaskGroup(of: (Int, [Song]).self) { group in
+                for (index, seed) in seeds.enumerated() {
+                    group.addTask {
+                        if let found = await sonic.radio(seeds: [seed.id], excluding: queued, limit: PlaylistRadio.perSeed, varied: true) {
+                            return (index, found)
+                        }
+                        return (index, Array(await radio.mix(seed: seed, scope: scope, size: PlaylistRadio.perSeed + 1).dropFirst()))
+                    }
+                }
+                var found = [[Song]](repeating: [], count: seeds.count)
+                for await (index, songs) in group { found[index] = songs }
+                return found
+            }
+            await Diagnostics.shared.record(
+                "autoplay", "Playlist Radio around \(seeds.map { "“\($0.title)”" }.joined(separator: ", ")) of \(pool.count)"
+            )
+            // Twice the count: the queued and the lately skipped come out after.
+            return PlaylistRadio.interleave(radios, limit: count * 2)
         case let .similarArtists(seed):
             // `getSimilarSongs2` is exactly this: tracks by artists similar to the seed's.
             let artist = seed.primaryArtistID
