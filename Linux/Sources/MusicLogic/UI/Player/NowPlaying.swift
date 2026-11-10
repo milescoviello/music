@@ -780,6 +780,7 @@ final class NowPlaying {
     /// "FLAC · 96 / 24", "MP3 · 320 kbps": for lossless the rate and depth, in Plexamp's
     /// order, are the useful numbers; for a converted stream, that it was converted.
     static func quality(_ app: AppState, _ song: Song) -> String {
+        if let video = app.video.soundDescription(for: song) { return video }
         if !app.downloads.isDownloaded(song.id) {
             let variant = app.streaming.policy.variant(for: song, on: app.reachability.network)
             if case let .mp3(kbps) = variant, app.streamCache.index.entry(for: song.id, satisfying: .original) == nil {

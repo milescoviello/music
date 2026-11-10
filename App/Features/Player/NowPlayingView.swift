@@ -824,6 +824,7 @@ private struct PlayerDetailLine: View {
     /// numbers; the bitrate is variable and the reported figure is only an average, so
     /// quoting it would look precise while meaning little.
     private func qualityText(_ song: Song) -> String {
+        if let video = appState.video.soundDescription(for: song) { return video }
         // What is actually being heard: a stream converted to fit this network's quality
         // setting says so, rather than quoting the file on the server.
         if !downloads.isDownloaded(song.id) {

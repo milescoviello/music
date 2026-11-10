@@ -19,8 +19,9 @@ runtime.
 - Keeps it all in `data/sonic.db` (SQLite), re-reads the library every six hours, and
   analyses whatever is new or changed. A first pass over ~26,000 tracks takes several
   hours; results are served as they land.
-- Answers on port 8650. Every endpoint but one is a GET returning JSON; a track not
-  analysed yet is a 404. The one write is the app's Send Logs (below).
+- Answers on port 8650. Nearly every endpoint is a GET returning JSON; a track not
+  analysed yet is a 404. The writes are the app's Send Logs, shared taste, and which
+  video a song gets (below).
 
 | Endpoint | Answers |
 |---|---|
@@ -37,6 +38,34 @@ runtime.
 
 Lists are `{"items": [{"id", "distance"}]}`, distances cosine (0 identical). Set
 `SONIC_TOKEN` to require an `X-Sonic-Token` header.
+
+### Music videos
+
+For the apps' Song | Video switch and Search's YouTube side (`sonic/video.py`). A song's
+video is found by a YouTube search through yt-dlp, scored for the official upload, and
+remembered per song by artist and bare title in `data/videos.db`, so both libraries'
+copies of a song share it; a pick made by hand replaces it for good.
+
+| Endpoint | Answers |
+|---|---|
+| `GET /v1/video/search?q=&limit=` | `{"items": [{id, title, channel, duration, verified, views, artist, song}]}` -- `artist`/`song` are the service's reading of the title, for Add to Library |
+| `GET /v1/video/match?artist=&title=&duration=&warm=1` | `{video, manual, offset}`; `video` null when there is none. `warm` opens its streams ahead |
+| `PUT /v1/video/match` `{artist, title, video}` | the video this song gets from now on |
+| `DELETE /v1/video/match?artist=&title=` | back to the automatic pick |
+| `GET /v1/video/{id}/master.m3u8` | HLS for AVPlayer: every H.264 height up to 1080p, AAC audio |
+| `GET /v1/video/{id}/{itag}.m3u8`, `/v1/video/{id}/{itag}.mp4` | the media playlists, and the relayed bytes (Range) |
+| `GET /v1/video/{id}/streams` | the desktop's: the tallest video and the best (Opus) audio, as relayed paths |
+| `GET /v1/video/{id}/thumb` | the thumbnail, cached |
+
+There are no ads because none of YouTube's player is involved. YouTube's streams are
+fragmented MP4 with their own index (`sidx`), which is all HLS needs: the playlists are
+byte ranges of the one file, and the bytes come through the service, since YouTube's
+addresses only work from the address that asked for them -- and refuse every request
+for the first few seconds (`available_at`), which the relay waits out. Nothing is stored.
+yt-dlp is unpinned and kept current at run time (`data/pylib`, see `video.Updater`),
+since an old one stops working when YouTube changes; Deno runs its JavaScript challenge.
+With `SONIC_TOKEN` set, the media addresses carry it as `?token=`, since a player cannot
+add the header.
 
 `POST /v1/logs` takes the plain-text report from the app's Diagnostics → Send Logs and
 keeps it as `data/logs/<UTC time>-<source>-<random>.txt`, where `source` is the app's

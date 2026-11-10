@@ -109,6 +109,12 @@ final class VideoService: VideoStandIn {
     /// Whether a song's video is standing in for its track.
     var isStandingIn: Bool { songID != nil }
 
+    /// What the player's quality line says while `song`'s video is what is heard: not the
+    /// file's format, which is not what is playing.
+    func soundDescription(for song: Song) -> String? {
+        songID == song.id && showing == .video ? "Video · YouTube audio" : nil
+    }
+
     func lookup(for song: Song) -> Lookup? { lookups[song.id] }
 
     // MARK: - Finding a song's video

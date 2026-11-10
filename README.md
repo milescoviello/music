@@ -30,6 +30,13 @@ server -- desktop Feishin, say -- stays in step. Neither app keeps that state to
   library.
 - **Play on the computer from the phone** (see below), the way one Plexamp plays to
   another.
+- **Music videos**, YouTube Music's way: a Song | Video switch in the player plays the
+  song's official video in place of its track -- with the video's own sound, which is
+  lossy, while the Song side stays the library's file -- and stays on from song to song.
+  Change Video picks another when the automatic one is wrong, and the pick is kept for
+  every device. Search has a YouTube side: play a video, or add the song (and its album)
+  to the library through Hermes. No ads: the video plays in the app's own player, through
+  `server/sonic`.
 - **Sonic features**, with `server/sonic` running: sonically similar tracks, albums and
   artists, Sonic Adventure, sonic radio, the loudness-shaped seekbar, and instant lyric
   search. Without it, the app falls back to what Navidrome offers.
