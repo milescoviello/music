@@ -672,7 +672,7 @@ class Updater:
 
     A newer yt-dlp goes into `target`, which is put at the front of `sys.path` at start-up.
     Asked for when extraction fails (at most every six hours) and once a week between 2 and
-    5 in the morning; when it installs a newer version, the service exits once no video is
+    5 in the morning, Pacific time -- the container's own clock is UTC; when it installs a newer version, the service exits once no video is
     being relayed, and Docker starts it again on the new one. The analysis picks up where it
     was.
     """
@@ -698,11 +698,21 @@ class Updater:
         if time.time() - self._last_try > 6 * 3600:
             threading.Thread(target=self.update, name="yt-dlp-update", daemon=True).start()
 
+    @staticmethod
+    def _pacific_hour() -> int:
+        try:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            return datetime.now(ZoneInfo("America/Los_Angeles")).hour
+        except Exception:  # noqa: BLE001 — no zone data: UTC less eight
+            return (time.gmtime().tm_hour - 8) % 24
+
     def _weekly(self) -> None:
         stamp = self.target / ".checked"
         while True:
             time.sleep(1800)
-            hour = time.localtime().tm_hour
+            hour = self._pacific_hour()
             last = stamp.stat().st_mtime if stamp.exists() else 0
             if 2 <= hour < 5 and time.time() - last > 6.5 * 86400:
                 self.update()
