@@ -69,6 +69,11 @@ struct NowPlayingView: View {
         .task(id: player.currentSong?.id) {
             if let song = player.currentSong { await videos.prepare(song) }
         }
+        // A video starting is shown, rather than left behind the visualiser; one chosen
+        // while it plays stays.
+        .onChange(of: videos.isStandingIn) { _, standing in
+            if standing, mode == .visualizer { mode = .artwork }
+        }
     }
 
     private var playerBody: some View {
@@ -366,7 +371,11 @@ struct NowPlayingView: View {
         VStack(spacing: 4) {
             HStack(spacing: 0) {
                 switchSegment("Song", isOn: !videos.wantsVideo) { videos.setWantsVideo(false) }
-                switchSegment("Video", isOn: videos.wantsVideo) { videos.setWantsVideo(true) }
+                switchSegment("Video", isOn: videos.wantsVideo) {
+                    videos.setWantsVideo(true)
+                    // Chosen from the lyrics or the visualiser: it is asking to see it.
+                    if videos.wantsVideo { mode = .artwork }
+                }
             }
             .padding(3)
             .background(.white.opacity(0.12), in: Capsule())

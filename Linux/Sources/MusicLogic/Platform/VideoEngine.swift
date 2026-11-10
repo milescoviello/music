@@ -240,6 +240,9 @@ final class VideoSession: @unchecked Sendable {
     private var wantsPictures: Bool
     private var volume: Float
     private var frames: [Frame] = []
+    /// The first picture after opening is shown at once, even paused: after a seek, the
+    /// frame there is a hair past the time asked for, and a paused clock never reaches it.
+    private var shownFirst = false
     private var audioOpen = false
     private var videoOpen = false
     private var audioEnded = false
@@ -324,6 +327,10 @@ final class VideoSession: @unchecked Sendable {
         defer { condition.unlock() }
         let now = currentClock()
         var due: Frame?
+        if !shownFirst, !frames.isEmpty {
+            shownFirst = true
+            due = frames.removeFirst()
+        }
         while let first = frames.first, first.time <= now + 0.012 {
             due = frames.removeFirst()
         }
@@ -632,8 +639,11 @@ final class VideoDecoder: @unchecked Sendable {
         // Even sizes: the scaler's chroma handling wants them.
         let width = max(2, Int(Double(sourceWidth) * factor) & ~1)
         let height = max(2, Int(Double(sourceHeight) * factor) & ~1)
-        let stride = (width * 3 + 3) & ~3
-        var pixels = [UInt8](repeating: 0, count: stride * height)
+        // Rows 64-byte aligned, with room to spare after the last: swscale's SIMD writes
+        // run past the end of a row, which in an exact-size buffer is past the end of the
+        // buffer -- FFmpeg's own frames are padded for exactly this.
+        let stride = (width * 3 + 63) & ~63
+        var pixels = [UInt8](repeating: 0, count: stride * (height + 1) + 128)
         let result = pixels.withUnsafeMutableBufferPointer { buffer in
             cffmpeg_scale_rgb(&scaler, frame, Int32(width), Int32(height), buffer.baseAddress, Int32(stride))
         }

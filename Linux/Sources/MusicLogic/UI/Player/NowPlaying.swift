@@ -101,6 +101,11 @@ final class NowPlaying {
         let modeReference = WeakReference<NowPlaying>(nil)
         let visualizer = VisualizerPane(app: app) { modeReference.value?.select(.artwork) }
         poster.add(visualizer.root, name: Mode.visualizer.rawValue)
+        // The song's video, in the cover's place while the switch is on Video.
+        let fullScreen: @MainActor () -> Void = { [env] in
+            VideoWindow.present(app, watching: nil, fullScreen: true, toast: env.toast)
+        }
+        poster.add(Self.videoPane(app, fullScreen: fullScreen), name: Self.videoPage)
         posterFrame = ScrolledWindow(poster, horizontal: GTK_POLICY_EXTERNAL, vertical: GTK_POLICY_EXTERNAL)
         posterFrame.propagatesNaturalWidth().propagatesNaturalHeight()
         posterFrame.halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_CENTER)
@@ -160,7 +165,10 @@ final class NowPlaying {
         }
         root.add(scroller)
 
-        let bar = Self.topBar(app)
+        let bar = Self.topBar(app, showVideo: { modeReference.value?.select(.artwork) }) { [env] in
+            guard let song = app.player.currentSong else { return }
+            ChangeVideo.present(app, song: song, toast: env.toast)
+        }
         topBar = bar
         root.add(bar)
         // Draws nothing: there to be told the player's size, which decides the layout.
@@ -183,6 +191,31 @@ final class NowPlaying {
             }
         }
         root.observe { artwork.show(app.player.currentSong?.coverArt, fallback: app.player.currentSong?.album) }
+        // The video in the cover's place, or not: a layout of its own (it is wider).
+        // A video starting -- the switch, or play with Video left on -- is shown, rather
+        // than left behind a visualiser that has no sound to draw. Only at its start: one
+        // chosen while it plays stays.
+        var wasStandingIn = false
+        root.observe {
+            _ = app.video.wantsVideo
+            let standing = app.video.isStandingIn
+            let started = standing && !wasStandingIn
+            wasStandingIn = standing
+            DispatchQueue.main.async {
+                guard let view = modeReference.value else { return }
+                if started, view.mode == .visualizer { view.select(.artwork) } else { view.arrange() }
+            }
+        }
+        // The song's video looked up while the player is open, so the switch is quick.
+        let root = root
+        root.observe {
+            guard let song = app.player.currentSong, gtk_widget_get_mapped(root.widget) != 0 else { return }
+            Task { @MainActor in await app.video.prepare(song) }
+        }
+        root.onMap {
+            guard let song = app.player.currentSong else { return }
+            Task { @MainActor in await app.video.prepare(song) }
+        }
         select(UserDefaults.standard.bool(forKey: Self.visualizerKey) ? .visualizer : .artwork)
     }
 
@@ -232,7 +265,7 @@ final class NowPlaying {
             sideToolbar.isVisible = false
             // The visualiser spans the window at the cover's height; the lyrics, the
             // window less its margins.
-            wide = mode == .visualizer ? width : mode == .lyrics ? width - 2 * m * z : posterSize
+            wide = mode == .visualizer || showsVideo ? width : mode == .lyrics ? width - 2 * m * z : posterSize
             playerBox.orientation(GTK_ORIENTATION_VERTICAL)
             playerBox.size(width: -1, height: Int32(block))
             playerBox.hexpand(true).halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_FILL)
@@ -279,7 +312,8 @@ final class NowPlaying {
         case .sideBySide:
             posterSize = (h / 2.5).rounded() * z
             block = height
-            wide = posterSize
+            // A video is as tall as the cover and as wide as 16:9 makes it, within its half.
+            wide = showsVideo ? min(posterSize * 16 / 9, width / 2 - 4 * m * z) : posterSize
             volume.isVisible = true
             toolbar.isVisible = false
             playerBox.orientation(GTK_ORIENTATION_VERTICAL)
@@ -334,7 +368,7 @@ final class NowPlaying {
             let room = available - posterTop - measuredHeight(side, width: sideWidth)
             if room >= minimumPoster {
                 posterSize = room
-                if mode != .visualizer, mode != .lyrics || layout != .portrait { wide = room }
+                if mode != .visualizer, !showsVideo, mode != .lyrics || layout != .portrait { wide = room }
             } else {
                 posterCell.isVisible = false
             }
@@ -441,8 +475,15 @@ final class NowPlaying {
         arrange()
     }
 
+    /// The song's video is in the cover's place.
+    private var showsVideo: Bool {
+        mode == .artwork && app.video.wantsVideo && app.video.isStandingIn
+    }
+
+    private static let videoPage = "video"
+
     private func refreshMode() {
-        poster.visibleName = mode.rawValue
+        poster.visibleName = showsVideo ? Self.videoPage : mode.rawValue
         for (candidate, button) in modeButtons { button.setCSS("selected", candidate == mode) }
         for (candidate, button) in sideModeButtons { button.setCSS("selected", candidate == mode) }
         queueToggle?.setCSS("selected", showsQueueColumn)
@@ -463,11 +504,16 @@ final class NowPlaying {
     /// window has no title bar either.
     /// The window's controls, and between them the phone's "Playing From" and where the
     /// queue came from.
-    private static func topBar(_ app: AppState) -> Widget {
+    private static func topBar(
+        _ app: AppState,
+        showVideo: @escaping @MainActor () -> Void,
+        changeVideo: @escaping @MainActor () -> Void
+    ) -> Widget {
         let source = Label("", "np-source").ellipsize().xalign(0.5).maxWidthChars(40)
         let from = Box.vertical(spacing: 0) {
             Label("Playing From", "np-source-heading").xalign(0.5)
             source
+            videoSwitch(app, showVideo: showVideo, changeVideo: changeVideo)
         }
         from.hexpand().valign(GTK_ALIGN_CENTER)
         from.observe {
@@ -486,6 +532,86 @@ final class NowPlaying {
         return handle
     }
 
+    // MARK: - Video
+
+    /// YouTube Music's Song | Video switch, under where the music is playing from. A right
+    /// click is Change Video. Under it, why the cover shows when Video is chosen.
+    /// `showVideo` brings the picture forward: choosing Video from the lyrics or the
+    /// visualiser is asking to see it.
+    private static func videoSwitch(
+        _ app: AppState,
+        showVideo: @escaping @MainActor () -> Void,
+        changeVideo: @escaping @MainActor () -> Void
+    ) -> Widget {
+        let video = app.video
+        let songButton = ToggleButton("Song")
+        let videoButton = ToggleButton("Video")
+        func sync() {
+            songButton.isActive = !video.wantsVideo
+            videoButton.isActive = video.wantsVideo
+        }
+        // Connected here rather than in the initialisers, so `sync` can name both. Setting
+        // `isActive` back from the service's state only ever lands where it already is.
+        Signal.connect(songButton.widget, "toggled") {
+            if songButton.isActive { video.setWantsVideo(false) }
+            DispatchQueue.main.async { sync() }
+        }
+        Signal.connect(videoButton.widget, "toggled") {
+            if videoButton.isActive {
+                video.setWantsVideo(true)
+                if video.wantsVideo { showVideo() }
+            }
+            DispatchQueue.main.async { sync() }
+        }
+        videoButton.group(with: songButton)
+        let pill = Box.horizontal(spacing: 0) {
+            songButton
+            videoButton
+        }.css("video-switch").halign(GTK_ALIGN_CENTER)
+        pill.contextMenu {
+            guard app.player.currentSong != nil, video.isAvailable else { return nil }
+            return Menu([[.action("Change Video…") { changeVideo() }]])
+        }
+        let note = Label("", "video-note").xalign(0.5)
+        let box = Box.vertical(spacing: 2) {
+            pill
+            note
+        }
+        box.observe {
+            sync()
+            box.isVisible = (video.isAvailable || video.wantsVideo) && app.player.currentSong != nil
+            var text = ""
+            if video.wantsVideo {
+                if !video.isAvailable {
+                    text = "Videos aren't reachable right now"
+                } else if video.showing == .noVideo {
+                    text = "No video for this song"
+                } else if case .failed = video.showing {
+                    text = "The video wouldn't play · playing the song"
+                }
+            }
+            note.text = text
+            note.isVisible = !text.isEmpty
+        }
+        return box
+    }
+
+    /// The song's video where the cover goes, with a button and a double click for full
+    /// screen.
+    private static func videoPane(_ app: AppState, fullScreen: @escaping @MainActor () -> Void) -> Widget {
+        let surface = VideoSurfaceView(app)
+        let full = Button(icon: "view-fullscreen-symbolic", "circular", "np-video-full") { fullScreen() }
+        full.tooltip("Full Screen")
+        full.halign(GTK_ALIGN_END).valign(GTK_ALIGN_END)
+        surface.root.add(full)
+        let doubleClick = gtk_gesture_click_new()!
+        Signal.connect(doubleClick, "pressed", press: { count, _, _ in
+            if count == 2 { fullScreen() }
+        })
+        gtk_widget_add_controller(surface.root.widget, doubleClick.cast())
+        return surface.root
+    }
+
     // MARK: - Menu
 
     private func menu() -> Menu {
@@ -496,6 +622,9 @@ final class NowPlaying {
         var jumps = Menus.navigationItems(env, song, jumps: true)
         jumps.append(.action("Show Similar Tracks") { [env] in SimilarTracks.present(env, song: song) })
         jumps.append(.action("Sonic Adventure…") { app.navigator.open(.sonicAdventure(song)) })
+        if app.video.isAvailable {
+            jumps.append(.action("Change Video…") { [env] in ChangeVideo.present(app, song: song, toast: env.toast) })
+        }
         sections.append(jumps)
 
         // What Plexamp's queue menu holds, here with the rest.

@@ -156,5 +156,28 @@ enum Style {
 
     .badge { background-color: var(--accent-bg-color); color: white; border-radius: 9999px;
              padding: 0 6px; font-size: 0.75em; font-weight: 700; min-width: 12px; }
+
+    /* Music videos: the player's Song | Video switch, the picture, YouTube rows. */
+    .video-switch { background-color: alpha(#ffffff, 0.12); border-radius: 9999px; padding: 3px; margin-top: 4px; }
+    .video-switch button { border-radius: 9999px; min-width: 68px; min-height: 24px; padding: 0 10px;
+                           font-size: 0.85em; font-weight: 700; color: alpha(#ffffff, 0.8);
+                           background: none; box-shadow: none; }
+    .video-switch button:checked { background-color: #ffffff; color: #000000; }
+    .now-playing .video-note { font-size: 0.8em; color: alpha(#ffffff, 0.6); }
+    .video-surface { background-color: #000000; border-radius: 10px; }
+    .video-window .video-surface { border-radius: 0; }
+    .video-window { background-color: #000000; }
+    .video-controls { background: linear-gradient(to bottom, transparent, alpha(#000000, 0.8)); color: #ffffff; }
+    .video-controls button { color: #ffffff; }
+    .video-controls .video-play { min-width: 52px; min-height: 52px; background-color: #ffffff; color: #000000; }
+    .video-window-title { font-weight: 700; font-size: 1.1em; color: #ffffff; }
+    .video-window-subtitle, .video-time { color: alpha(#ffffff, 0.7); font-size: 0.85em; }
+    .video-error { color: #ffffff; font-weight: 600; }
+    .video-thumb { border-radius: 6px; }
+    .video-length { background-color: alpha(#000000, 0.75); color: #ffffff; border-radius: 3px;
+                    padding: 0 4px; font-size: 0.75em; font-weight: 700; font-feature-settings: "tnum"; }
+    .video-row { padding: 4px; }
+    .video-title-chosen { color: var(--accent-color); font-weight: 700; }
+    .np-video-full { background-color: alpha(#000000, 0.45); color: #ffffff; margin: 6px; }
     """
 }

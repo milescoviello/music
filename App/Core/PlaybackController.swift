@@ -1404,7 +1404,8 @@ final class PlaybackController {
 
     /// The output moved on by itself, so follow it in the logical queue.
     private func handleAdvanced(to songID: String?) {
-        guard remote == nil else { return }
+        // A video standing in is what plays; the track waiting under it moves nothing.
+        guard remote == nil, video == nil else { return }
         guard let songID, let orderIndex = queue.orderIndex(following: songID) else {
             // Ran off the end of the window -- the end of the queue, a track that could
             // not be loaded, or repeat-one reaching the end of its only track. The queue
@@ -1471,7 +1472,9 @@ final class PlaybackController {
     /// pauses on this track, says why, and tries it again a few times before leaving it
     /// to the play button.
     private func handleUnreachable(songID: String) {
-        guard remote == nil, let current = queue.current, current.id == songID else { return }
+        // Not while a video stands in: the track is not what is playing, and pausing here
+        // would pause the video. Switching back to it reloads it then.
+        guard remote == nil, video == nil, let current = queue.current, current.id == songID else { return }
         if unreachableSongID != songID { retryAttempt = 0 }
         unreachableSongID = songID
         let title = current.title
@@ -1509,7 +1512,7 @@ final class PlaybackController {
     /// The failure can be reported before or just after the output's own move to the next
     /// track, so the song is looked for as the current one, then as the one just left.
     private func handleFailedMidTrack(songID: String, at position: Double) {
-        guard remote == nil, isPlaying, let wanted = queue.tracks.first(where: { $0.id == songID }) else { return }
+        guard remote == nil, video == nil, isPlaying, let wanted = queue.tracks.first(where: { $0.id == songID }) else { return }
         let length = Double(wanted.duration ?? 0)
         // At its very end there is nothing left to hear: moving on was right.
         guard length <= 0 || position < length - 3 else { return }

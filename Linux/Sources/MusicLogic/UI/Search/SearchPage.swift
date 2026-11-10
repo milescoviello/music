@@ -3,7 +3,8 @@ import Foundation
 
 /// Search: recent searches, genres and decades while the field is empty; the top result,
 /// matching playlists, artists, albums and songs as you type; and when nothing matches,
-/// the way to ask Hermes to find it, or to search lyrics instead.
+/// the way to ask Hermes to find it, or to search lyrics instead. A Library | YouTube
+/// switch over it searches YouTube instead: music videos to play, and songs to add.
 @MainActor
 enum SearchPage {
     static func make(_ env: Env) -> NavigationPage {
@@ -18,10 +19,17 @@ enum SearchPage {
         stack.add(results, name: "results")
 
         var generation = 0
+        var searchesYouTube = false
         func search(_ text: String) {
             let trimmed = text.trimmingCharacters(in: .whitespaces)
             generation += 1
             let current = generation
+            if searchesYouTube {
+                // YouTube's side searches for itself, and says so when the field is empty.
+                results.child = YouTubeResults.make(env, query: trimmed)
+                stack.visibleName = "results"
+                return
+            }
             // One letter too: a single letter can be a whole title ("Q.").
             guard !trimmed.isEmpty else {
                 stack.visibleName = "idle"
@@ -50,8 +58,29 @@ enum SearchPage {
             }
         }
 
+        // Library | YouTube. Shown while the sonic service answers, since YouTube comes
+        // through it -- or while YouTube is chosen, so it can be left.
+        let library = ToggleButton("Library")
+        let youtube = ToggleButton("YouTube")
+        youtube.group(with: library)
+        library.isActive = true
+        Signal.connect(youtube.widget, "toggled") {
+            guard youtube.isActive != searchesYouTube else { return }
+            searchesYouTube = youtube.isActive
+            gtk_search_entry_set_placeholder_text(entry.widget.cast(), searchesYouTube ? "Music Videos, Songs" : "Artists, Albums, Songs")
+            search(entry.text)
+        }
+        let sources = Box.horizontal(spacing: 0) {
+            library
+            youtube
+        }.css("linked").halign(GTK_ALIGN_CENTER)
+        sources.observe {
+            sources.isVisible = app.video.isAvailable || searchesYouTube
+        }
+
         let body = Box.vertical(spacing: 12) {
             entry.hexpand()
+            sources
             stack
         }.margin(horizontal: 12, vertical: 18)
         entry.onMap { entry.grabFocus() }
