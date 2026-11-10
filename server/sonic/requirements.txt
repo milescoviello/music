@@ -9,3 +9,8 @@ fugashi[unidic-lite]==1.5.2
 # Draft lyric translations: Argos's OPUS models, without the rest of Argos.
 ctranslate2==4.8.5
 sentencepiece==0.2.2
+# Music videos: YouTube search and stream addresses. Unpinned on purpose -- an old yt-dlp
+# stops working when YouTube changes -- and kept current at run time (video.Updater).
+# Deno runs the JavaScript challenge YouTube's addresses come out of.
+yt-dlp[default]
+deno

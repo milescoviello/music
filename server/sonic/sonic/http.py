@@ -1,14 +1,16 @@
 """The HTTP side: small, JSON, and read-only apart from the logs the app sends for
-fixing a bug and the plays and skips it shares between devices. Standard library only, so the service has nothing to install beyond
-Essentia and NumPy."""
+fixing a bug, the plays and skips it shares between devices, and which music video a song
+gets. Standard library only, so the service has nothing to install beyond Essentia, NumPy
+and, for the videos, yt-dlp."""
 
 from __future__ import annotations
 
 import json
 import logging
 import re
+import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .config import TAGS
 from .links import history_links
@@ -36,7 +38,27 @@ def _items(hits) -> dict | None:
     return None if hits is None else {"items": [hit.json() for hit in hits]}
 
 
+def _text(query: dict, name: str) -> str:
+    return query.get(name, [""])[0]
+
+
+def _seconds(query: dict, name: str) -> float | None:
+    try:
+        value = float(query.get(name, [""])[0])
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+VIDEO_RAW = re.compile(r"^/v1/video/([A-Za-z0-9_-]{11})/(master\.m3u8|thumb|(\d+)\.(m3u8|mp4|m4a|webm))$")
+
+
 def make_handler(service):
+    def _token_suffix(query: dict) -> str:
+        """Carried on to the addresses a playlist names, when that is how the token came."""
+        token = query.get("token", [""])[0]
+        return f"?token={quote(token)}" if token else ""
+
     logs = LogBox(service.config.data_dir / "logs")
     routes = [
         (re.compile(r"^/v1/status$"), lambda match, q: service.status()),
@@ -71,6 +93,13 @@ def make_handler(service):
          lambda match, q: service.taste.since(_int(q, "since", 0, 0, 2**62), q.get("device", [""])[0],
                                               _int(q, "limit", 5000, 1, 5000))),
         (re.compile(r"^/v1/radar$"), lambda match, q: service.radar.answer()),
+        (re.compile(r"^/v1/video/search$"),
+         lambda match, q: {"items": service.videos.search(_text(q, "q"), _int(q, "limit", 12, 1, 30))}),
+        (re.compile(r"^/v1/video/match$"),
+         lambda match, q: service.videos.match(_text(q, "artist"), _text(q, "title"), _seconds(q, "duration"),
+                                               _flag(q, "warm"))),
+        (re.compile(r"^/v1/video/([A-Za-z0-9_-]{11})/streams$"),
+         lambda match, q: service.videos.streams(match[1], _token_suffix(q))),
         (re.compile(r"^/v1/history/links$"),
          lambda match, q: {"links": history_links(service.config.data_dir / "history-links.json")}),
         (re.compile(r"^/healthz$"), lambda match, q: {"ok": True}),
@@ -79,13 +108,23 @@ def make_handler(service):
     class Handler(BaseHTTPRequestHandler):
         server_version = "sonic/1"
 
+        def _allowed(self, url) -> bool:
+            """The token as a header, or -- for the video streams, which a player fetches
+            without our headers -- as `?token=` on the address."""
+            token = service.config.token
+            if not token or url.path == "/healthz" or self.headers.get("X-Sonic-Token") == token:
+                return True
+            return url.path.startswith("/v1/video/") and parse_qs(url.query).get("token", [""])[0] == token
+
         def do_GET(self):  # noqa: N802 — the standard library's name
             url = urlparse(self.path)
-            if service.config.token and self.headers.get("X-Sonic-Token") != service.config.token \
-                    and url.path != "/healthz":
+            if not self._allowed(url):
                 return self._send(401, {"error": "token required"})
             query = parse_qs(url.query)
             path = unquote(url.path)
+            raw = VIDEO_RAW.match(path)
+            if raw:
+                return self._video(raw, query)
             cover = re.match(r"^/v1/radar/([^/]+)/cover$", path)
             if cover:
                 data = service.radar.cover(cover[1])
@@ -109,6 +148,103 @@ def make_handler(service):
                     # Unknown or not yet analysed: 404, which the app reads as "fall back".
                     return self._send(404, {"error": "not analysed"}) if body is None else self._send(200, body)
             return self._send(404, {"error": "no such endpoint"})
+
+        def _video(self, raw, query):
+            """Playlists, thumbnails and the stream relay: not JSON."""
+            video_id, name, itag, kind = raw[1], raw[2], raw[3], raw[4]
+            suffix = _token_suffix(query)
+            try:
+                if name == "thumb":
+                    data = service.videos.thumbnail(video_id)
+                    if data is None:
+                        return self._send(404, {"error": "no thumbnail"})
+                    return self._bytes(200, data, "image/jpeg", "max-age=604800")
+                if name == "master.m3u8":
+                    text = service.videos.master(video_id, suffix)
+                elif kind == "m3u8":
+                    text = service.videos.media(video_id, itag, suffix)
+                else:
+                    return self._relay(video_id, itag)
+            except LookupError as error:
+                return self._send(404, {"error": str(error)})
+            except ValueError as error:
+                return self._send(400, {"error": str(error)})
+            except Exception as error:  # noqa: BLE001 — YouTube refusing, mostly
+                log.exception("video request failed: %s", self.path)
+                return self._send(502, {"error": str(error)})
+            return self._bytes(200, text.encode(), "application/vnd.apple.mpegurl", "no-store")
+
+        def _relay(self, video_id: str, itag: str):
+            """YouTube's bytes for a byte range, passed straight through."""
+            try:
+                stream, upstream = service.videos.open_stream(video_id, itag, self.headers.get("Range"))
+            except urllib.error.HTTPError as error:
+                return self._send(error.code if error.code in (404, 416) else 502, {"error": f"YouTube said {error.code}"})
+            with upstream:
+                self.send_response(upstream.status)
+                self.send_header("Content-Type",
+                                 {"mp4": "video/mp4", "m4a": "audio/mp4", "webm": "audio/webm"}.get(stream.ext,
+                                                                                                    "application/octet-stream"))
+                for name in ("Content-Length", "Content-Range"):
+                    if upstream.headers.get(name):
+                        self.send_header(name, upstream.headers[name])
+                self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                try:
+                    while True:
+                        chunk = upstream.read(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError, TimeoutError):
+                    pass          # the player moved on, or seeked
+
+        def _bytes(self, status: int, data: bytes, content_type: str, cache: str):
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", cache)
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _body(self, limit: int = 64 * 1024) -> dict:
+            length = int(self.headers.get("Content-Length", "") or 0)
+            if not 0 < length <= limit:
+                raise ValueError(f"between 1 byte and {limit} bytes")
+            body = json.loads(self.rfile.read(length))
+            if not isinstance(body, dict):
+                raise ValueError("a JSON object")
+            return body
+
+        def do_PUT(self):  # noqa: N802 — the standard library's name
+            """`PUT /v1/video/match {"artist", "title", "video": {"id", "title", "channel", "duration"}}`:
+            the video this song gets from now on, chosen by hand."""
+            url = urlparse(self.path)
+            if not self._allowed(url):
+                return self._send(401, {"error": "token required"})
+            if unquote(url.path) != "/v1/video/match":
+                return self._send(404, {"error": "no such endpoint"})
+            try:
+                body = self._body()
+                video = body.get("video")
+                if not isinstance(video, dict):
+                    raise ValueError("video must be an object")
+                answer = service.videos.choose(str(body.get("artist") or ""), str(body.get("title") or ""), video)
+            except ValueError as error:
+                return self._send(400, {"error": str(error)})
+            return self._send(200, answer)
+
+        def do_DELETE(self):  # noqa: N802 — the standard library's name
+            """`DELETE /v1/video/match?artist=&title=`: back to the automatic pick."""
+            url = urlparse(self.path)
+            if not self._allowed(url):
+                return self._send(401, {"error": "token required"})
+            if unquote(url.path) != "/v1/video/match":
+                return self._send(404, {"error": "no such endpoint"})
+            query = parse_qs(url.query)
+            service.videos.reset(_text(query, "artist"), _text(query, "title"))
+            return self._send(200, {"ok": True})
 
         def do_POST(self):  # noqa: N802 — the standard library's name
             if service.config.token and self.headers.get("X-Sonic-Token") != service.config.token:

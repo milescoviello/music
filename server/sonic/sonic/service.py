@@ -20,6 +20,7 @@ from .words import Readings, Translations
 from .radar import Radar
 from .store import Store
 from .taste import TasteStore
+from .video import Videos
 
 log = logging.getLogger("sonic")
 
@@ -35,6 +36,7 @@ class Service:
         self.lyrics = LyricIndex([])
         self.readings = Readings()
         self.translations = Translations(config.data_dir, config.ollama, config.translate_model)
+        self.videos = Videos(config.data_dir)
         self.analysing = False
         self.library_tracks = 0
         self.last_sync: float | None = None
