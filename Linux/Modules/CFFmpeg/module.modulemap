@@ -3,6 +3,7 @@ module CFFmpeg [system] {
     link "avformat"
     link "avcodec"
     link "swresample"
+    link "swscale"
     link "avutil"
     export *
 }

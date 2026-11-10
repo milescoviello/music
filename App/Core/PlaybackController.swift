@@ -60,10 +60,25 @@ final class PlaybackController {
     /// and drives it unchanged. This device's own queue waits on disk meanwhile.
     private(set) var remote: (any RemotePlayerLink)?
 
+    /// A music video playing in the track's place: the player's Song | Video switch (see
+    /// `VideoService`). While there is one, play, pause and seek go to it -- from the
+    /// player, the lock screen and headphones alike -- and `elapsed`, `duration` and
+    /// `isPlaying` are its, so every screen shows and drives the video unchanged. The track
+    /// waits paused underneath; next, previous and the queue work as they always do, and
+    /// the video service follows them to the next song's video.
+    private(set) var video: (any VideoStandIn)?
+    /// What the lock screen shows while a video that is not the song's own is watched (a
+    /// search result). Its time is not the song's: it is neither counted nor saved.
+    private(set) var videoSong: Song?
+
     private func queueDidChange() {
         let current = queue.current
-        if let current, current.id != currentSong?.id { announce(current) }
+        let songChanged = current?.id != currentSong?.id
+        if let current, songChanged { announce(current) }
         if current != currentSong { currentSong = current }
+        // Before the output is rebuilt for it, so a video standing in is still in place
+        // and the new track is never heard before its own video takes over.
+        if songChanged, remote == nil { appState?.video.trackChanged() }
         if hasQueue == queue.isEmpty { hasQueue = !queue.isEmpty }
         let canAdd = queue.canAddToUpNext
         if canAdd != canAddToUpNext { canAddToUpNext = canAdd }
@@ -654,7 +669,10 @@ final class PlaybackController {
 
     func play() {
         if let remote { remote.send(RemoteCommand(.play)); return }
+        if let video { video.play(); return }
         guard hasQueue else { return }
+        // Video left on from last time: pressing play plays the song's video.
+        if appState?.video.takesOverPlay() == true { return }
         retryTask?.cancel()
         retryTask = nil
         // A track that failed to load leaves the output with nothing to resume while the
@@ -677,6 +695,13 @@ final class PlaybackController {
     /// has just loaded the track: a second load of one that could not be found would
     /// report it run off the end twice, and skip two tracks.
     private func startOutput() {
+        // A video stands in for the track: it is what plays. Marked playing here so the
+        // video opened for a song just tapped starts rather than waits.
+        if video != nil {
+            if !isPlaying { isPlaying = true }
+            publishNowPlaying(force: true)
+            return
+        }
         session.activate()
         output.play()
         isPlaying = true
@@ -717,6 +742,7 @@ final class PlaybackController {
 
     func pause() {
         if let remote { remote.send(RemoteCommand(.pause)); return }
+        if let video { video.pause(); return }
         retryTask?.cancel()
         retryTask = nil
         output.pause()
@@ -773,6 +799,8 @@ final class PlaybackController {
 
     func next() {
         if let remote { remote.send(RemoteCommand(.next)); return }
+        // Next while a search result is watched: done with it, back to the music.
+        if videoSong != nil { appState?.video.stopWatching(); return }
         logSkip("skipped")
         noteSkip()
         lastMoveByHand = .now
@@ -816,6 +844,7 @@ final class PlaybackController {
     /// Rewinds first, the way every native player does, and only then goes back.
     func previous() {
         if let remote { remote.send(RemoteCommand(.previous)); return }
+        if videoSong != nil { seek(to: 0); return }
         if elapsed > 3 {
             seek(to: 0)
             return
@@ -894,6 +923,13 @@ final class PlaybackController {
 
     func seek(to seconds: Double) {
         if let remote { remote.send(.seek(to: seconds)); return }
+        if let video {
+            video.seek(to: seconds)
+            elapsed = seconds
+            tracker.interrupted(at: seconds)
+            publishNowPlaying(force: true)
+            return
+        }
         output.seek(to: seconds)
         elapsed = seconds
         tracker.interrupted(at: seconds)
@@ -982,6 +1018,10 @@ final class PlaybackController {
     /// Plays to `link` from now on. Whatever was playing here is paused and saved, to come
     /// back to with `controlLocally`.
     func control(_ link: any RemotePlayerLink) {
+        if video != nil {
+            video = nil
+            appState?.video.playerWentRemote()
+        }
         if remote == nil {
             if isPlaying { pause() }
             persistNow()
@@ -1029,6 +1069,94 @@ final class PlaybackController {
         if speed != Float(state.speed) { speed = Float(state.speed) }
         let position = mirror.elapsed(at: time)
         if elapsed != position { elapsed = position }
+    }
+
+    // MARK: - A music video in the track's place
+
+    /// The video takes over: the track pauses where it is, and the transport goes to
+    /// `standIn` until `endVideo`. `other` is for a video that is not the song's own.
+    func beginVideo(_ standIn: any VideoStandIn, showing other: Song? = nil) {
+        guard remote == nil else { return }
+        if video == nil {
+            retryTask?.cancel()
+            retryTask = nil
+            openWatch?.cancel()
+            if isPlaying { output.pause() }
+            tracker.interrupted(at: elapsed)
+            session.activate()
+        }
+        video = standIn
+        videoSong = other
+        if other != nil { publishNowPlaying(force: true) }
+    }
+
+    /// The video's own time and state, shown as the player's. Each value is assigned only
+    /// when it differs: this runs four times a second. Listening to the video counts toward
+    /// the song's play like listening to its track.
+    func mirrorVideo(elapsed newElapsed: Double, duration length: Double, isPlaying playing: Bool, isBuffering buffering: Bool) {
+        guard video != nil else { return }
+        let stateChanged = playing != isPlaying || (length > 0 && abs(length - duration) > 0.5)
+        if isPlaying != playing {
+            isPlaying = playing
+            session.noteIsPlaying(playing)
+        }
+        if isBuffering != buffering { isBuffering = buffering }
+        if length > 0, abs(length - duration) > 0.01 { duration = length }
+        if elapsed != newElapsed { elapsed = newElapsed }
+        guard videoSong == nil else {
+            if stateChanged { publishNowPlaying(force: true) }
+            return
+        }
+        if playing, !buffering {
+            tracker.advanced(to: newElapsed)
+        } else {
+            tracker.interrupted(at: newElapsed)
+        }
+        if stateChanged {
+            publishNowPlaying(force: true)
+            persist()
+        }
+    }
+
+    /// Back to the track, at `seconds` into it (where the video had got to), playing if
+    /// `play`.
+    func endVideo(resumingAt seconds: Double?, play: Bool) {
+        guard video != nil else { return }
+        video = nil
+        videoSong = nil
+        isPlaying = false
+        isBuffering = false
+        duration = output.duration > 0 ? output.duration : Double(queue.current?.duration ?? 0)
+        if let seconds {
+            let target = duration > 1 ? min(max(0, seconds), duration - 1) : max(0, seconds)
+            output.seek(to: target)
+            elapsed = target
+        }
+        tracker.interrupted(at: elapsed)
+        if play {
+            self.play()
+        } else {
+            session.noteIsPlaying(false)
+            publishNowPlaying(force: true)
+            persist()
+        }
+    }
+
+    /// The video played to its end: on to the next song, the way a track ending does --
+    /// not a skip, so it is not logged as one.
+    func videoFinished() {
+        guard video != nil, videoSong == nil else { return }
+        if let finished = queue.current { appState?.resume.clear(songID: finished.id) }
+        resumeNotice = nil
+        topUpMixQueue()
+        if queue.advance() {
+            let stops = appState?.sleepTimer.trackDidFinish(next: queue.current) == true
+            rebuildOutput(startPlaying: !stops, seekTo: 0)
+            if stops { pause() }
+        } else {
+            appState?.sleepTimer.trackDidFinish(next: nil)
+            continueIntoAutoplay()
+        }
     }
 
     // MARK: - Scrobbling
@@ -1208,7 +1336,7 @@ final class PlaybackController {
     // MARK: - Time and transitions
 
     private func tick(elapsed newElapsed: Double, isMoving: Bool) {
-        guard remote == nil else { return }
+        guard remote == nil, video == nil else { return }
         elapsed = newElapsed
         if isMoving, Date.now.timeIntervalSince(lastPositionSave) >= 10 { savePosition() }
         // Only when it changes: this runs four times a second, and an observed property
@@ -1441,7 +1569,7 @@ final class PlaybackController {
     // MARK: - Now Playing
 
     private func publishNowPlaying(force: Bool) {
-        guard let song = queue.current else {
+        guard let song = videoSong ?? queue.current else {
             nowPlaying.clear()
             return
         }
@@ -1484,8 +1612,9 @@ final class PlaybackController {
     /// kill the app while audio plays; the real risks are termination while paused
     /// and crashes.
     private func persist() {
-        // The queue on screen is the other device's; this one's is already on disk.
-        guard remote == nil else { return }
+        // The queue on screen is the other device's; this one's is already on disk. And
+        // the time on screen while a search result is watched is the video's, not the song's.
+        guard remote == nil, videoSong == nil else { return }
         saveTask?.cancel()
         let snapshot = QueueSnapshot(queue: queue, positionSeconds: elapsed, savedAt: .now)
         lastSavedAt = snapshot.savedAt

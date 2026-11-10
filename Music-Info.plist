@@ -55,9 +55,13 @@
 	<array>
 		<string>arm64</string>
 	</array>
+	<!-- Upright everywhere; a full-screen video may turn on its side. The app delegate
+	     narrows it to portrait except while one is showing (VideoOrientation). -->
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<!-- Playback must survive the screen locking; without this iOS suspends the
 	     app and audio stops. -->

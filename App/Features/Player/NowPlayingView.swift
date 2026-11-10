@@ -9,6 +9,7 @@ struct NowPlayingView: View {
     @Environment(AppState.self) private var appState
     @Environment(PlayerSettings.self) private var playerSettings
     @Environment(RemotePlayers.self) private var remotes
+    @Environment(VideoService.self) private var videos
     /// Called instead of `dismiss()`: this is no longer a modal, it is a layer drawn
     /// above the library, so closing it is the presenter's business.
     var onDismiss: () -> Void = {}
@@ -19,6 +20,9 @@ struct NowPlayingView: View {
     @State private var drag = DismissDrag()
     @State private var similarTo: Song?
     @State private var showsVisualizerPicker = false
+    /// Change Video, for this song.
+    @State private var changingVideo: Song?
+    @State private var showsFullScreenVideo = false
     @Namespace private var modeNamespace
 
     private var player: PlaybackController { appState.player }
@@ -55,11 +59,25 @@ struct NowPlayingView: View {
             // Choosing one from the artwork shows it, as in Plexamp.
             VisualizerPicker(onSelect: { mode = .visualizer })
         }
+        .sheet(item: $changingVideo) { song in
+            ChangeVideoSheet(song: song)
+        }
+        .fullScreenCover(isPresented: $showsFullScreenVideo) {
+            VideoFullScreenView(watching: nil)
+        }
+        // The song's video looked up while the player is open, so the switch is quick.
+        .task(id: player.currentSong?.id) {
+            if let song = player.currentSong { await videos.prepare(song) }
+        }
     }
 
     private var playerBody: some View {
         VStack(spacing: 0) {
             topBar
+
+            if videos.isAvailable || videos.wantsVideo {
+                videoSwitch
+            }
 
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -227,6 +245,11 @@ struct NowPlayingView: View {
                     Button("Sonic Adventure…", systemImage: Station.adventure(fromID: "", toID: "").symbol) {
                         appState.navigator.open(.sonicAdventure(song))
                     }
+                    if videos.isAvailable {
+                        Button("Change Video…", systemImage: "play.rectangle.on.rectangle") {
+                            changingVideo = song
+                        }
+                    }
                     Divider()
 
                     GuestDJMenu()
@@ -291,6 +314,9 @@ struct NowPlayingView: View {
     private var content: some View {
         ZStack {
             switch mode {
+            case .artwork where showsVideo:
+                videoPane
+
             case .artwork:
                 ArtworkImage(
                     id: player.currentSong?.coverArt,
@@ -326,6 +352,101 @@ struct NowPlayingView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: mode)
+    }
+
+    // MARK: - Video
+
+    /// The song's video is on screen instead of its artwork.
+    private var showsVideo: Bool {
+        videos.wantsVideo && videos.isStandingIn
+    }
+
+    /// YouTube Music's Song | Video switch. A long press is Change Video.
+    private var videoSwitch: some View {
+        VStack(spacing: 4) {
+            HStack(spacing: 0) {
+                switchSegment("Song", isOn: !videos.wantsVideo) { videos.setWantsVideo(false) }
+                switchSegment("Video", isOn: videos.wantsVideo) { videos.setWantsVideo(true) }
+            }
+            .padding(3)
+            .background(.white.opacity(0.12), in: Capsule())
+            .contextMenu {
+                if let song = player.currentSong, videos.isAvailable {
+                    Button("Change Video…", systemImage: "play.rectangle.on.rectangle") {
+                        changingVideo = song
+                    }
+                }
+            }
+
+            if let note = videoNote {
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .transition(.opacity)
+            }
+        }
+        .padding(.bottom, 6)
+        .animation(.easeInOut(duration: 0.2), value: videos.showing)
+    }
+
+    private func switchSegment(_ title: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(isOn ? .black : .white.opacity(0.8))
+                .frame(width: 84, height: 30)
+                .background { if isOn { Capsule().fill(.white) } }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isOn ? [.isSelected] : [])
+    }
+
+    /// Why Video is chosen but the artwork shows.
+    private var videoNote: String? {
+        guard videos.wantsVideo else { return nil }
+        if !videos.isAvailable { return "Videos aren't reachable right now" }
+        switch videos.showing {
+        case .noVideo: return "No video for this song"
+        case .failed: return "The video wouldn't play · playing the song"
+        default: return nil
+        }
+    }
+
+    private var videoPane: some View {
+        VideoSurface(engine: videos.engine)
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: Metrics.radiusPlayer, style: .continuous))
+            .overlay {
+                if videos.showing == .loading || videos.progress.isWaiting {
+                    ProgressView().tint(.white)
+                }
+            }
+            .overlay {
+                // Taps here rather than on the picture, which takes none: the player's
+                // pull-down has to work over the video as it does over the artwork.
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { showsFullScreenVideo = true }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                Button {
+                    showsFullScreenVideo = true
+                } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(8)
+                        .background(.black.opacity(0.45), in: Circle())
+                        .frame(width: Metrics.minimumTouchTarget, height: Metrics.minimumTouchTarget)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Full screen")
+                .padding(4)
+            }
+            .padding(.horizontal, 12)
+            .shadow(radius: 24, y: 12)
+            .matchedGeometryEffect(id: "artwork", in: modeNamespace)
     }
 
     private func metadata(_ song: Song) -> some View {

@@ -46,6 +46,7 @@ let appleOnly = [
     "QueuePlayerOutput.swift",
     "Reachability.swift",
     "ScreenAwake.swift",
+    "VideoEngine.swift",
 ].map { "Core/\($0)" }
 
 func desktopPackage() -> Package {
@@ -56,9 +57,9 @@ func desktopPackage() -> Package {
             .systemLibrary(
                 name: "CFFmpeg",
                 path: "Linux/Modules/CFFmpeg",
-                pkgConfig: "libavformat libavcodec libswresample libavutil"
+                pkgConfig: "libavformat libavcodec libswresample libswscale libavutil"
             ),
-            .systemLibrary(name: "CPulse", path: "Linux/Modules/CPulse", pkgConfig: "libpulse"),
+            .systemLibrary(name: "CPulse", path: "Linux/Modules/CPulse", pkgConfig: "libpulse libpulse-simple"),
             .systemLibrary(name: "CRubberBand", path: "Linux/Modules/CRubberBand", pkgConfig: "rubberband"),
             .systemLibrary(name: "CEpoxy", path: "Linux/Modules/CEpoxy", pkgConfig: "epoxy"),
             .target(
@@ -135,6 +136,7 @@ func logicPackage() -> Package {
                     "LyricTranslationStore.swift",
                     "RemoteControl.swift",
                     "RecordingMatch.swift",
+                    "VideoClient.swift",
                 ]
             ),
             .testTarget(

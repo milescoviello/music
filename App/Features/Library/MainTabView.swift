@@ -10,6 +10,14 @@ struct MainTabView: View {
 
     private var navigator: Navigator { appState.navigator }
 
+    /// A YouTube result from search, full screen until it is closed.
+    private var watching: Binding<VideoClient.Video?> {
+        Binding(
+            get: { appState.video.watching },
+            set: { if $0 == nil { appState.video.stopWatching() } }
+        )
+    }
+
     private var showsPlayer: Binding<Bool> {
         Binding(
             get: { appState.navigator.showsPlayer },
@@ -50,6 +58,10 @@ struct MainTabView: View {
             }
         }
         .overlay(alignment: .bottom) { toast }
+        // Full screen over everything, the player included: watching it is the point.
+        .fullScreenCover(item: watching) { video in
+            VideoFullScreenView(watching: video)
+        }
         // Over the player too, which is an overlay here rather than a modal.
         .playlistPicker(host: "root")
         .safeAreaInset(edge: .top) { remoteQueueBanner }

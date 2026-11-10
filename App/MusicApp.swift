@@ -44,6 +44,7 @@ struct MusicApp: App {
                 .environment(appState.libraryIndex)
                 .environment(appState.recentPlays)
                 .environment(appState.sonic)
+                .environment(appState.video)
                 .environment(appState.streamCache)
                 .environment(remotePlayers)
                 .remotePairingPrompt()

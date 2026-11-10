@@ -105,6 +105,26 @@ final class MusicRequestService {
     /// Hermes rather than here.
     @discardableResult
     func send(_ text: String) async -> Bool {
+        await send(text, route: "music-request", fields: [:])
+    }
+
+    /// One song, seen on YouTube in search: the agent gets that song first, as a single
+    /// lossless track through the Soulseek pipeline, so it is playable within minutes --
+    /// and then, with `withAlbum`, the whole album it is from.
+    @discardableResult
+    func sendSong(artist: String, title: String, withAlbum: Bool, videoID: String?) async -> Bool {
+        let artist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return false }
+        var fields = ["artist": artist, "title": title, "album": withAlbum ? "yes" : "no"]
+        if let videoID { fields["video_id"] = videoID }
+        // Only the names: the text is also what the library is searched for, to see the
+        // song arrive.
+        let text = [artist, title].filter { !$0.isEmpty }.joined(separator: " – ")
+        return await send(text, route: "music-song", fields: fields)
+    }
+
+    private func send(_ text: String, route: String, fields extra: [String: String]) async -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let configuration else { return false }
 
@@ -121,9 +141,9 @@ final class MusicRequestService {
         let client = HermesClient(configuration: configuration)
         do {
             let acceptance = try await client.send(
-                route: "music-request",
+                route: route,
                 requestID: requestID,
-                fields: ["request": trimmed]
+                fields: extra.merging(["request": trimmed]) { mine, _ in mine }
             )
 
             switch acceptance {

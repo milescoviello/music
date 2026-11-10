@@ -14,6 +14,10 @@ struct SearchView: View {
     /// Bound so that opening a result can be noticed: that is when a search is worth
     /// keeping in Recent.
     @State private var path = NavigationPath()
+    /// The library, or YouTube: music videos and songs the library does not have.
+    @State private var source = Source.library
+
+    enum Source: Hashable { case library, youtube }
 
     private var results: SearchResult3? { outcome?.results }
 
@@ -25,7 +29,9 @@ struct SearchView: View {
     var body: some View {
         NavigationStack(path: $path) {
             Group {
-                if query.isEmpty {
+                if source == .youtube {
+                    YouTubeResultsView(query: query, onUse: recordQuery)
+                } else if query.isEmpty {
                     idleState
                 } else if failed, !isSearching {
                     ContentUnavailableView {
@@ -63,6 +69,7 @@ struct SearchView: View {
                 }
             }
             .navigationTitle("Search")
+            .safeAreaInset(edge: .top, spacing: 0) { sourcePicker }
             .musicDestinations()
             .offlineBanner()
             .searchable(
@@ -85,7 +92,9 @@ struct SearchView: View {
                 appState.recentSearches.record(query)
             }
             .scrollDismissesKeyboard(.immediately)
-            .task(id: SearchKey(query: query, scope: scope.generation)) {
+            .task(id: SearchKey(query: query, scope: scope.generation, source: source)) {
+                // YouTube's side searches for itself; the library is left alone meanwhile.
+                guard source == .library else { return }
                 await search()
             }
             // Fetches the words that put a misspelled search right, if this phone does not
@@ -405,6 +414,23 @@ struct SearchView: View {
     private struct SearchKey: Equatable {
         let query: String
         let scope: Int
+        let source: Source
+    }
+
+    /// Library | YouTube, under the search field. Only while the sonic service answers,
+    /// since YouTube comes through it -- or while YouTube is chosen, so it can be left.
+    @ViewBuilder
+    private var sourcePicker: some View {
+        if appState.video.isAvailable || source == .youtube {
+            Picker("Search", selection: $source) {
+                Text("Library").tag(Source.library)
+                Text("YouTube").tag(Source.youtube)
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, Metrics.gutter)
+            .padding(.vertical, 6)
+            .background(.bar)
+        }
     }
 
     /// The debounce is the `.task(id:)` itself: a keystroke cancels the previous

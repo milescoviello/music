@@ -1,7 +1,8 @@
 import UIKit
 
-/// Exists for exactly one callback that SwiftUI has no equivalent for:
-/// `handleEventsForBackgroundURLSession`.
+/// Exists for the two callbacks SwiftUI has no equivalent for:
+/// `handleEventsForBackgroundURLSession`, and which way the screen may turn -- upright
+/// everywhere but a full-screen video (`VideoOrientation`).
 ///
 /// When downloads finish while the app is not running, iOS relaunches it in the
 /// background purely to deliver those events, hands over a completion handler, and
@@ -15,6 +16,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         completionHandler: @escaping () -> Void
     ) {
         BackgroundSessionBridge.pendingCompletion = completionHandler
+    }
+
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        MainActor.assumeIsolated { VideoOrientation.mask }
     }
 }
 
