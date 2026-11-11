@@ -16,3 +16,6 @@ yt-dlp[default]
 deno
 # YouTube Music's video search, which says which video is the artist's official one.
 ytmusicapi
+# Lyrics fixed in the app, written into the song's tags. yt-dlp[default] brings it too;
+# named here because the lyrics depend on it.
+mutagen>=1.47

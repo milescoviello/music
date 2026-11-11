@@ -67,6 +67,27 @@ since an old one stops working when YouTube changes; Deno runs its JavaScript ch
 With `SONIC_TOKEN` set, the media addresses carry it as `?token=`, since a player cannot
 add the header.
 
+### Lyrics fixed in the apps
+
+`POST /v1/lyrics/save` `{id, original, synced, lines: [{start, value}], auth: {u, t, s}}`
+writes lyrics timed by hand in the apps back where Navidrome found them
+(`sonic/lyricsfile.py`), as LRC, in Navidrome's default order: an `.lrc` beside the song
+with its name, which most of the library's lyrics are (Navidrome reads those on every
+request, so a fix shows at once); else a `.txt`; else the song's own tags -- every lyrics
+tag whose words are `original` and whose timing matches `synced` (Vorbis comments, ID3
+`USLT`, MP4 `©lyr`). A file beside the song keeps its headers (`[ti:]`, `[ar:]`...) but
+not its `[offset:]`, which the app has put into the times.
+
+`auth` is the app's Subsonic sign-in, and the service asks Navidrome
+(`SONIC_NAVIDROME_URL`, default `http://127.0.0.1:4533`) whether it is an admin's. A song's
+own file is copied beside itself as a hidden `.<name>.sonic-lyrics`, retagged, checked to
+carry the same audio as the original (the frame bytes for FLAC and MP3, Essentia's packet
+MD5 for anything else), and renamed over it; Navidrome's watcher scans the folder again.
+It answers `{ok, changed}`, or an error the app shows: 401/403 for the sign-in or a folder
+the NAS won't let it write, 404 for a song or file it can't find, 409 when the file's words
+aren't `original`, 422 for a file it can't tag. These are the only writes the service makes
+to the music, and why its mounts of it are not read-only.
+
 `POST /v1/logs` takes the plain-text report from the app's Diagnostics → Send Logs and
 keeps it as `data/logs/<UTC time>-<source>-<random>.txt`, where `source` is the app's
 `X-Log-Source` ("ios", "linux-<host>"). It answers 201 with `{"name"}`. A report is at

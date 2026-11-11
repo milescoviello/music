@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 import sqlite3
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +47,31 @@ def read(config: Config) -> list[LibraryTrack]:
 
 def read_with_lyrics(config: Config) -> tuple[list[LibraryTrack], list[lyrics.LyricTrack]]:
     """The tracks and their lyrics, from one copy of the database."""
+    with _snapshot(config) as connection:
+        return _read(connection, config), lyrics.read(connection)
+
+
+def locate(config: Config, track_id: str) -> str | None:
+    """Where one track's file is here, from a fresh copy of the database: for a file about
+    to be written, the analysis's view of the library, hours old, will not do."""
+    with _snapshot(config) as connection:
+        columns = _columns(connection, "media_file")
+        missing = "and mf.missing = 0" if "missing" in columns else ""
+        if "library_id" in columns and _columns(connection, "library"):
+            row = connection.execute(
+                f"select l.path, mf.path from media_file mf join library l on l.id = mf.library_id "
+                f"where mf.id = ? {missing}", (track_id,)).fetchone()
+        else:
+            row = connection.execute(
+                f"select '', mf.path from media_file mf where mf.id = ? {missing}", (track_id,)).fetchone()
+    if row is None:
+        return None
+    library_root, relative = row
+    return config.local_path(f"{library_root.rstrip('/')}/{relative}" if library_root else relative)
+
+
+@contextmanager
+def _snapshot(config: Config):
     with tempfile.TemporaryDirectory() as scratch:
         source = config.navidrome_db
         for suffix in ("", "-wal", "-shm"):
@@ -54,7 +80,7 @@ def read_with_lyrics(config: Config) -> tuple[list[LibraryTrack], list[lyrics.Ly
                 shutil.copy2(candidate, Path(scratch) / (source.name + suffix))
         connection = sqlite3.connect(f"file:{Path(scratch) / source.name}?mode=ro", uri=True)
         try:
-            return _read(connection, config), lyrics.read(connection)
+            yield connection
         finally:
             connection.close()
 

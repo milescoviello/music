@@ -48,6 +48,8 @@ class Config:
     host: str = field(default_factory=lambda: os.environ.get("SONIC_HOST", "0.0.0.0"))
     port: int = field(default_factory=lambda: int(os.environ.get("SONIC_PORT", "8650")))
     token: str = field(default_factory=lambda: os.environ.get("SONIC_TOKEN", ""))
+    # Navidrome itself, asked whether whoever saves lyrics into a file is one of its admins.
+    navidrome_url: str = field(default_factory=lambda: os.environ.get("SONIC_NAVIDROME_URL", "http://127.0.0.1:4533"))
     # Lyric translations for the desktop app: a local model through Ollama.
     ollama: str = field(default_factory=lambda: os.environ.get("SONIC_OLLAMA", "http://127.0.0.1:11434"))
     translate_model: str = field(default_factory=lambda: os.environ.get(

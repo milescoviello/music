@@ -11,7 +11,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import numpy as np
 
-from . import library
+from . import library, lyricsfile
 from .analyse import analyse, init_worker
 from .config import ANALYSIS_VERSION, MODEL_NAME, MODEL_URL, Config
 from .index import Index, bucket_levels, stored_levels
@@ -82,6 +82,20 @@ class Service:
             "duration": duration,
             "loudness": loudness,
         }
+
+    def save_lyrics(self, body: dict) -> dict:
+        """Lyrics fixed in the app, into the song's file: see `lyricsfile`. Raises
+        `lyricsfile.Refused`."""
+        fix = lyricsfile.request(body)
+        lyricsfile.check_admin(self.config.navidrome_url, fix.auth)
+        path = library.locate(self.config, fix.track_id)
+        if path is None:
+            raise lyricsfile.Refused(404, "The music server doesn't know this song.")
+        changed = lyricsfile.write(path, fix.original, fix.synced, fix.lines)
+        log.info("lyrics saved into %s: %s", fix.track_id, ", ".join(changed))
+        if not any(name.endswith("beside the song") for name in changed):
+            lyricsfile.ask_scan(self.config.navidrome_url, fix.auth)
+        return {"ok": True, "changed": changed}
 
     # MARK: - Work
 

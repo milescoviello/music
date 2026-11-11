@@ -18,12 +18,23 @@ struct LyricsView: View {
     @State private var loadedSongID: String?
     @State private var readAlong = LyricsReadAlong()
     @State private var translation = LyricTranslation()
+    /// The lyrics being timed by hand (`LyricsTiming`), and the song they are of: kept
+    /// while it plays on into the next, so a song timed to its last line can still be saved.
+    @State private var timing: LyricsTiming?
+    @State private var timingSongID: String?
+    @State private var isSavingTiming = false
+    @State private var timingError: String?
 
     private enum LoadState { case loading, loaded, missing }
 
     private var player: PlaybackController { appState.player }
-    private var lines: [LyricLine] { lyrics?.lines ?? [] }
+    private var lines: [LyricLine] { timing?.lines ?? lyrics?.lines ?? [] }
     private var isSynced: Bool { lyrics?.synced == true }
+    /// Whether the lines on screen are of the song playing: not once a song being timed
+    /// has ended and the next one begun.
+    private var showsPlayingSong: Bool { timing == nil || timingSongID == player.currentSong?.id }
+    /// Whether the highlight follows the music.
+    private var follows: Bool { showsPlayingSong && (timing?.isTimed ?? isSynced) }
 
     var body: some View {
         Group {
@@ -60,7 +71,10 @@ struct LyricsView: View {
         // included, on every tick. Out there it re-runs an empty view, and this one runs
         // only when the line changes.
         .background {
-            LyricClock(lines: lines, isSynced: isSynced, offset: lyrics?.offset ?? 0) { index in
+            LyricClock(
+                lines: lines, isSynced: follows, offset: timing == nil ? lyrics?.offset ?? 0 : 0,
+                isTiming: timing != nil
+            ) { index in
                 lineChanged(to: index)
             }
         }
@@ -88,13 +102,19 @@ struct LyricsView: View {
                 // string would break both scrolling and highlighting.
                 ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(line.value)
+                        Text(timing != nil && line.value.isEmpty ? "♪" : line.value)
                             .font(index == activeIndex
                                 ? .title2.weight(.bold)
                                 : .title3.weight(.semibold))
+                        if timing != nil {
+                            // When it starts now, to see what a nudge or a tap did.
+                            Text(line.start.map(Self.stamp) ?? "Not timed")
+                                .font(.caption.monospacedDigit())
+                                .opacity(0.6)
+                        }
                         // Beneath the line rather than in its place: the original is
                         // what is being sung, and the highlight stays on it.
-                        if settings.romanizesLyrics, let romanized = readAlong.romanized[index] {
+                        if timing == nil, settings.romanizesLyrics, let romanized = readAlong.romanized[index] {
                             Text(romanized)
                                 .font(index == activeIndex
                                     ? .body.weight(.semibold)
@@ -103,7 +123,7 @@ struct LyricsView: View {
                         }
                         // Last, and lighter than the romanization: with both on, the
                         // line reads original, then how it sounds, then what it means.
-                        if settings.translatesLyrics, let translated = translatedLine(index) {
+                        if timing == nil, settings.translatesLyrics, let translated = translatedLine(index) {
                             Text(translated)
                                 .font(index == activeIndex ? .body : .callout)
                                 .opacity(0.6)
@@ -114,16 +134,29 @@ struct LyricsView: View {
                     .multilineTextAlignment(.leading)
                     .padding(.vertical, 10)
                     .padding(.horizontal, 20)
+                    // The line the next tap times.
+                    .background {
+                        if timing?.next == index {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(.white.opacity(0.14))
+                                .padding(.horizontal, 8)
+                        }
+                    }
                     .id(index)
                     .contentShape(Rectangle())
                     .onTapGesture {
+                        if timing != nil {
+                            markLine(index)
+                            return
+                        }
                         guard isSynced, let start = line.start else { return }
                         // Sung `offset` ms sooner than its stamp: see `LyricClock`.
                         player.seek(to: Double(max(0, start - (lyrics?.offset ?? 0))) / 1000)
                     }
                 }
 
-                Spacer().frame(height: 200)
+                // Room to bring the last lines up above the timing controls.
+                Spacer().frame(height: timing == nil ? 200 : 340)
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: activeIndex)
         }
@@ -133,6 +166,13 @@ struct LyricsView: View {
         .onChange(of: settings.translatesLyrics) { recentre() }
         .onChange(of: readAlong.romanized) { recentre() }
         .onChange(of: translation.lines) { recentre() }
+        // Timing by hand, the view keeps the line to tap next in sight.
+        .onChange(of: timing?.next) { _, next in
+            guard let next, resumeAutoScrollAt.map({ $0 < .now }) ?? true else { return }
+            withAnimation(.easeInOut(duration: 0.3)) {
+                scrollPosition.scrollTo(id: next, anchor: UnitPoint(x: 0.5, y: 0.32))
+            }
+        }
         .scrollPosition($scrollPosition, anchor: UnitPoint(x: 0.5, y: 0.32))
         // Touch it and auto-scroll stops dead; it resumes 4s after the scroll settles
         // so the view never fights the user's finger.
@@ -145,10 +185,14 @@ struct LyricsView: View {
         }
         .overlay(alignment: .top) {
             VStack(spacing: 4) {
-                if !isSynced {
+                if timing != nil {
+                    Text(showsPlayingSong
+                        ? "Tap a line to time it, or move them all"
+                        : "This song has ended. Save, or play it again to keep timing.")
+                } else if !isSynced {
                     Text("Lyrics not timed")
                 }
-                if settings.translatesLyrics, let note = translation.note {
+                if timing == nil, settings.translatesLyrics, let note = translation.note {
                     Text(note)
                 }
             }
@@ -158,7 +202,163 @@ struct LyricsView: View {
             // Clear of the menu button in the corner.
             .padding(.horizontal, 60)
         }
-        .overlay(alignment: .topTrailing) { readAlongMenu }
+        .overlay(alignment: .topTrailing) {
+            if timing == nil { readAlongMenu }
+        }
+        .overlay(alignment: .bottom) {
+            if let timing { timingControls(timing) }
+        }
+    }
+
+    // MARK: - Timing by hand
+
+    /// Nudges for every line, the tap that times the marked one, and saving.
+    private func timingControls(_ timing: LyricsTiming) -> some View {
+        VStack(spacing: 12) {
+            if let timingError {
+                Text(timingError)
+                    .font(.footnote)
+                    .foregroundStyle(.yellow)
+                    .multilineTextAlignment(.center)
+            }
+
+            HStack(spacing: 8) {
+                nudgeButton("−0.5", by: -500)
+                nudgeButton("−0.1", by: -100)
+                Text(Self.shiftLabel(timing.shift))
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.8))
+                    .frame(maxWidth: .infinity)
+                nudgeButton("+0.1", by: 100)
+                nudgeButton("+0.5", by: 500)
+            }
+            .disabled(!timing.isTimed || isSavingTiming)
+
+            Button {
+                self.timing?.timeNext(at: Int((player.elapsedNow * 1000).rounded()))
+            } label: {
+                Label(timing.next == nil ? "Every Line Timed" : "Line Starts Now", systemImage: "hand.tap")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.white.opacity(0.25))
+            .disabled(timing.next == nil || !showsPlayingSong || isSavingTiming)
+
+            HStack {
+                Button("Cancel") { endTiming(saved: nil) }
+                    .disabled(isSavingTiming)
+                Spacer()
+                Text(timing.isComplete ? "" : "\(timing.timedCount) of \(timing.lines.count) timed")
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.7))
+                Spacer()
+                Button {
+                    self.timing?.undo()
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                }
+                .accessibilityLabel("Undo")
+                .disabled(!timing.canUndo || isSavingTiming)
+                if isSavingTiming {
+                    ProgressView().padding(.leading, 12)
+                } else {
+                    Button("Save") { saveTiming() }
+                        .fontWeight(.semibold)
+                        .padding(.leading, 12)
+                        .disabled(!timing.isComplete || !timing.hasChanges)
+                }
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(16)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .environment(\.colorScheme, .dark)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+    }
+
+    private func nudgeButton(_ title: String, by milliseconds: Int) -> some View {
+        Button {
+            timing?.nudge(by: milliseconds)
+        } label: {
+            Text(title)
+                .font(.footnote.weight(.semibold).monospacedDigit())
+                .frame(minWidth: 44, minHeight: 32)
+        }
+        .buttonStyle(.bordered)
+        .tint(.white)
+        .accessibilityLabel(String(
+            format: milliseconds > 0 ? "%.1f seconds later" : "%.1f seconds sooner",
+            Double(abs(milliseconds)) / 1000
+        ))
+    }
+
+    private func startTiming() {
+        guard let lyrics, let songID = loadedSongID else { return }
+        var timing = LyricsTiming(lyrics)
+        if timing.wasSynced {
+            // The line after the one being sung: the next to come.
+            let now = Int(player.elapsedNow * 1000)
+            let current = LyricsTiming.current(at: now, in: timing.lines)
+            timing.mark(timing.lines.indices.first { $0 > (current ?? -1) && !timing.lines[$0].value.isEmpty })
+        }
+        timingError = nil
+        timingSongID = songID
+        self.timing = timing
+        resumeAutoScrollAt = nil
+    }
+
+    /// A line tapped while timing is marked to be timed next, and one with a time is
+    /// played from a moment before it, to tap as it comes.
+    private func markLine(_ index: Int) {
+        timing?.mark(index)
+        guard showsPlayingSong, let start = timing?.lines[index].start else { return }
+        player.seek(to: Double(max(0, start - 3000)) / 1000)
+    }
+
+    private func saveTiming() {
+        guard let timing, let lyrics, let songID = timingSongID else { return }
+        isSavingTiming = true
+        timingError = nil
+        Task {
+            do {
+                let saved = try await appState.saveLyrics(timing, from: lyrics, songID: songID)
+                isSavingTiming = false
+                endTiming(saved: saved)
+            } catch {
+                isSavingTiming = false
+                timingError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Back to reading: the saved lyrics, or the song playing now when it has moved on.
+    private func endTiming(saved: StructuredLyrics?) {
+        let songID = timingSongID
+        timing = nil
+        timingSongID = nil
+        timingError = nil
+        activeIndex = nil
+        if songID == song.id {
+            guard let saved else { return }
+            Task { await load(showing: saved) }
+        } else {
+            Task { await load() }
+        }
+    }
+
+    /// `0:12.34`.
+    private static func stamp(_ milliseconds: Int) -> String {
+        let hundredths = milliseconds / 10
+        return String(format: "%d:%02d.%02d", hundredths / 6000, hundredths / 100 % 60, hundredths % 100)
+    }
+
+    private static func shiftLabel(_ milliseconds: Int) -> String {
+        guard milliseconds != 0 else { return "Move all lines" }
+        let seconds = String(format: "%.1f", Double(abs(milliseconds)) / 1000)
+        return milliseconds > 0 ? "\(seconds) s later" : "\(seconds) s sooner"
     }
 
     /// Here rather than in Settings: it is wanted song by song, while reading along.
@@ -166,6 +366,13 @@ struct LyricsView: View {
         @Bindable var settings = settings
 
         return Menu {
+            Section {
+                Button {
+                    startTiming()
+                } label: {
+                    Label("Fix Timing", systemImage: "timer")
+                }
+            }
             Section {
                 Toggle(isOn: $settings.translatesLyrics) {
                     Label("Translate to English", systemImage: "globe")
@@ -224,32 +431,42 @@ struct LyricsView: View {
     /// was made while it was theirs, so one flick of the lyrics stopped them following for
     /// as long as the screen stayed up, the highlight moving on down out of sight.
     private var shouldAutoScroll: Bool {
-        guard isSynced else { return false }
+        // Timing by hand, the view follows the line to tap next instead, while there is one.
+        guard follows, timing?.next == nil else { return false }
         guard let resumeAutoScrollAt else { return true }
         return resumeAutoScrollAt < .now
     }
 
-    private func load() async {
+    /// `showing`: lyrics just saved, shown as they are -- the server has them only once
+    /// its watcher has scanned the folder again.
+    private func load(showing saved: StructuredLyrics? = nil) async {
+        // A song being timed by hand stays on screen when the next one starts, until the
+        // timing is saved or given up.
+        guard timing == nil else { return }
         state = .loading
         loadedSongID = nil
         activeIndex = nil
         resumeAutoScrollAt = nil
 
-        // Disk first: for a downloaded track it is already there, and it removes a
-        // request plus a visible delay on every track change.
-        var sets = await LyricsStore.shared.load(songID: song.id) ?? []
+        if let saved {
+            lyrics = saved
+        } else {
+            // Disk first: for a downloaded track it is already there, and it removes a
+            // request plus a visible delay on every track change.
+            var sets = await LyricsStore.shared.load(songID: song.id) ?? []
 
-        if sets.isEmpty {
-            sets = (try? await appState.client.lyrics(songID: song.id)) ?? []
+            if sets.isEmpty {
+                sets = (try? await appState.client.lyrics(songID: song.id)) ?? []
+            }
+            guard !Task.isCancelled else { return }
+
+            // Prefer a synced set, then one matching the device language.
+            let preferredLanguage = Locale.preferredLanguages.first?.prefix(2).lowercased()
+            let synced = sets.filter(\.synced)
+            lyrics = synced.first { $0.lang?.lowercased().hasPrefix(preferredLanguage ?? "") == true }
+                ?? synced.first
+                ?? sets.first
         }
-        guard !Task.isCancelled else { return }
-
-        // Prefer a synced set, then one matching the device language.
-        let preferredLanguage = Locale.preferredLanguages.first?.prefix(2).lowercased()
-        let synced = sets.filter(\.synced)
-        lyrics = synced.first { $0.lang?.lowercased().hasPrefix(preferredLanguage ?? "") == true }
-            ?? synced.first
-            ?? sets.first
 
         guard let lyrics, !lyrics.lines.isEmpty else {
             state = .missing
@@ -289,6 +506,9 @@ private struct LyricClock: View {
     let lines: [LyricLine]
     let isSynced: Bool
     let offset: Int
+    /// Lines being timed by hand, some perhaps not yet, which the search below would
+    /// trip over.
+    var isTiming = false
     let onChange: (Int?) -> Void
 
     var body: some View {
@@ -304,6 +524,7 @@ private struct LyricClock: View {
         // LRC `[offset:]` tag's it comes from -- so the clock runs ahead by it. This
         // subtracted it, which made a positive offset come later.
         let now = Int(appState.player.elapsed * 1000) + offset
+        if isTiming { return LyricsTiming.current(at: now, in: lines) }
         var low = 0
         var high = lines.count - 1
         var result: Int?

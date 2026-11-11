@@ -248,9 +248,60 @@ struct SonicClient: Sendable {
         }
     }
 
-    private func post<Body: Encodable>(_ path: String, _ body: Body) async throws -> (Data, Int) {
+    // MARK: - Lyrics fixed by hand
+
+    /// The app's Subsonic sign-in, which the service asks Navidrome about: only an admin
+    /// may write into the library's files.
+    struct SignIn: Encodable, Sendable {
+        var u: String
+        var t: String
+        var s: String
+    }
+
+    private struct LyricsSave: Encodable {
+        struct Line: Encodable {
+            var start: Int
+            var value: String
+        }
+
+        var id: String
+        var original: [String]
+        var synced: Bool
+        var lines: [Line]
+        var auth: SignIn
+    }
+
+    private struct Refusal: Decodable {
+        var error: String?
+    }
+
+    /// Lyrics timed by hand, into the song's own file on the server, in place of the
+    /// lyrics they were made from. Throws `LyricsSaveError` with the service's reason.
+    func saveLyrics(songID: String, timing: LyricsTiming, signIn: SignIn) async throws {
+        let lines = timing.lines.compactMap { line in line.start.map { LyricsSave.Line(start: $0, value: line.value) } }
+        guard timing.isComplete, lines.count == timing.lines.count else {
+            throw LyricsSaveError(message: "Every line needs a time before the lyrics can be saved.")
+        }
+        let body = LyricsSave(
+            id: songID, original: timing.original, synced: timing.wasSynced, lines: lines, auth: signIn
+        )
+        // Long: the service copies the file, checks its audio and puts it back, which for
+        // a long hi-res track over the share is several seconds.
+        let (data, status) = try await post("v1/lyrics/save", body, timeout: 120)
+        guard status == 200 else {
+            let reason = try? JSONDecoder().decode(Refusal.self, from: data).error
+            switch status {
+            case 404 where reason == "no such endpoint":
+                throw LyricsSaveError(message: "The sonic service is too old to save lyrics. Update it on the server.")
+            default:
+                throw LyricsSaveError(message: reason ?? "The sonic service answered \(status).")
+            }
+        }
+    }
+
+    private func post<Body: Encodable>(_ path: String, _ body: Body, timeout: TimeInterval = 20) async throws -> (Data, Int) {
         guard let url = url(path) else { throw SonicError.badURL }
-        var request = URLRequest(url: url, timeoutInterval: 20)
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = "POST"
         request.httpBody = try JSONEncoder().encode(body)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -390,6 +441,12 @@ struct SonicClient: Sendable {
         guard (200...299).contains(status) else { throw SonicError.status(status) }
         return try JSONDecoder().decode(T.self, from: data)
     }
+}
+
+/// Why lyrics were not saved, in words to show.
+struct LyricsSaveError: LocalizedError, Equatable {
+    let message: String
+    var errorDescription: String? { message }
 }
 
 enum SonicError: Error, Equatable {

@@ -145,6 +145,9 @@ enum Style {
     .lyric-line { font-size: 1.5em; font-weight: 800; opacity: 0.35; }
     .lyric-line.current { opacity: 1; }
     .lyric-line.past { opacity: 0.55; }
+    /* The line the next tap times, while timing lyrics by hand. */
+    .lyric-line.lyric-marked { opacity: 1; color: var(--accent-color); }
+    .lyrics-timing { background-color: alpha(black, 0.4); border-radius: 14px; padding: 8px; }
     .lyric-translation { font-size: 1.05em; font-style: italic; opacity: 0.6; }
 
     /* Rating stars and hearts. */

@@ -1,5 +1,7 @@
-# Runs on the 148 host beside Navidrome and the music share. Everything it reads is
-# mounted read-only; it writes only to ./data.
+# Runs on the 148 host beside Navidrome and the music share. It writes to ./data, and to
+# the music only to save lyrics fixed in the app (`lyricsfile`): the .lrc beside a song,
+# or a song's tags, checked to leave its audio as it was. Navidrome's own database stays
+# read-only.
 services:
   sonic:
     build: .
@@ -20,8 +22,8 @@ services:
     volumes:
       - ./data:/data
       - /home/miles/media-stack/navidrome/data:/navidrome:ro
-      - /mnt/hdd-pool-media/my_music:/mnt/hdd-pool-media/my_music:ro,rslave
-      - /mnt/hdd-pool-media/music:/mnt/hdd-pool-media/music:ro,rslave
+      - /mnt/hdd-pool-media/my_music:/mnt/hdd-pool-media/my_music:rw,rslave
+      - /mnt/hdd-pool-media/music:/mnt/hdd-pool-media/music:rw,rslave
     # Leave the host room for everything else it runs.
     cpus: 6
     mem_limit: 6g

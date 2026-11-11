@@ -302,6 +302,25 @@ final class AppState {
         isShowingCachedData = false
     }
 
+    /// Lyrics timed by hand, saved into the song's file on the server through the sonic
+    /// service, and into the copy kept with a download. Returns the lyrics as saved, for
+    /// the screen to show at once: Navidrome serves them once its watcher has scanned the
+    /// folder again, a few seconds later.
+    func saveLyrics(_ timing: LyricsTiming, from lyrics: StructuredLyrics, songID: String) async throws -> StructuredLyrics {
+        guard let credentials else { throw LyricsSaveError(message: "Sign in to the server to save lyrics.") }
+        let salt = SubsonicAuth.makeSalt()
+        let signIn = SonicClient.SignIn(
+            u: credentials.username,
+            t: SubsonicAuth.token(password: credentials.password, salt: salt),
+            s: salt
+        )
+        try await SonicClient(configuration: sonic.configuration).saveLyrics(songID: songID, timing: timing, signIn: signIn)
+        let saved = timing.saved(from: lyrics)
+        await LyricsStore.shared.replace(lyrics, with: saved, for: songID)
+        await Diagnostics.shared.record("lyrics", "saved \(timing.lines.count) timed lines into \(songID)")
+        return saved
+    }
+
     /// Adopts a queue saved by another client, at its position, **paused**. Resuming
     /// automatically would start music in someone's pocket.
     func adoptRemoteQueue() {

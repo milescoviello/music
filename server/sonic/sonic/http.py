@@ -1,6 +1,6 @@
 """The HTTP side: small, JSON, and read-only apart from the logs the app sends for
-fixing a bug, the plays and skips it shares between devices, and which music video a song
-gets. Standard library only, so the service has nothing to install beyond Essentia, NumPy
+fixing a bug, the plays and skips it shares between devices, which music video a song
+gets, and lyrics fixed by hand, which go back into the file they came from (`lyricsfile`). Standard library only, so the service has nothing to install beyond Essentia, NumPy
 and, for the videos, yt-dlp."""
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from .config import TAGS
 from .links import history_links
 from .logs import LIMIT, LogBox
+from .lyricsfile import Refused
 
 log = logging.getLogger("sonic.http")
 
@@ -285,6 +286,8 @@ def make_handler(service):
                 return self._taste()
             if path in ("/v1/lyrics/readings", "/v1/lyrics/translate"):
                 return self._words(path)
+            if path == "/v1/lyrics/save":
+                return self._save_lyrics()
             if path != "/v1/logs":
                 return self._send(404, {"error": "no such endpoint"})
             try:
@@ -351,6 +354,20 @@ def make_handler(service):
             except Exception as error:  # noqa: BLE001
                 log.exception("request failed: %s", self.path)
                 return self._send(500, {"error": str(error)})
+
+        def _save_lyrics(self):
+            """Lyrics fixed in the app, written into the song's file: see `lyricsfile`."""
+            try:
+                body = self._body(limit=1024 * 1024)
+            except ValueError as error:
+                return self._send(400, {"error": str(error)})
+            try:
+                return self._send(200, service.save_lyrics(body))
+            except Refused as refused:
+                return self._send(refused.status, {"error": refused.message})
+            except Exception as error:  # noqa: BLE001
+                log.exception("could not save lyrics")
+                return self._send(500, {"error": f"Couldn't save the lyrics: {error}"})
 
         def _send(self, status: int, body: dict):
             try:

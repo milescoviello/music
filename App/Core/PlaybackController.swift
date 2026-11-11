@@ -27,7 +27,21 @@ final class PlaybackController {
     private(set) var isPlaying = false
     private(set) var isBuffering = false
     /// Seconds. Read by the in-app scrubber at 4 Hz.
-    private(set) var elapsed: Double = 0
+    private(set) var elapsed: Double = 0 {
+        didSet { elapsedChangedAt = .now }
+    }
+    /// When `elapsed` last moved, for `elapsedNow`.
+    @ObservationIgnored private var elapsedChangedAt = Date.distantPast
+
+    /// Seconds into the track at this moment, not at the last tick: `elapsed` moves four
+    /// times a second, and a line of lyrics timed by a tap from it was up to a quarter of
+    /// a second early. Carried on from the last tick at the playing speed, never further
+    /// than one tick could have been missed by.
+    var elapsedNow: Double {
+        guard isPlaying, !isBuffering else { return elapsed }
+        let since = min(max(0, Date.now.timeIntervalSince(elapsedChangedAt)), 0.5)
+        return elapsed + since * Double(speed)
+    }
     /// Set when playback started somewhere other than the beginning because a resume
     /// position was known. Drives the "Resumed from 42:10 · Start over" strip, which is
     /// the whole difference between a helpful resume and a baffling one.

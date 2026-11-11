@@ -17,6 +17,17 @@ actor LyricsStore {
         try? data.write(to: Paths.lyricsFile(songID: songID), options: .atomic)
     }
 
+    /// A downloaded song's lyrics after `old` was fixed into `new`: the saved copy is what
+    /// the app shows before asking the server. Nothing for a song with none kept.
+    func replace(_ old: StructuredLyrics, with new: StructuredLyrics, for songID: String) {
+        guard var sets = load(songID: songID) else { return }
+        guard let index = sets.firstIndex(of: old) ?? sets.firstIndex(where: {
+            $0.synced == old.synced && $0.lines.map(\.value) == old.lines.map(\.value)
+        }) else { return }
+        sets[index] = new
+        save(sets, for: songID)
+    }
+
     func load(songID: String) -> [StructuredLyrics]? {
         guard let data = try? Data(contentsOf: Paths.lyricsFile(songID: songID)),
               let sets = try? JSONDecoder().decode([StructuredLyrics].self, from: data)
