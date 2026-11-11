@@ -50,7 +50,10 @@ def _seconds(query: dict, name: str) -> float | None:
     return value if value > 0 else None
 
 
-VIDEO_RAW = re.compile(r"^/v1/video/([A-Za-z0-9_-]{11})/(master\.m3u8|thumb|(\d+)\.(m3u8|mp4|m4a|webm))$")
+VIDEO_RAW = re.compile(
+    r"^/v1/video/([A-Za-z0-9_-]{11})/"
+    r"(master\.m3u8|thumb|(\d+)\.(m3u8|mp4|m4a|webm)|h(\d+)\.m3u8|h(\d+)/(\d+)\.(ts|mp4|m4s|aac))$"
+)
 
 
 def make_handler(service):
@@ -153,6 +156,7 @@ def make_handler(service):
             """Playlists, thumbnails and the stream relay: not JSON."""
             video_id, name, itag, kind = raw[1], raw[2], raw[3], raw[4]
             suffix = _token_suffix(query)
+            hls_playlist, hls_itag, hls_number, hls_ext = raw[5], raw[6], raw[7], raw[8]
             try:
                 if name == "thumb":
                     data = service.videos.thumbnail(video_id)
@@ -161,6 +165,10 @@ def make_handler(service):
                     return self._bytes(200, data, "image/jpeg", "max-age=604800")
                 if name == "master.m3u8":
                     text = service.videos.master(video_id, suffix)
+                elif hls_playlist:
+                    text = service.videos.hls_playlist(video_id, hls_playlist, suffix)
+                elif hls_itag:
+                    return self._relay_hls(video_id, hls_itag, int(hls_number), hls_ext)
                 elif kind == "m3u8":
                     text = service.videos.media(video_id, itag, suffix)
                 else:
@@ -189,6 +197,29 @@ def make_handler(service):
                     if upstream.headers.get(name):
                         self.send_header(name, upstream.headers[name])
                 self.send_header("Accept-Ranges", "bytes")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                try:
+                    while True:
+                        chunk = upstream.read(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError, TimeoutError):
+                    pass          # the player moved on, or seeked
+
+        def _relay_hls(self, video_id: str, itag: str, number: int, ext: str):
+            """One of YouTube's HLS segments, passed straight through."""
+            try:
+                upstream = service.videos.open_hls_segment(video_id, itag, number, self.headers.get("Range"))
+            except urllib.error.HTTPError as error:
+                return self._send(error.code if error.code in (404, 416) else 502, {"error": f"YouTube said {error.code}"})
+            with upstream:
+                self.send_response(upstream.status)
+                self.send_header("Content-Type", {"ts": "video/mp2t", "aac": "audio/aac"}.get(ext, "video/mp4"))
+                for header in ("Content-Length", "Content-Range", "Accept-Ranges"):
+                    if upstream.headers.get(header):
+                        self.send_header(header, upstream.headers[header])
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 try:

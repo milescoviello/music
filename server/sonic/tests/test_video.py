@@ -67,6 +67,91 @@ class Guessing(unittest.TestCase):
                          ("GlassHarbor", "Low Tide"))
 
 
+def ytm(video_id, title, artist, kind="MUSIC_VIDEO_TYPE_OMV", seconds=240):
+    return {"videoId": video_id, "title": title, "videoType": kind, "duration_seconds": seconds,
+            "artists": [{"name": artist}]}
+
+
+class OfficialPick(unittest.TestCase):
+    """YouTube Music's own official video, out of its video search."""
+
+    def test_the_artists_official_video_wins_over_uploads(self):
+        results = [ytm("AAAAAAAAAAA", "Glass Harbor - Low Tide (Lyrics)", "Lyric Corner", "MUSIC_VIDEO_TYPE_UGC"),
+                   ytm("BBBBBBBBBBB", "Paper Moons", "Glass Harbor"),
+                   ytm("CCCCCCCCCCC", "Low Tide", "Glass Harbor", seconds=331)]
+        pick = video.official_pick(results, "Glass Harbor", "Low Tide", 242)
+        self.assertEqual(pick["id"], "CCCCCCCCCCC")          # its full length, intro and all
+        self.assertEqual(pick["duration"], 331.0)
+
+    def test_another_artists_official_video_is_not_it(self):
+        results = [ytm("AAAAAAAAAAA", "Low Tide (Official Video)", "Someone Else")]
+        self.assertIsNone(video.official_pick(results, "Glass Harbor", "Low Tide", 242))
+
+    def test_no_official_video_is_none(self):
+        results = [ytm("AAAAAAAAAAA", "Low Tide", "Glass Harbor", "MUSIC_VIDEO_TYPE_UGC")]
+        self.assertIsNone(video.official_pick(results, "Glass Harbor", "Low Tide", 242))
+
+    def test_a_title_in_another_script_by_the_artist(self):
+        results = [ytm("AAAAAAAAAAA", "ガラスの港", "Glass Harbor", seconds=250)]
+        self.assertEqual(video.official_pick(results, "Glass Harbor", "Garasu no Minato", 242)["id"], "AAAAAAAAAAA")
+        # Not one far shorter than the song: that is something else.
+        short = [ytm("AAAAAAAAAAA", "ガラスの港", "Glass Harbor", seconds=90)]
+        self.assertIsNone(video.official_pick(short, "Glass Harbor", "Garasu no Minato", 242))
+
+    def test_a_featured_artist_still_finds_the_main_one(self):
+        results = [ytm("AAAAAAAAAAA", "Low Tide", "Glass Harbor")]
+        self.assertEqual(video.official_pick(results, "Glass Harbor feat. Mira Vale", "Low Tide", 242)["id"],
+                         "AAAAAAAAAAA")
+
+
+HLS_MASTER = """#EXTM3U
+#EXT-X-INDEPENDENT-SEGMENTS
+#EXT-X-MEDIA:URI="https://manifest.example/hls_playlist/id/x/itag/233/source/yt/file/index.m3u8",TYPE=AUDIO,GROUP-ID="233",NAME="Default",DEFAULT=YES,AUTOSELECT=YES
+#EXT-X-MEDIA:URI="https://manifest.example/hls_playlist/id/x/itag/234/source/yt/file/index.m3u8",TYPE=AUDIO,GROUP-ID="234",NAME="Default",DEFAULT=YES,AUTOSELECT=YES
+#EXT-X-STREAM-INF:BANDWIDTH=309585,CODECS="avc1.4D4015,mp4a.40.5",RESOLUTION=426x240,FRAME-RATE=25,VIDEO-RANGE=SDR,YT-EXT-ABSOLUTE-LOUDNESS=-17.250,AUDIO="233",CLOSED-CAPTIONS=NONE
+https://manifest.example/hls_playlist/id/x/itag/229/source/yt/file/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=394219,CODECS="avc1.4D4015,mp4a.40.2",RESOLUTION=426x240,FRAME-RATE=25,AUDIO="234"
+https://manifest.example/hls_playlist/id/x/itag/229/source/yt/sgoap/a/file/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=1773415,CODECS="avc1.4D401F,mp4a.40.2",RESOLUTION=1280x720,FRAME-RATE=25,AUDIO="234"
+https://manifest.example/hls_playlist/id/x/itag/232/source/yt/file/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=4515084,CODECS="avc1.640028,mp4a.40.2",RESOLUTION=1920x1080,FRAME-RATE=25,AUDIO="234"
+https://manifest.example/hls_playlist/id/x/itag/270/source/yt/file/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=4757620,CODECS="vp09.00.40.08,mp4a.40.2",RESOLUTION=1920x1080,FRAME-RATE=25,AUDIO="234"
+https://manifest.example/hls_playlist/id/x/itag/616/source/yt/file/index.m3u8
+"""
+
+
+class YouTubesHls(unittest.TestCase):
+    """YouTube's own HLS, cut down and pointed at the relay."""
+
+    def test_master_keeps_h264_with_the_better_aac_720p_first(self):
+        built = video.hls_master(HLS_MASTER, "?token=t")
+        lines = built.playlist.splitlines()
+        self.assertIn('URI="h234.m3u8?token=t"', built.playlist)
+        self.assertNotIn("vp09", built.playlist)
+        self.assertNotIn("mp4a.40.5", built.playlist)
+        self.assertNotIn("YT-EXT", built.playlist)
+        self.assertEqual([line for line in lines if not line.startswith("#")],
+                         ["h232.m3u8?token=t", "h270.m3u8?token=t", "h229.m3u8?token=t"])
+        self.assertEqual((built.tallest, built.width, built.height, built.audio), ("270", 1920, 1080, "234"))
+        self.assertTrue(built.media["270"].startswith("https://manifest.example/"))
+
+    def test_no_h264_is_none(self):
+        only_vp9 = "\n".join(line for line in HLS_MASTER.splitlines() if "avc1" not in line)
+        self.assertIsNone(video.hls_master(only_vp9))
+
+    def test_media_playlist_points_every_segment_here(self):
+        upstream = ("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXT-X-TARGETDURATION:7\n"
+                    "#EXTINF:6.44,\nhttps://rr1.example/videoplayback/id/x/itag/270/sq/0/file/seg.ts\n"
+                    "#EXTINF:6.08,\nhttps://rr1.example/videoplayback/id/x/itag/270/sq/1/file/seg.ts\n#EXT-X-ENDLIST\n")
+        text, segments = video.hls_media(upstream, "https://manifest.example/index.m3u8", "270", "?token=t")
+        self.assertEqual([line for line in text.splitlines() if not line.startswith("#")],
+                         ["h270/0.ts?token=t", "h270/1.ts?token=t"])
+        self.assertIn("#EXTINF:6.44,", text)
+        self.assertTrue(text.rstrip().endswith("#EXT-X-ENDLIST"))
+        self.assertEqual(segments[1], "https://rr1.example/videoplayback/id/x/itag/270/sq/1/file/seg.ts")
+
+
 def fragmented_mp4(segments, timescale=1000, moov=b"\0" * 40):
     """ftyp, moov and a version-0 sidx, then the fragments' bytes."""
     ftyp = struct.pack(">I4s", 16, b"ftyp") + b"dash\0\0\0\0"

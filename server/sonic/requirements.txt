@@ -14,3 +14,5 @@ sentencepiece==0.2.2
 # Deno runs the JavaScript challenge YouTube's addresses come out of.
 yt-dlp[default]
 deno
+# YouTube Music's video search, which says which video is the artist's official one.
+ytmusicapi

@@ -2,24 +2,29 @@
 
 Three jobs:
 
-- **Finding one.** A YouTube search through yt-dlp, scored for the official video: the
-  artist's own or a verified channel, every word of the song's title, a length near the
-  track's, and no live, lyric, cover or reaction cut. The pick is remembered per song --
-  by artist and title, so both copies of a song in the two libraries share it -- and a pick
-  made by hand replaces it for good.
-- **Playing one, with no ads.** YouTube serves its best quality as separate video and
-  audio streams: fragmented MP4, each with an index (`sidx`) of where every few seconds
-  start. That index is all HLS needs, so this writes the playlists itself -- every segment
-  a byte range of the one file -- and relays the bytes. AVPlayer plays the result natively,
-  adaptive and seekable, and nothing is stored. It is lossy, because that is what YouTube
-  has; the library's own files are what the Song side plays.
-- **The desktop** opens the best video and audio streams directly, through the same relay.
+- **Finding one.** YouTube Music's own answer first: its video search marks each result
+  as the artist's official music video or not, so the pick is the full official video by
+  this artist, however long its intro. Only when there is none, a YouTube search through
+  yt-dlp, scored for the official video: the artist's own or a verified channel, every
+  word of the song's title, a length near the track's, and no live, lyric, cover or
+  reaction cut -- and, then, no album track over a still picture, which is the song again,
+  not a video. The pick is remembered per song -- by artist and title, so both copies of a
+  song in the two libraries share it -- and a pick made by hand replaces it for good.
+- **Playing one, with no ads.** YouTube's own HLS, the playlists its iPhone app plays: H.264
+  up to 1080p with AAC, cut to those and pointed at the relay, which passes every playlist
+  and segment through. AVPlayer plays it natively, adaptive and seekable, and nothing is
+  stored. It is lossy, because that is what YouTube has; the library's own files are what
+  the Song side plays. When a video has no HLS, the separate fragmented-MP4 streams
+  instead: each has an index (`sidx`) of where every few seconds start, which is all HLS
+  needs, so the playlists are written here, every segment a byte range of the one file.
+- **The desktop** opens the same video and audio playlists, through the same relay.
 
 The stream addresses YouTube hands out are tied to the address that asked for them and
 expire after a few hours. That is why the bytes come through here rather than the apps
-fetching them: a phone away from home has another address. They also refuse every request
-for the first few seconds (yt-dlp's `available_at`), which the relay waits out -- and which
-is why a song's video is looked up ahead, while its player is open.
+fetching them: a phone away from home has another address. The fragmented-MP4 streams also
+refuse every request for the first five seconds or so (yt-dlp's `available_at`), which the
+relay waits out; the HLS ones do not, which is most of why HLS comes first: a video starts
+in about two seconds rather than eight.
 
 yt-dlp stops working within weeks of YouTube changing something, so the copy in the image is
 only the floor: a newer one is installed into the data folder when extraction starts
@@ -53,6 +58,11 @@ log = logging.getLogger("sonic.video")
 # a video can appear later. One chosen by hand is kept until it is changed.
 AUTO_KEEP = 90 * 86400
 NONE_KEEP = 7 * 86400
+# Automatic picks from before YouTube Music was asked first (2026-11-11) are made again;
+# the old search took lyric videos and album tracks over a still picture.
+PICKS_FROM = 1794379723
+# What YouTube Music calls the artist's official music video, as against an upload of it.
+OFFICIAL_VIDEO = "MUSIC_VIDEO_TYPE_OMV"
 # The tallest H.264 stream offered. YouTube has nothing taller in H.264, and its VP9 and
 # AV1 streams are not something every phone can decode.
 MAX_HEIGHT = 1080
@@ -156,6 +166,56 @@ def score(item: dict, artist: str, title: str, duration: float | None) -> float:
         total += 12 if off <= 10 else 6 if off <= 45 else 0 if off <= 120 else -20
     total += min(15.0, math.log10(max(item.get("views") or 1, 1)) * 2)
     return total
+
+
+def _compact(text: str | None) -> str:
+    return norm(text).replace(" ", "")
+
+
+def _has_latin(text: str | None) -> bool:
+    return re.search(r"[a-z]", norm(text)) is not None
+
+
+FEATURING = re.compile(r"\s*(?:,|&|\bfeat\.?|\bft\.?|\bfeaturing\b|\bwith\b|\bx\b)\s*", re.IGNORECASE)
+
+
+def official_pick(results: list[dict], artist: str, title: str, duration: float | None) -> dict | None:
+    """The artist's official music video, out of YouTube Music's video search for the song.
+
+    Its full length, whatever it is: the official video of a song often opens with a scene
+    before the music starts, and that is the video wanted, not a lyric video that times
+    better. Only YouTube Music's official videos by this artist are considered. The first
+    whose title is the song's wins; failing that, one titled in another script than the
+    song ("Garasu no Minato" and ガラスの港) among the first two, when it is at least the song's length.
+    """
+    wanted_artists = {_compact(artist), _compact(FEATURING.split(artist or "")[0])} - {""}
+    want = norm(core_title(title)).split()
+    if not wanted_artists or not want:
+        return None
+    candidates = []
+    for result in results:
+        if result.get("videoType") != OFFICIAL_VIDEO or not re.fullmatch(r"[A-Za-z0-9_-]{11}", result.get("videoId") or ""):
+            continue
+        names = [a.get("name") or "" for a in result.get("artists") or []]
+        if not any(_compact(name) in wanted_artists for name in names):
+            continue
+        candidates.append((result, names))
+
+    def picked(result: dict, names: list[str]) -> dict:
+        length = result.get("duration_seconds")
+        return {"id": result["videoId"], "title": result.get("title") or "", "channel": ", ".join(names),
+                "duration": float(length) if length else None}
+
+    for result, names in candidates:
+        words = set(norm(core_title(result.get("title"))).split())
+        if sum(word in words for word in want) / len(want) >= 0.6:
+            return picked(result, names)
+    for result, names in candidates[:2]:
+        length = result.get("duration_seconds") or 0
+        long_enough = not duration or not length or duration - 20 <= length <= duration + 300
+        if _has_latin(result.get("title")) != _has_latin(title) and long_enough:
+            return picked(result, names)
+    return None
 
 
 def guess_song(item: dict) -> tuple[str, str]:
@@ -285,6 +345,117 @@ def master_playlist(videos: list[dict], audio: dict, suffix: str = "") -> str:
     return "\n".join(lines) + "\n"
 
 
+_ATTRIBUTE = re.compile(r'([A-Z0-9-]+)=("[^"]*"|[^,]*)')
+_ITAG = re.compile(r"/itag/(\d+)(?:/|$)")
+
+
+def _attributes(line: str) -> dict[str, str]:
+    return {key: value.strip('"') for key, value in _ATTRIBUTE.findall(line.split(":", 1)[1])}
+
+
+@dataclass
+class HlsMaster:
+    playlist: str
+    media: dict[str, str]                  # each media playlist's upstream address, by itag
+    tallest: str                           # the tallest video's itag, for the desktop
+    width: int
+    height: int
+    audio: str                             # the audio's itag
+
+
+def hls_master(text: str, suffix: str = "") -> HlsMaster | None:
+    """YouTube's own HLS master playlist, cut to what every iPhone plays -- H.264 up to
+    1080p, with the better of its two AACs -- and pointed at the relay.
+
+    The 720p comes first, which is where AVPlayer starts: a picture in a second or two
+    rather than a 1080p segment's wait, and it climbs to 1080p within a few segments.
+    """
+    lines = text.splitlines()
+    audio: dict[str, str] = {}             # group -> upstream address
+    variants: list[tuple[dict, str]] = []
+    for i, line in enumerate(lines):
+        if line.startswith("#EXT-X-MEDIA:"):
+            attrs = _attributes(line)
+            if attrs.get("TYPE") == "AUDIO" and attrs.get("URI"):
+                audio.setdefault(attrs.get("GROUP-ID", ""), attrs["URI"])
+        elif line.startswith("#EXT-X-STREAM-INF:") and i + 1 < len(lines):
+            variants.append((_attributes(line), lines[i + 1].strip()))
+
+    def h264(aac: str) -> dict[int, tuple[dict, str, int]]:
+        found: dict[int, tuple[dict, str, int]] = {}
+        for attrs, uri in variants:
+            codecs = attrs.get("CODECS", "")
+            try:
+                width, height = (int(n) for n in attrs.get("RESOLUTION", "").split("x"))
+            except ValueError:
+                continue
+            if not (codecs.startswith("avc1") and aac in codecs and 0 < height <= MAX_HEIGHT
+                    and attrs.get("AUDIO") in audio and uri and not uri.startswith("#")):
+                continue
+            bandwidth = int(attrs.get("BANDWIDTH", "0") or 0)
+            if height not in found or bandwidth > int(found[height][0].get("BANDWIDTH", "0") or 0):
+                found[height] = (attrs, uri, width)
+        return found
+
+    chosen = h264("mp4a.40.2") or h264("mp4a.40.5")     # AAC-LC, else the low-rate HE-AAC
+    if not chosen:
+        return None
+    heights = sorted(chosen, reverse=True)
+    order = ([720] if 720 in chosen else []) + [height for height in heights if height != 720]
+    group = chosen[heights[0]][0]["AUDIO"]
+
+    def itag(uri: str, fallback: str) -> str:
+        found = _ITAG.search(uri)
+        return found[1] if found else fallback
+
+    audio_itag = itag(audio[group], "0")
+    media = {audio_itag: audio[group]}
+    playlist = [
+        "#EXTM3U",
+        "#EXT-X-INDEPENDENT-SEGMENTS",
+        f'#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,'
+        f'CHANNELS="2",URI="h{audio_itag}.m3u8{suffix}"',
+    ]
+    for height in order:
+        attrs, uri, width = chosen[height]
+        video_itag = itag(uri, str(height))
+        media[video_itag] = uri
+        rate = f',FRAME-RATE={attrs["FRAME-RATE"]}' if attrs.get("FRAME-RATE") else ""
+        playlist.append(f'#EXT-X-STREAM-INF:BANDWIDTH={attrs.get("BANDWIDTH", "0")},CODECS="{attrs["CODECS"]}",'
+                        f'RESOLUTION={width}x{height}{rate},AUDIO="audio"')
+        playlist.append(f"h{video_itag}.m3u8{suffix}")
+    tallest_attrs, tallest_uri, tallest_width = chosen[heights[0]]
+    return HlsMaster(
+        playlist="\n".join(playlist) + "\n", media=media, tallest=itag(tallest_uri, str(heights[0])),
+        width=tallest_width, height=heights[0], audio=audio_itag,
+    )
+
+
+def _segment_ext(url: str) -> str:
+    path = urllib.parse.urlparse(url).path
+    for ext in (".ts", ".mp4", ".m4s", ".aac"):
+        if path.endswith(ext):
+            return ext
+    return ".ts"
+
+
+def hls_media(text: str, base: str, itag: str, suffix: str = "") -> tuple[str, list[str]]:
+    """One of YouTube's media playlists with every segment pointed at the relay, and the
+    segments' upstream addresses in order."""
+    lines, segments = [], []
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("#EXT-X-MAP:") and 'URI="' in line:
+            uri = _attributes(line)["URI"]
+            segments.append(urllib.parse.urljoin(base, uri))
+            line = line.replace(f'URI="{uri}"', f'URI="h{itag}/{len(segments) - 1}{_segment_ext(segments[-1])}{suffix}"')
+        elif line and not line.startswith("#"):
+            segments.append(urllib.parse.urljoin(base, line))
+            line = f"h{itag}/{len(segments) - 1}{_segment_ext(segments[-1])}{suffix}"
+        lines.append(line)
+    return "\n".join(lines) + "\n", segments
+
+
 # ---------------------------------------------------------------------------- picks
 
 
@@ -360,6 +531,11 @@ class Resolved:
     expires: float
     available_at: float = 0.0              # YouTube refuses the streams until then
     lock: threading.Lock = field(default_factory=threading.Lock)
+    hls: str | None = None                 # YouTube's own HLS master, which has no such wait
+    hls_headers: dict = field(default_factory=dict)
+    hls_master: HlsMaster | None = None
+    hls_text: str = ""
+    hls_segments: dict[str, list[str]] = field(default_factory=dict)
 
     def wait_until_available(self) -> None:
         delay = self.available_at - time.time()
@@ -383,6 +559,8 @@ class Videos:
         self._extract = threading.Semaphore(3)
         self._background = ThreadPoolExecutor(max_workers=2, thread_name_prefix="video-warm")
         self._thumbs: dict[str, bytes] = {}
+        self._ytmusic = None
+        self._ytmusic_lock = threading.Lock()
 
     # -- yt-dlp
 
@@ -416,8 +594,8 @@ class Videos:
     def match(self, artist: str, title: str, duration: float | None, warm: bool = False) -> dict:
         key = song_key(artist, title)
         kept = self.picks.get(key)
-        fresh = kept is not None and (
-            kept["manual"] or time.time() - kept["at"] < (AUTO_KEEP if kept["video"] else NONE_KEEP))
+        fresh = kept is not None and (kept["manual"] or (
+            kept["at"] >= PICKS_FROM and time.time() - kept["at"] < (AUTO_KEEP if kept["video"] else NONE_KEEP)))
         if not fresh:
             video = self.auto_pick(artist, title, duration)
             self.picks.put(key, video, manual=False)
@@ -428,15 +606,45 @@ class Videos:
         return answer
 
     def auto_pick(self, artist: str, title: str, duration: float | None) -> dict | None:
+        name = song_key(artist, title).replace("\x1f", " / ")
+        asked, official, tracks = self._official(artist, title, duration)
+        if official:
+            log.info("video for %s: %s (YouTube Music's official video)", name, official["id"])
+            return official
         items = self.search(f"{artist} {core_title(title)} official video", limit=10)
+        # YouTube Music answered and has no official video for it: then only a strong match
+        # will do, and never the album track over a still picture -- that is the song again,
+        # whether on a "Topic" channel or the artist's own.
+        if asked:
+            items = [item for item in items
+                     if not norm(item.get("channel")).endswith(" topic") and item.get("id") not in tracks]
         # Ties go to the most watched: the official video, over the same channel's audio upload.
         scored = sorted(((score(item, artist, title, duration), item) for item in items),
                         key=lambda pair: (pair[0], pair[1].get("views") or 0), reverse=True)
-        if scored and scored[0][0] >= 15:
+        if scored and scored[0][0] >= (40 if asked else 15):
             best = scored[0][1]
-            log.info("video for %s: %s (%.0f)", song_key(artist, title).replace("\x1f", " / "), best["id"], scored[0][0])
+            log.info("video for %s: %s (%.0f)", name, best["id"], scored[0][0])
             return {key: best[key] for key in ("id", "title", "channel", "duration")}
         return None
+
+    def _official(self, artist: str, title: str, duration: float | None) -> tuple[bool, dict | None, set[str]]:
+        """YouTube Music's official video for the song, whether it could be asked, and --
+        when there is no official video -- its album tracks' video ids, which are the
+        song over a still picture."""
+        query = f"{artist} {core_title(title)}"
+        try:
+            with self._ytmusic_lock:
+                if self._ytmusic is None:
+                    from ytmusicapi import YTMusic
+                    self._ytmusic = YTMusic()
+                results = self._ytmusic.search(query, filter="videos", limit=10)
+                official = official_pick(results or [], artist, title, duration)
+                tracks = set() if official else {
+                    song.get("videoId") for song in self._ytmusic.search(query, filter="songs", limit=5) or []}
+        except Exception:  # noqa: BLE001 — not installed, or YouTube Music refusing: the search will do
+            log.info("could not ask YouTube Music about %s / %s", artist, title, exc_info=True)
+            return False, None, set()
+        return True, official, tracks
 
     def choose(self, artist: str, title: str, video: dict) -> dict:
         if not re.fullmatch(r"[A-Za-z0-9_-]{11}", str(video.get("id") or "")):
@@ -452,6 +660,12 @@ class Videos:
     def _warm(self, video_id: str) -> None:
         try:
             resolved = self.resolve(video_id)
+            built = self._hls(video_id)
+            if built is not None:
+                # The playlists AVPlayer asks for first: the audio and the 720p it starts on.
+                for itag in [built.audio, *list(built.media)[1:2]]:
+                    self.hls_playlist(video_id, itag)
+                return
             for stream in [*resolved.videos, resolved.audio]:
                 if stream is not None:
                     self.index(resolved, stream)
@@ -512,6 +726,9 @@ class Videos:
         return Resolved("", "", "", 0, [], None, None, 0)
 
     def master(self, video_id: str, suffix: str = "") -> str:
+        built = self._hls(video_id, suffix)
+        if built is not None:
+            return built.playlist
         resolved = self.resolve(video_id)
         if not resolved.videos or resolved.audio is None:
             raise LookupError("no stream this player can play")
@@ -544,6 +761,15 @@ class Videos:
     def streams(self, video_id: str, suffix: str = "") -> dict:
         """The desktop's: the tallest video stream and the best audio, to open directly."""
         resolved = self.resolve(video_id)
+        built = self._hls(video_id)
+        if built is not None:
+            return {
+                "id": video_id, "title": resolved.title, "channel": resolved.channel, "duration": resolved.duration,
+                "width": built.width, "height": built.height,
+                "video": f"v1/video/{video_id}/h{built.tallest}.m3u8{suffix}",
+                "audio": f"v1/video/{video_id}/h{built.audio}.m3u8{suffix}",
+                "audioCodec": "aac",
+            }
         if not resolved.videos:
             raise LookupError("no video stream")
         video = resolved.videos[0]
@@ -585,6 +811,90 @@ class Videos:
             return stream, _Counted(self.updater, upstream)
         raise LookupError("unreachable")
 
+    # -- YouTube's own HLS
+
+    def _hls(self, video_id: str, suffix: str = "") -> HlsMaster | None:
+        """YouTube's HLS master for the video, cut down and pointed here; None when it has
+        none, or it cannot be read, and the fragmented-MP4 streams are to be used instead."""
+        resolved = self.resolve(video_id)
+        if not resolved.hls:
+            return None
+        try:
+            if resolved.hls_master is None:
+                text = self._get(resolved.hls, resolved.hls_headers)
+                built = hls_master(text)
+                if built is None:
+                    log.info("no H.264 in the HLS of %s", video_id)
+                    resolved.hls = None
+                    return None
+                with resolved.lock:
+                    resolved.hls_master = built
+                    resolved.hls_text = text
+            if not suffix:
+                return resolved.hls_master
+            return hls_master(resolved.hls_text, suffix)
+        except Exception:  # noqa: BLE001 — the fragmented-MP4 streams are still there
+            log.info("could not read the HLS of %s", video_id, exc_info=True)
+            return None
+
+    def hls_playlist(self, video_id: str, itag: str, suffix: str = "") -> str:
+        """One of YouTube's media playlists, every segment pointed at the relay."""
+        for again in (False, True):
+            if again:
+                self.resolve(video_id, again=True)
+            built = self._hls(video_id)
+            resolved = self.resolve(video_id)
+            if built is None or itag not in built.media:
+                raise LookupError("no such playlist")
+            url = built.media[itag]
+            try:
+                text = self._get(url, resolved.hls_headers)
+            except urllib.error.HTTPError as error:
+                if again or error.code not in (403, 404, 410):
+                    raise
+                log.info("playlist %s/%s refused (%d): asking YouTube again", video_id, itag, error.code)
+                continue
+            playlist, segments = hls_media(text, url, itag, suffix)
+            with resolved.lock:
+                resolved.hls_segments[itag] = segments
+            return playlist
+        raise LookupError("unreachable")
+
+    def open_hls_segment(self, video_id: str, itag: str, number: int, byte_range: str | None):
+        """The upstream response for one relayed segment, asked again with fresh addresses
+        when the old ones have expired."""
+        for again in (False, True):
+            if again:
+                self.resolve(video_id, again=True)
+            resolved = self.resolve(video_id)
+            if itag not in resolved.hls_segments:
+                self.hls_playlist(video_id, itag)
+            segments = resolved.hls_segments.get(itag) or []
+            if not 0 <= number < len(segments):
+                raise LookupError("no such segment")
+            headers = dict(resolved.hls_headers)
+            if byte_range:
+                headers["Range"] = byte_range
+            self.updater.relaying(+1)
+            try:
+                upstream = urllib.request.urlopen(urllib.request.Request(segments[number], headers=headers), timeout=20)
+            except urllib.error.HTTPError as error:
+                self.updater.relaying(-1)
+                if error.code == 416 or again or error.code not in (403, 404, 410):
+                    raise
+                log.info("segment %s/%s/%d refused (%d): asking YouTube again", video_id, itag, number, error.code)
+                continue
+            except BaseException:
+                self.updater.relaying(-1)
+                raise
+            return _Counted(self.updater, upstream)
+        raise LookupError("unreachable")
+
+    @staticmethod
+    def _get(url: str, headers: dict) -> str:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=15) as response:
+            return response.read().decode("utf-8", "replace")
+
     def thumbnail(self, video_id: str) -> bytes | None:
         if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
             return None
@@ -609,7 +919,13 @@ def _streams(info: dict) -> Resolved:
     opus: Stream | None = None
     expires = time.time() + 4 * 3600
     available_at = 0.0
+    hls, hls_headers = None, {}
     for f in info.get("formats") or []:
+        if f.get("protocol") == "m3u8_native" and f.get("manifest_url") and hls is None:
+            hls, hls_headers = f["manifest_url"], dict(f.get("http_headers") or {})
+            stamp = re.search(r"/expire/(\d+)/", hls)
+            if stamp:
+                expires = min(expires, float(stamp[1]) - 600)
         if f.get("protocol") != "https" or not f.get("url"):
             continue
         vcodec, acodec = f.get("vcodec") or "none", f.get("acodec") or "none"
@@ -644,6 +960,7 @@ def _streams(info: dict) -> Resolved:
         duration=float(info.get("duration") or 0),
         videos=[videos[height] for height in sorted(videos, reverse=True)],
         audio=aac, best_audio=opus or aac, expires=expires, available_at=available_at,
+        hls=hls, hls_headers=hls_headers,
     )
 
 
@@ -723,7 +1040,7 @@ class Updater:
         staging = self.target.with_name(self.target.name + ".new")
         try:
             subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "--no-cache-dir", "--upgrade",
-                            "--target", str(staging), "yt-dlp[default]"],
+                            "--target", str(staging), "yt-dlp[default]", "ytmusicapi"],
                            check=True, capture_output=True, timeout=600)
         except (subprocess.SubprocessError, OSError) as error:
             log.warning("could not update yt-dlp: %s", error)
