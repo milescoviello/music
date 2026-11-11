@@ -53,9 +53,14 @@ jobs:
               run: |
                   BUILD="${{ github.run_number }}"
                   SHA="$(git rev-parse --short=7 HEAD)"
+                  # Every build gets its own version, <major>.<minor>.<run number>, because
+                  # Feather only offers an update when the version changes. Major.minor
+                  # come from the plist, so moving to 0.2 is a one-line plist edit.
+                  BASE="$(plutil -extract CFBundleShortVersionString raw Music-Info.plist | cut -d. -f1,2)"
+                  plutil -replace CFBundleShortVersionString -string "$BASE.$BUILD" Music-Info.plist
                   plutil -replace CFBundleVersion -string "$BUILD" Music-Info.plist
                   plutil -replace GitCommit -string "$SHA" Music-Info.plist
-                  plutil -p Music-Info.plist | grep -E "CFBundleVersion|GitCommit"
+                  plutil -p Music-Info.plist | grep -E "CFBundleShortVersionString|CFBundleVersion|GitCommit"
 
             - name: Archive (ad-hoc signed)
               run: |
