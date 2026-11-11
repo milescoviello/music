@@ -252,22 +252,6 @@ final class NowPlaying {
         let layout: Layout = w > 500 && w / h > 1 ? (h > 680 ? .sideBySide : .landscape) : .portrait
         let changed = layout != self.layout
         self.layout = layout
-        // Over the player: side by side with the queue beside it, the left half.
-        // Either way clear of the window's buttons, by the wider end's width on both sides
-        // so that it stays centred.
-        let clear = Int32(windowButtons.map { button -> Int32 in
-            var minimum: Int32 = 0
-            var natural: Int32 = 0
-            gtk_widget_measure(button.widget, GTK_ORIENTATION_HORIZONTAL, -1, &minimum, &natural, nil, nil)
-            return natural
-        }.max() ?? 0) + 12
-        if layout == .sideBySide, showsQueueColumn {
-            topSource.hexpand(false).halign(GTK_ALIGN_START).size(width: Int32(width / 2), height: -1)
-            topSource.margins(top: 4, bottom: 4, start: 0, end: 0)
-        } else {
-            topSource.hexpand(true).halign(GTK_ALIGN_FILL).size(width: -1, height: -1)
-            topSource.margins(top: 4, bottom: 4, start: clear, end: clear)
-        }
 
         for piece in [seek, titleBlock, codec, transportRow, toolbar, sideToolbar, posterCell] { piece.isVisible = true }
         var posterSize: Double
@@ -287,8 +271,11 @@ final class NowPlaying {
             volume.isVisible = h >= 675
             sideToolbar.isVisible = false
             // The visualiser spans the window at the cover's height; the lyrics, the
-            // window less its margins.
-            wide = mode == .visualizer || showsVideo ? width : mode == .lyrics ? width - 2 * m * z : posterSize
+            // window less its margins; a video is 16:9 at the cover's height, within the
+            // margins -- across the whole window it was a strip of black either side.
+            wide = mode == .visualizer ? width
+                : showsVideo ? min(posterSize * 16 / 9, width - 2 * m * z)
+                : mode == .lyrics ? width - 2 * m * z : posterSize
             playerBox.orientation(GTK_ORIENTATION_VERTICAL)
             playerBox.size(width: -1, height: Int32(block))
             playerBox.hexpand(true).halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_FILL)
@@ -310,7 +297,8 @@ final class NowPlaying {
             // Clear of the window controls over the top.
             posterSize = min(posterSize, height - 2 * bar)
             block = height
-            wide = posterSize
+            // A video 16:9 at the cover's height, as far as the controls beside it allow.
+            wide = showsVideo ? max(posterSize, min(posterSize * 16 / 9, width - 3 * m * z - 240)) : posterSize
             seek.isVisible = h > 150
             codec.isVisible = h > 200
             volume.isVisible = h > 420
@@ -384,6 +372,17 @@ final class NowPlaying {
             return stacked && posterCell.isVisible ? posterTop + posterSize + rest : rest
         }
         let available = block
+        // A little off the cover, a tenth at most, before any of the controls under it go:
+        // the room over it for "Playing From" and the switch otherwise cost the volume.
+        if stacked, posterCell.isVisible, needed() > available {
+            // With a little room under it too: packed tight, the seekbar's peaks touched it.
+            let room = available - posterTop - measuredHeight(side, width: sideWidth) - 6 * Self.zoom
+            if room >= max(minimumPoster, posterSize * 0.9) {
+                posterSize = room
+                if mode != .visualizer, !showsVideo, mode != .lyrics || layout != .portrait { wide = room }
+                if showsVideo { wide = min(wide, room * 16 / 9) }
+            }
+        }
         for piece in [volume, codec, toolbar] where needed() > available {
             piece.isVisible = false
         }
@@ -392,6 +391,7 @@ final class NowPlaying {
             if room >= minimumPoster {
                 posterSize = room
                 if mode != .visualizer, !showsVideo, mode != .lyrics || layout != .portrait { wide = room }
+                if showsVideo { wide = min(wide, room * 16 / 9) }
             } else {
                 posterCell.isVisible = false
             }
@@ -409,6 +409,7 @@ final class NowPlaying {
         let square = Int32(max(posterSize, 40))
         let across = Int32(max(wide, Double(square)))
         poster.size(width: across, height: square)
+        placeSource(layout: layout, column: Double(across) + 2 * m * z)
         gtk_scrolled_window_set_min_content_width(posterFrame.widget.cast(), across)
         gtk_scrolled_window_set_max_content_width(posterFrame.widget.cast(), across)
         gtk_scrolled_window_set_min_content_height(posterFrame.widget.cast(), square)
@@ -431,17 +432,40 @@ final class NowPlaying {
     private func posterPadHeight(bar: Double, w: Double, h: Double, poster: Double) -> Double {
         let fullBleed = w < 300 || (h > 700 && w < 350)
         if fullBleed { return 0 }
-        let clear = (w * Self.zoom - poster) / 2 > Self.windowButtonsWidth
-        return clear ? 30 * Self.zoom : max(30 * Self.zoom, bar)
+        // Always under the whole strip. Clear of the window's buttons at the sides was not
+        // enough: "Playing From" and the Song | Video switch are over the middle, right
+        // above the cover, and taller than the 30 points that left -- they cut into it.
+        // And a little air between them.
+        return max(30 * Self.zoom, bar + 10 * Self.zoom)
     }
-
-    /// Room the window's own buttons take at either end of the top strip.
-    private static let windowButtonsWidth = 130.0
 
     private func spacers(flexible: [Bool], fixed: [Int]) {
         for (index, spacer) in sideSpacers.enumerated() {
             spacer.vexpand(flexible[index])
             spacer.size(width: -1, height: Int32(fixed[index]))
+        }
+    }
+
+    /// "Playing From" and the switch over the player: side by side with the queue beside
+    /// it, the left half; in landscape, the cover's or the video's column; otherwise the
+    /// middle. Either way clear of the window's buttons, by the wider end's width on both
+    /// sides so that it stays centred.
+    private func placeSource(layout: Layout, column: Double) {
+        let clear = Int32(windowButtons.map { button -> Int32 in
+            var minimum: Int32 = 0
+            var natural: Int32 = 0
+            gtk_widget_measure(button.widget, GTK_ORIENTATION_HORIZONTAL, -1, &minimum, &natural, nil, nil)
+            return natural
+        }.max() ?? 0) + 12
+        if layout == .sideBySide, showsQueueColumn {
+            topSource.hexpand(false).halign(GTK_ALIGN_START).size(width: Int32(size.width / 2), height: -1)
+            topSource.margins(top: 4, bottom: 4, start: 0, end: 0)
+        } else if layout == .landscape, posterCell.isVisible {
+            topSource.hexpand(false).halign(GTK_ALIGN_START).size(width: Int32(column), height: -1)
+            topSource.margins(top: 4, bottom: 4, start: 0, end: 0)
+        } else {
+            topSource.hexpand(true).halign(GTK_ALIGN_FILL).size(width: -1, height: -1)
+            topSource.margins(top: 4, bottom: 4, start: clear, end: clear)
         }
     }
 
