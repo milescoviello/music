@@ -82,7 +82,9 @@ public enum MusicApplication {
     }
 
     /// `music --action=play-heavy-rotation` and the others in `QuickPlay` (with `--mix=N`
-    /// for Made for You), `--play-playlist=NAME` (and `--shuffle`), `--make-playlist=VIBE`:
+    /// for Made for You), `--play-playlist=NAME`, `--play-artist=NAME`, `--play-album=NAME`
+    /// (each with `--shuffle`), `--make-playlist=VIBE`, and for the song playing `--love`,
+    /// `--song-radio` and `--add-to-playlist=NAME`:
     /// the launcher's right-click menu, the desktop's shortcuts, the phone's Siri. A second
     /// launch hands the command to the running app and exits; a first one starts the app
     /// and runs it once it is ready.
@@ -93,8 +95,13 @@ public enum MusicApplication {
             ("action", G_OPTION_ARG_STRING, "Start playing: \(names)", "NAME"),
             ("mix", G_OPTION_ARG_INT, "With --action=play-made-for-you: which mix, from 1", "N"),
             ("play-playlist", G_OPTION_ARG_STRING, "Play the playlist with this name", "NAME"),
-            ("shuffle", G_OPTION_ARG_NONE, "With --play-playlist: shuffled", nil),
+            ("play-artist", G_OPTION_ARG_STRING, "Play the artist with this name", "NAME"),
+            ("play-album", G_OPTION_ARG_STRING, "Play the album with this name", "NAME"),
+            ("shuffle", G_OPTION_ARG_NONE, "With --play-playlist, --play-artist or --play-album: shuffled", nil),
             ("make-playlist", G_OPTION_ARG_STRING, "Ask Hermes for a playlist from a description", "VIBE"),
+            ("love", G_OPTION_ARG_NONE, "Love the song playing", nil),
+            ("song-radio", G_OPTION_ARG_NONE, "Start a radio from the song playing", nil),
+            ("add-to-playlist", G_OPTION_ARG_STRING, "Add the song playing to the playlist with this name", "NAME"),
         ]
         for (name, kind, help, value) in options {
             g_application_add_main_option(application.cast(), name, 0, GOptionFlags(rawValue: 0), kind, help, value)
@@ -116,6 +123,16 @@ public enum MusicApplication {
             let command: QuickCommand
             if let name = string("play-playlist") {
                 command = .playlist(name: name, shuffled: shuffled)
+            } else if let name = string("play-artist") {
+                command = .artist(name: name, shuffled: shuffled)
+            } else if let name = string("play-album") {
+                command = .album(name: name, shuffled: shuffled)
+            } else if g_variant_dict_contains(options.cast(), "love") != 0 {
+                command = .song(.love)
+            } else if g_variant_dict_contains(options.cast(), "song-radio") != 0 {
+                command = .song(.radio)
+            } else if let name = string("add-to-playlist") {
+                command = .song(.addToPlaylist, playlist: name)
             } else if let vibe = string("make-playlist") {
                 command = .makePlaylist(vibe: vibe)
             } else if let name = string("action") {

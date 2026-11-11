@@ -204,7 +204,7 @@ enum ArtistPage {
             let id = artist.id
             async let chart = try? client.topSongs(artist: artist.name, count: 50)
             async let catalogue: [Song]? = app.cached(CacheKey.artistSongs(id)) { try await client.artistSongs(id: id) }
-            let popular = ordered(chart: await chart ?? [], catalogue: await catalogue ?? [])
+            let popular = LibraryFacets.popular(chart: await chart ?? [], catalogue: await catalogue ?? [])
             guard alive.isAlive else { return }
             if !popular.isEmpty {
                 play.isSensitive = true
@@ -266,24 +266,5 @@ enum ArtistPage {
             more = { env.open(.albumCollection(title: "\(artist) · \(title)", albums: albums)) }
         }
         return Shelf.make(title, more: more, cards: albums.map { Cards.album(env, $0) })
-    }
-
-    /// The chart first, then the rest of the catalogue by play count: what Plexamp's
-    /// popular list falls back to where Last.fm's chart runs out.
-    static func ordered(chart: [Song], catalogue: [Song]) -> [Song] {
-        var seen: Set<String> = []
-        var result: [Song] = []
-        for song in chart where seen.insert(song.id).inserted { result.append(song) }
-        let rest = catalogue.enumerated()
-            .filter { !seen.contains($0.element.id) }
-            .sorted { left, right in
-                let a = left.element.playCount ?? 0
-                let b = right.element.playCount ?? 0
-                return a == b ? left.offset < right.offset : a > b
-            }
-            .map(\.element)
-        // One of each recording: the two folders' copies have different ids, so the
-        // list above, by id, played most songs twice.
-        return SearchRanking.oneOfEach(result + rest)
     }
 }

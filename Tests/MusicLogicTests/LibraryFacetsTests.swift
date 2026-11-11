@@ -116,4 +116,29 @@ struct SearchRankingTests {
         results.song = [Song(id: "s", title: "Something Else")]
         #expect(SearchRanking.topResult(for: "zzz", in: results) == nil)
     }
+
+    @Test func anArtistsSongsAreTheChartThenTheMostPlayed() {
+        func song(_ id: String, _ title: String, plays: Int? = nil) -> Song {
+            var song = Song(id: id, title: title)
+            song.artist = "The Lanterns"
+            song.playCount = plays
+            return song
+        }
+        let chart = [song("b", "Pale Orchid"), song("b", "Pale Orchid")]
+        let catalogue = [
+            song("a", "Glass Harbor"), song("b", "Pale Orchid"), song("c", "Mira", plays: 9),
+            song("d", "Low Tide"), song("c2", "Mira", plays: 3),
+        ]
+        // The chart once, then by plays, ties in catalogue order, one copy of each song.
+        #expect(LibraryFacets.popular(chart: chart, catalogue: catalogue).map(\.id) == ["b", "c", "a", "d"])
+    }
+
+    @Test func aNameIsTheSameNameBeforeOneThatHoldsIt() {
+        let names = ["Glass Harbor Live", "glass harbor", "Pale Orchid"]
+        #expect(LibraryFacets.named("Glass Harbor", in: names, by: { $0 }) == "glass harbor")
+        #expect(LibraryFacets.named("Orchid", in: names, by: { $0 }) == "Pale Orchid")
+        #expect(LibraryFacets.named("Pâle orchid", in: names, by: { $0 }) == "Pale Orchid")
+        #expect(LibraryFacets.named("  ", in: names, by: { $0 }) == nil)
+        #expect(LibraryFacets.named("Mira Vale", in: names, by: { $0 }) == nil)
+    }
 }

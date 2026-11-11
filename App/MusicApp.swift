@@ -73,6 +73,8 @@ struct MusicApp: App {
                         appState.downloads.resumeWaiting()
                         Task { await appState.mostPlayed.refresh() }
                         Task { await appState.playlistStore.refreshIfStale() }
+                        // Siri's names for playlists, artists and albums, read again.
+                        MusicShortcuts.refreshNamesIfStale()
                         Task {
                             await appState.queueSync.check(
                                 localSavedAt: appState.player.lastSavedAt

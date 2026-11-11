@@ -23,18 +23,32 @@ enum QuickPlay: String, CaseIterable, Sendable {
     }
 }
 
+/// What can be done to the song playing, by voice or from the command line.
+enum SongAction: String, CaseIterable, Sendable {
+    case love
+    case radio
+    case addToPlaylist = "add-to-playlist"
+}
+
 /// A start with something to say: which mix, which playlist, what to make. What a second
 /// launch of the desktop app hands the one already running, as one string.
 enum QuickCommand: Equatable, Sendable {
     case play(QuickPlay, mix: Int = 1)
     case playlist(name: String, shuffled: Bool)
+    case artist(name: String, shuffled: Bool)
+    case album(name: String, shuffled: Bool)
     case makePlaylist(vibe: String)
+    /// `playlist`: the name of the one to add to, for `.addToPlaylist`.
+    case song(SongAction, playlist: String? = nil)
 
     var encoded: String {
         switch self {
         case let .play(what, mix): return "play\u{1F}\(what.rawValue)\u{1F}\(mix)"
         case let .playlist(name, shuffled): return "playlist\u{1F}\(shuffled ? 1 : 0)\u{1F}\(name)"
+        case let .artist(name, shuffled): return "artist\u{1F}\(shuffled ? 1 : 0)\u{1F}\(name)"
+        case let .album(name, shuffled): return "album\u{1F}\(shuffled ? 1 : 0)\u{1F}\(name)"
         case let .makePlaylist(vibe): return "vibe\u{1F}\(vibe)"
+        case let .song(action, playlist): return "song\u{1F}\(action.rawValue)\u{1F}\(playlist ?? "")"
         }
     }
 
@@ -46,8 +60,15 @@ enum QuickCommand: Equatable, Sendable {
             self = .play(what, mix: Int(parts[2]) ?? 1)
         case "playlist" where parts.count == 3:
             self = .playlist(name: parts[2], shuffled: parts[1] == "1")
+        case "artist" where parts.count == 3:
+            self = .artist(name: parts[2], shuffled: parts[1] == "1")
+        case "album" where parts.count == 3:
+            self = .album(name: parts[2], shuffled: parts[1] == "1")
         case "vibe" where parts.count == 2:
             self = .makePlaylist(vibe: parts[1])
+        case "song" where parts.count == 3:
+            guard let action = SongAction(rawValue: parts[1]) else { return nil }
+            self = .song(action, playlist: parts[2].isEmpty ? nil : parts[2])
         default:
             return nil
         }
@@ -57,7 +78,12 @@ enum QuickCommand: Equatable, Sendable {
         switch self {
         case let .play(what, _): return what.title
         case let .playlist(name, _): return "Play Playlist \(name)"
+        case let .artist(name, _): return "Play Artist \(name)"
+        case let .album(name, _): return "Play Album \(name)"
         case let .makePlaylist(vibe): return "Make a Playlist for \(vibe)"
+        case .song(.love, _): return "Love This Song"
+        case .song(.radio, _): return "Start a Radio from This Song"
+        case let .song(.addToPlaylist, name): return "Add This Song to \(name ?? "a Playlist")"
         }
     }
 }
@@ -123,18 +149,34 @@ extension AppState {
         switch command {
         case let .play(what, mix): return await quickPlay(what, mix: mix)
         case let .playlist(name, shuffled): return await playPlaylist(named: name, shuffled: shuffled)
+        case let .artist(name, shuffled):
+            guard let artist = await findArtist(named: name) else { return "I couldn't find an artist called \(name)." }
+            return await play(artist, shuffled: shuffled)
+        case let .album(name, shuffled):
+            guard let album = await findAlbum(named: name) else { return "I couldn't find an album called \(name)." }
+            return await play(album, shuffled: shuffled)
         case let .makePlaylist(vibe): return await makeVibePlaylist(vibe)
+        case let .song(action, name):
+            guard action == .addToPlaylist else { return await songAction(action) }
+            guard let name, let playlist = await findPlaylist(named: name) else {
+                return "I couldn't find a playlist called \(name ?? "that")."
+            }
+            return await songAction(action, playlist: playlist)
         }
     }
 
     /// The playlist called `name`, or failing that the first whose name holds it.
     func playPlaylist(named name: String, shuffled: Bool) async -> String {
-        await playlistStore.loadIfNeeded()
-        let playlists = playlistStore.playlists
-        guard let target = playlists.first(where: { $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame })
-            ?? playlists.first(where: { $0.name.localizedCaseInsensitiveContains(name) })
-        else { return "I couldn't find a playlist called \(name)." }
+        guard let target = await findPlaylist(named: name) else { return "I couldn't find a playlist called \(name)." }
+        return await play(target, shuffled: shuffled)
+    }
 
+    func findPlaylist(named name: String) async -> Playlist? {
+        await playlistStore.loadIfNeeded()
+        return LibraryFacets.named(name, in: playlistStore.playlists, by: \.name)
+    }
+
+    func play(_ target: Playlist, shuffled: Bool) async -> String {
         let (found, isSaved) = await playlist(target.id)
         guard let detail = found else { return "I couldn't reach your library for \(target.name)." }
         guard !detail.songs.isEmpty else { return "\(target.name) is empty." }
@@ -144,7 +186,82 @@ extension AppState {
             source: target.name,
             shuffled: shuffled
         )
-        return "Playing \(target.name)."
+        return shuffled ? "Shuffling \(target.name)." : "Playing \(target.name)."
+    }
+
+    // MARK: - Artists and albums, by name
+
+    /// The artist called `name` in the library being browsed, by the server's search.
+    func findArtist(named name: String) async -> Artist? {
+        let found = try? await client.search(query: name, artistCount: 20, albumCount: 0, songCount: 0, scope: scope.scope)
+        return LibraryFacets.named(name, in: found?.artists ?? [], by: \.name)
+    }
+
+    /// The album called `name`. Of an album held in both folders, the copy played more.
+    func findAlbum(named name: String) async -> Album? {
+        let found = try? await client.search(query: name, artistCount: 0, albumCount: 30, songCount: 0, scope: scope.scope)
+        let albums = (found?.albums ?? []).sorted { ($0.playCount ?? 0) > ($1.playCount ?? 0) }
+        return LibraryFacets.named(name, in: albums, by: \.name)
+    }
+
+    /// The artist's songs in their page's order (`LibraryFacets.popular`), or shuffled.
+    func play(_ artist: Artist, shuffled: Bool) async -> String {
+        let client = self.client
+        let id = artist.id
+        async let chart = try? client.topSongs(artist: artist.name, count: 50)
+        async let catalogue: [Song]? = cached(CacheKey.artistSongs(id)) {
+            try await client.artistSongs(id: id)
+        }
+        let songs = LibraryFacets.popular(chart: await chart ?? [], catalogue: await catalogue ?? [])
+        guard !songs.isEmpty else { return "I couldn't reach your library for \(artist.name)." }
+        player.play(songs: songs, startingAt: 0, source: artist.name, shuffled: shuffled)
+        return shuffled ? "Shuffling \(artist.name)." : "Playing \(artist.name)."
+    }
+
+    func play(_ album: Album, shuffled: Bool) async -> String {
+        guard let detail = try? await client.albumDetail(id: album.id) else {
+            return "I couldn't reach your library for \(album.name)."
+        }
+        guard !detail.songs.isEmpty else { return "\(album.name) is empty." }
+        player.play(songs: detail.songs, startingAt: 0, source: detail.name, shuffled: shuffled)
+        return shuffled ? "Shuffling \(detail.name)." : "Playing \(detail.name)."
+    }
+
+    /// The most played albums and their artists, for Siri to know by name before it is
+    /// asked: what a voice is likeliest to ask for.
+    func mostPlayedArtistsAndAlbums(limit: Int) async -> (artists: [Artist], albums: [Album]) {
+        let albums = (try? await client.mostPlayedAlbums(size: limit * 2, scope: scope.scope)) ?? []
+        var seen: Set<String> = []
+        var artists: [Artist] = []
+        for album in albums {
+            guard let id = album.artistId, let name = album.artist, seen.insert(id).inserted else { continue }
+            artists.append(Artist(id: id, name: name))
+        }
+        return (Array(artists.prefix(limit)), Array(albums.prefix(limit)))
+    }
+
+    // MARK: - The song playing
+
+    /// Loves the song playing, starts a radio from it, or adds it to `playlist`.
+    func songAction(_ action: SongAction, playlist: Playlist? = nil) async -> String {
+        guard let song = player.currentSong else { return "Nothing is playing." }
+        switch action {
+        case .love:
+            guard !userState.isStarred(song) else { return "You already love \(song.title)." }
+            userState.toggleStar(song)
+            return "Loved \(song.title)."
+        case .radio:
+            let title = "\(song.title) Radio"
+            let songs = await radio.mix(seed: song, scope: scope.scope)
+            guard !songs.isEmpty else { return "I couldn't make a radio from \(song.title)." }
+            startRadio(named: title, songs: songs, station: .radio(seedIDs: [song.id], title: title))
+            return "Starting \(title)."
+        case .addToPlaylist:
+            guard let playlist else { return "Which playlist?" }
+            playlistStore.lastMessage = nil
+            await playlistStore.add([song], to: playlist)
+            return playlistStore.lastMessage.map { "\($0)." } ?? "Added \(song.title) to \(playlist.name)."
+        }
     }
 
     /// Asks Hermes for a playlist from a description.

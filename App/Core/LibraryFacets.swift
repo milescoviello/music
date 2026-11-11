@@ -22,6 +22,38 @@ enum LibraryFacets {
         }
     }
 
+    /// An artist's songs as their page lists them, and as Siri plays them: the chart first,
+    /// then the rest of the catalogue by play count, which is what Plexamp's popular list
+    /// falls back to where Last.fm's chart runs out. Ties in the tail -- every track of an
+    /// artist never played -- keep the catalogue's release-then-track order, so the list
+    /// does not reshuffle between visits.
+    static func popular(chart: [Song], catalogue: [Song]) -> [Song] {
+        var seen: Set<String> = []
+        var result: [Song] = []
+        for song in chart where seen.insert(song.id).inserted { result.append(song) }
+        let rest = catalogue.enumerated()
+            .filter { !seen.contains($0.element.id) }
+            .sorted { left, right in
+                let a = left.element.playCount ?? 0
+                let b = right.element.playCount ?? 0
+                return a == b ? left.offset < right.offset : a > b
+            }
+            .map(\.element)
+        // One of each recording: the two folders' copies have different ids, so the
+        // list above, by id, played most songs twice.
+        return SearchRanking.oneOfEach(result + rest)
+    }
+
+    /// The one of `items` called `name`, for a name said to Siri or typed on a command
+    /// line: the same name, case and accents aside, else the first whose name holds it.
+    static func named<T>(_ name: String, in items: [T], by itemName: (T) -> String) -> T? {
+        let wanted = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !wanted.isEmpty else { return nil }
+        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        return items.first { itemName($0).compare(wanted, options: options) == .orderedSame }
+            ?? items.first { itemName($0).range(of: wanted, options: options) != nil }
+    }
+
     /// Plexamp's Appears On: albums where the artist is credited on a track but is not the
     /// album artist — the guest verse, the compilation track, the remix.
     static func appearsOn(_ songs: [Song], artistID: String, excluding own: Set<String>) -> [Album] {

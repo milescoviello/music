@@ -333,7 +333,7 @@ struct ArtistDetailView: View {
             try await client.artistSongs(id: id)
         }
 
-        popular = Self.ordered(chart: await chart ?? [], catalogue: await catalogue ?? [])
+        popular = LibraryFacets.popular(chart: await chart ?? [], catalogue: await catalogue ?? [])
 
         // Biography, similar artists, and the albums this artist only guests on — the
         // last found by searching for the name and keeping the tracks that credit them on
@@ -344,31 +344,5 @@ struct ArtistDetailView: View {
         sonicallySimilar = await appState.sonic.similarArtists(to: id) ?? []
         let own = Set((detail?.album ?? []).map(\.id))
         appearsOn = LibraryFacets.appearsOn(await found?.songs ?? [], artistID: id, excluding: own)
-    }
-
-    /// The chart's order, then everything it missed by play count.
-    ///
-    /// Ties in the tail — which is *every* track for an artist never played — keep the
-    /// catalogue's release-then-track order, so the list does not reshuffle between visits.
-    static func ordered(chart: [Song], catalogue: [Song]) -> [Song] {
-        var seen: Set<String> = []
-        var result: [Song] = []
-
-        for song in chart where seen.insert(song.id).inserted {
-            result.append(song)
-        }
-
-        let rest = catalogue.enumerated()
-            .filter { !seen.contains($0.element.id) }
-            .sorted { left, right in
-                let a = left.element.playCount ?? 0
-                let b = right.element.playCount ?? 0
-                return a == b ? left.offset < right.offset : a > b
-            }
-            .map(\.element)
-
-        // One of each recording: the two folders' copies have different ids, so the
-        // list above, by id, played most songs twice.
-        return SearchRanking.oneOfEach(result + rest)
     }
 }
