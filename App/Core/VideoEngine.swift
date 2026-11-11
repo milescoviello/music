@@ -66,16 +66,19 @@ final class VideoEngine {
     }
 
     var isOpen: Bool { player.currentItem != nil }
+    /// The Streaming settings' video quality: every height, or the one.
+    var quality: VideoQuality = .auto
 
     /// Opens the video `seconds` in, playing or not.
     func open(videoID: String, client: VideoClient, at seconds: Double, playing: Bool) {
         stop()
-        guard let url = client.masterURL(videoID: videoID) else {
+        guard let url = client.masterURL(videoID: videoID, quality: quality) else {
             onFailure?("The video service's address is not valid.")
             return
         }
         // Every height up to 1080p is in the playlist, and AVPlayer picks among them by
-        // the connection: the best it can keep up with, wherever the phone is.
+        // the connection: the best it can keep up with, wherever the phone is. Unless a
+        // quality is chosen: then the playlist has that one height.
         let item = AVPlayerItem(url: url)
         let itemID = ObjectIdentifier(item)
         itemObservations.append(item.observe(\.status) { @Sendable [weak self] item, _ in

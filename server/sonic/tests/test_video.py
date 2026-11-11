@@ -136,6 +136,23 @@ class YouTubesHls(unittest.TestCase):
         self.assertEqual((built.tallest, built.width, built.height, built.audio), ("270", 1920, 1080, "234"))
         self.assertTrue(built.media["270"].startswith("https://manifest.example/"))
 
+    def test_a_chosen_quality_is_that_one_height_or_the_nearest_under_it(self):
+        def heights(height):
+            built = video.hls_master(HLS_MASTER, "", height)
+            return [line for line in built.playlist.splitlines() if not line.startswith("#")], built.tallest
+        self.assertEqual(heights(720), (["h232.m3u8"], "232"))
+        self.assertEqual(heights(480), (["h229.m3u8"], "229"))       # no 480p: the 240p under it
+        self.assertEqual(heights(144), (["h229.m3u8"], "229"))       # nothing under: the smallest
+        self.assertEqual(heights(None)[0], ["h232.m3u8", "h270.m3u8", "h229.m3u8"])
+
+    def test_a_widescreen_video_keeps_youtubes_names_for_its_qualities(self):
+        wide = (HLS_MASTER.replace("RESOLUTION=1920x1080", "RESOLUTION=1920x788")
+                .replace("RESOLUTION=1280x720", "RESOLUTION=1280x526"))
+        built = video.hls_master(wide, "", 720)
+        self.assertEqual([line for line in built.playlist.splitlines() if not line.startswith("#")], ["h232.m3u8"])
+        self.assertEqual((video.hls_master(wide).tallest, video.hls_master(wide).height), ("270", 788))
+        self.assertEqual(video.tier("", 1080, 1920), 1080)           # a phone's video, standing up
+
     def test_no_h264_is_none(self):
         only_vp9 = "\n".join(line for line in HLS_MASTER.splitlines() if "avc1" not in line)
         self.assertIsNone(video.hls_master(only_vp9))

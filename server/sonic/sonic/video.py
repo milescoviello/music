@@ -63,7 +63,7 @@ NONE_KEEP = 7 * 86400
 PICKS_FROM = 1794379723
 # What YouTube Music calls the artist's official music video, as against an upload of it.
 OFFICIAL_VIDEO = "MUSIC_VIDEO_TYPE_OMV"
-# The tallest H.264 stream offered. YouTube has nothing taller in H.264, and its VP9 and
+# The best H.264 quality offered, by YouTube's name for it. YouTube has nothing taller in H.264, and its VP9 and
 # AV1 streams are not something every phone can decode.
 MAX_HEIGHT = 1080
 
@@ -363,9 +363,39 @@ class HlsMaster:
     audio: str                             # the audio's itag
 
 
-def hls_master(text: str, suffix: str = "") -> HlsMaster | None:
+# YouTube's quality tiers by stream number, HLS and fragmented MP4: what it calls 1080p is
+# 1920 wide whatever the shape, 788 tall for a widescreen film and 1920 for a phone's video.
+TIERS = {
+    "269": 144, "160": 144, "229": 240, "133": 240, "230": 360, "134": 360, "231": 480, "135": 480,
+    "232": 720, "136": 720, "298": 720, "311": 720, "270": 1080, "137": 1080, "299": 1080, "312": 1080,
+}
+
+
+def tier(itag: str, width: int, height: int) -> int:
+    """The quality a stream is called by: 1080, 720, 480 and so on."""
+    if itag in TIERS:
+        return TIERS[itag]
+    short, long = sorted((width, height))
+    for named in (144, 240, 360, 480, 720, 1080, 1440, 2160):
+        if short <= named and long <= named * 16 / 9 + 2:
+            return named
+    return 4320
+
+
+def _nearest(heights, height: int | None) -> list[int]:
+    """Every height, or -- for a quality chosen in the apps -- the one wanted, or the
+    nearest under it, or the smallest when all are taller."""
+    heights = sorted(heights, reverse=True)
+    if not height or not heights:
+        return heights
+    under = [h for h in heights if h <= height]
+    return [under[0] if under else heights[-1]]
+
+
+def hls_master(text: str, suffix: str = "", height: int | None = None) -> HlsMaster | None:
     """YouTube's own HLS master playlist, cut to what every iPhone plays -- H.264 up to
-    1080p, with the better of its two AACs -- and pointed at the relay.
+    1080p, with the better of its two AACs -- and pointed at the relay. With `height`,
+    the one height the apps' quality setting asks for.
 
     The 720p comes first, which is where AVPlayer starts: a picture in a second or two
     rather than a 1080p segment's wait, and it climbs to 1080p within a few segments.
@@ -381,32 +411,35 @@ def hls_master(text: str, suffix: str = "") -> HlsMaster | None:
         elif line.startswith("#EXT-X-STREAM-INF:") and i + 1 < len(lines):
             variants.append((_attributes(line), lines[i + 1].strip()))
 
-    def h264(aac: str) -> dict[int, tuple[dict, str, int]]:
-        found: dict[int, tuple[dict, str, int]] = {}
+    def itag(uri: str, fallback: str) -> str:
+        found = _ITAG.search(uri)
+        return found[1] if found else fallback
+
+    def h264(aac: str) -> dict[int, tuple[dict, str, int, int]]:
+        """By quality tier: each variant's attributes, address, width and height."""
+        found: dict[int, tuple[dict, str, int, int]] = {}
         for attrs, uri in variants:
             codecs = attrs.get("CODECS", "")
             try:
-                width, height = (int(n) for n in attrs.get("RESOLUTION", "").split("x"))
+                width, tall = (int(n) for n in attrs.get("RESOLUTION", "").split("x"))
             except ValueError:
                 continue
-            if not (codecs.startswith("avc1") and aac in codecs and 0 < height <= MAX_HEIGHT
+            named = tier(itag(uri, ""), width, tall)
+            if not (codecs.startswith("avc1") and aac in codecs and 0 < tall and named <= MAX_HEIGHT
                     and attrs.get("AUDIO") in audio and uri and not uri.startswith("#")):
                 continue
             bandwidth = int(attrs.get("BANDWIDTH", "0") or 0)
-            if height not in found or bandwidth > int(found[height][0].get("BANDWIDTH", "0") or 0):
-                found[height] = (attrs, uri, width)
+            if named not in found or bandwidth > int(found[named][0].get("BANDWIDTH", "0") or 0):
+                found[named] = (attrs, uri, width, tall)
         return found
 
     chosen = h264("mp4a.40.2") or h264("mp4a.40.5")     # AAC-LC, else the low-rate HE-AAC
     if not chosen:
         return None
-    heights = sorted(chosen, reverse=True)
-    order = ([720] if 720 in chosen else []) + [height for height in heights if height != 720]
-    group = chosen[heights[0]][0]["AUDIO"]
-
-    def itag(uri: str, fallback: str) -> str:
-        found = _ITAG.search(uri)
-        return found[1] if found else fallback
+    tiers = _nearest(chosen, height)
+    chosen = {named: chosen[named] for named in tiers}
+    order = ([720] if 720 in chosen else []) + [named for named in tiers if named != 720]
+    group = chosen[tiers[0]][0]["AUDIO"]
 
     audio_itag = itag(audio[group], "0")
     media = {audio_itag: audio[group]}
@@ -416,18 +449,18 @@ def hls_master(text: str, suffix: str = "") -> HlsMaster | None:
         f'#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="Audio",DEFAULT=YES,AUTOSELECT=YES,'
         f'CHANNELS="2",URI="h{audio_itag}.m3u8{suffix}"',
     ]
-    for height in order:
-        attrs, uri, width = chosen[height]
-        video_itag = itag(uri, str(height))
+    for named in order:
+        attrs, uri, width, tall = chosen[named]
+        video_itag = itag(uri, str(named))
         media[video_itag] = uri
         rate = f',FRAME-RATE={attrs["FRAME-RATE"]}' if attrs.get("FRAME-RATE") else ""
         playlist.append(f'#EXT-X-STREAM-INF:BANDWIDTH={attrs.get("BANDWIDTH", "0")},CODECS="{attrs["CODECS"]}",'
-                        f'RESOLUTION={width}x{height}{rate},AUDIO="audio"')
+                        f'RESOLUTION={width}x{tall}{rate},AUDIO="audio"')
         playlist.append(f"h{video_itag}.m3u8{suffix}")
-    tallest_attrs, tallest_uri, tallest_width = chosen[heights[0]]
+    _, tallest_uri, tallest_width, tallest_height = chosen[tiers[0]]
     return HlsMaster(
-        playlist="\n".join(playlist) + "\n", media=media, tallest=itag(tallest_uri, str(heights[0])),
-        width=tallest_width, height=heights[0], audio=audio_itag,
+        playlist="\n".join(playlist) + "\n", media=media, tallest=itag(tallest_uri, str(tiers[0])),
+        width=tallest_width, height=tallest_height, audio=audio_itag,
     )
 
 
@@ -517,6 +550,7 @@ class Stream:
     tbr: float = 0                         # kbit/s, YouTube's average
     size: int | None = None
     index: Index | None = None
+    tier: int = 0                          # what YouTube calls its quality: 1080, 720...
 
 
 @dataclass
@@ -725,8 +759,8 @@ class Videos:
                     return resolved
         return Resolved("", "", "", 0, [], None, None, 0)
 
-    def master(self, video_id: str, suffix: str = "") -> str:
-        built = self._hls(video_id, suffix)
+    def master(self, video_id: str, suffix: str = "", height: int | None = None) -> str:
+        built = self._hls(video_id, suffix, height)
         if built is not None:
             return built.playlist
         resolved = self.resolve(video_id)
@@ -734,7 +768,8 @@ class Videos:
             raise LookupError("no stream this player can play")
         audio_index = self.index(resolved, resolved.audio)
         variants = []
-        for stream in resolved.videos:
+        wanted = set(_nearest([stream.tier for stream in resolved.videos], height))
+        for stream in (stream for stream in resolved.videos if stream.tier in wanted):
             try:
                 index = self.index(resolved, stream)
             except Exception:  # noqa: BLE001 — one height missing leaves the others
@@ -758,10 +793,11 @@ class Videos:
             raise LookupError("no such stream")
         return media_playlist(self.index(resolved, stream), f"{itag}.{stream.ext}{suffix}")
 
-    def streams(self, video_id: str, suffix: str = "") -> dict:
-        """The desktop's: the tallest video stream and the best audio, to open directly."""
+    def streams(self, video_id: str, suffix: str = "", height: int | None = None) -> dict:
+        """The desktop's: the tallest video stream -- or the height its quality setting
+        asks for -- and the best audio, to open directly."""
         resolved = self.resolve(video_id)
-        built = self._hls(video_id)
+        built = self._hls(video_id, height=height)
         if built is not None:
             return {
                 "id": video_id, "title": resolved.title, "channel": resolved.channel, "duration": resolved.duration,
@@ -772,7 +808,8 @@ class Videos:
             }
         if not resolved.videos:
             raise LookupError("no video stream")
-        video = resolved.videos[0]
+        wanted = _nearest([stream.tier for stream in resolved.videos], height)[0]
+        video = next(stream for stream in resolved.videos if stream.tier == wanted)
         audio = resolved.best_audio or resolved.audio
         if audio is None:
             raise LookupError("no audio stream")
@@ -813,7 +850,7 @@ class Videos:
 
     # -- YouTube's own HLS
 
-    def _hls(self, video_id: str, suffix: str = "") -> HlsMaster | None:
+    def _hls(self, video_id: str, suffix: str = "", height: int | None = None) -> HlsMaster | None:
         """YouTube's HLS master for the video, cut down and pointed here; None when it has
         none, or it cannot be read, and the fragmented-MP4 streams are to be used instead."""
         resolved = self.resolve(video_id)
@@ -830,9 +867,9 @@ class Videos:
                 with resolved.lock:
                     resolved.hls_master = built
                     resolved.hls_text = text
-            if not suffix:
+            if not suffix and not height:
                 return resolved.hls_master
-            return hls_master(resolved.hls_text, suffix)
+            return hls_master(resolved.hls_text, suffix, height)
         except Exception:  # noqa: BLE001 — the fragmented-MP4 streams are still there
             log.info("could not read the HLS of %s", video_id, exc_info=True)
             return None
@@ -942,11 +979,13 @@ def _streams(info: dict) -> Resolved:
             ext=f.get("ext") or "", codec="", height=int(f.get("height") or 0), width=int(f.get("width") or 0),
             fps=float(f.get("fps") or 0), tbr=float(f.get("tbr") or 0), size=f.get("filesize"),
         )
-        if acodec == "none" and vcodec.startswith("avc1") and stream.ext == "mp4" and 0 < stream.height <= MAX_HEIGHT:
+        named = tier(stream.itag, stream.width, stream.height)
+        if acodec == "none" and vcodec.startswith("avc1") and stream.ext == "mp4" and 0 < stream.height and named <= MAX_HEIGHT:
             stream.codec = vcodec
-            kept = videos.get(stream.height)
+            stream.tier = named
+            kept = videos.get(named)
             if kept is None or stream.tbr > kept.tbr:
-                videos[stream.height] = stream
+                videos[named] = stream
         elif vcodec == "none" and acodec.startswith("mp4a") and stream.ext == "m4a":
             stream.codec = acodec
             if aac is None or stream.tbr > aac.tbr:

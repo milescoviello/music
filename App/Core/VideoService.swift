@@ -54,10 +54,23 @@ final class VideoService: VideoStandIn {
     }
 
     private static let wantsVideoKey = "video.wantsVideo"
+    private static let qualityKey = "video.quality"
 
     /// Video chosen on the switch. Remembered between launches.
     private(set) var wantsVideo: Bool {
         didSet { UserDefaults.standard.set(wantsVideo, forKey: Self.wantsVideoKey) }
+    }
+    /// How tall videos play, from the Streaming settings. Remembered; a change reopens
+    /// the video playing, where it had got to.
+    var quality: VideoQuality {
+        didSet {
+            guard quality != oldValue else { return }
+            UserDefaults.standard.set(quality.rawValue, forKey: Self.qualityKey)
+            engine.quality = quality
+            if let video = current, engine.isOpen {
+                engine.open(videoID: video.id, client: client, at: progress.elapsed, playing: progress.isPlaying)
+            }
+        }
     }
     private(set) var showing: Showing = .song
     /// Each song's video, by song id, as far as it is known.
@@ -87,6 +100,8 @@ final class VideoService: VideoStandIn {
 
     init() {
         wantsVideo = UserDefaults.standard.bool(forKey: Self.wantsVideoKey)
+        quality = VideoQuality(rawValue: UserDefaults.standard.integer(forKey: Self.qualityKey)) ?? .auto
+        engine.quality = quality
     }
 
     func configure(appState: AppState) {

@@ -48,6 +48,18 @@ struct VideoClientTests {
             == "http://sonic.local:8650/v1/video/AbCdEfGhIj0/251.webm?token=s3cret")
     }
 
+    /// A chosen quality asks the service for that one height; Auto asks for every height.
+    @Test func aChosenQualityRidesOnTheAddress() {
+        #expect(client.masterURL(videoID: "AbCdEfGhIj0", quality: .p720)?.absoluteString
+            == "http://sonic.local:8650/v1/video/AbCdEfGhIj0/master.m3u8?height=720")
+        #expect(client.masterURL(videoID: "AbCdEfGhIj0", quality: .auto)?.absoluteString
+            == "http://sonic.local:8650/v1/video/AbCdEfGhIj0/master.m3u8")
+        let guarded = VideoClient(configuration: .init(baseURL: URL(string: "http://sonic.local:8650")!, token: "s3cret"))
+        #expect(guarded.masterURL(videoID: "AbCdEfGhIj0", quality: .p480)?.absoluteString
+            == "http://sonic.local:8650/v1/video/AbCdEfGhIj0/master.m3u8?height=480&token=s3cret")
+        #expect(VideoQuality.allCases.map(\.label) == ["Auto", "1080p", "720p", "480p", "360p"])
+    }
+
     @Test func searchQueriesKeepTheirPlus() {
         #expect(client.url("v1/video/search", ["q": "1+1"])?.absoluteString.contains("q=1%2B1") == true)
     }

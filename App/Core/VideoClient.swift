@@ -104,16 +104,18 @@ struct VideoClient: Sendable {
         _ = try await send("DELETE", "v1/video/match", ["artist": artist, "title": title], timeout: 15)
     }
 
-    func streams(videoID: String) async throws -> Streams {
-        let data = try await send("GET", "v1/video/\(videoID)/streams", [:], timeout: 30)
+    func streams(videoID: String, quality: VideoQuality = .auto) async throws -> Streams {
+        let height = quality.maxHeight.map { ["height": String($0)] } ?? [:]
+        let data = try await send("GET", "v1/video/\(videoID)/streams", height, timeout: 30)
         return try JSONDecoder().decode(Streams.self, from: data)
     }
 
     // MARK: - Addresses
 
-    /// What AVPlayer opens: every height, adaptive, with the audio.
-    func masterURL(videoID: String) -> URL? {
-        mediaURL("v1/video/\(videoID)/master.m3u8")
+    /// What AVPlayer opens: every height, adaptive, with the audio -- or, for a chosen
+    /// quality, the one height.
+    func masterURL(videoID: String, quality: VideoQuality = .auto) -> URL? {
+        mediaURL("v1/video/\(videoID)/master.m3u8", extra: quality.maxHeight.map { [URLQueryItem(name: "height", value: String($0))] } ?? [])
     }
 
     func thumbnailURL(videoID: String) -> URL? {
@@ -122,15 +124,17 @@ struct VideoClient: Sendable {
 
     /// A path the service named (`Streams.video`), as an address. The token, when there is
     /// one, rides on the address: a player fetching it cannot add our header.
-    func mediaURL(_ path: String) -> URL? {
+    func mediaURL(_ path: String, extra: [URLQueryItem] = []) -> URL? {
         let bare = path.split(separator: "?", maxSplits: 1).first.map(String.init) ?? path
         guard var components = URLComponents(
             url: configuration.baseURL.appendingPathComponent(bare),
             resolvingAgainstBaseURL: false
         ) else { return nil }
+        var items = extra
         if let token = configuration.token, !token.isEmpty {
-            components.queryItems = [URLQueryItem(name: "token", value: token)]
+            items.append(URLQueryItem(name: "token", value: token))
         }
+        components.queryItems = items.isEmpty ? nil : items
         return components.url
     }
 
@@ -206,4 +210,19 @@ extension VideoClient.Video {
     var subtitle: String {
         [channel.isEmpty ? nil : channel, durationText].compactMap { $0 }.joined(separator: " · ")
     }
+}
+
+/// How tall music videos play, from the Streaming settings. Auto is every height up to
+/// 1080p, which the player picks among by the connection; a height is that one, or the
+/// nearest under it the video has, and stays there.
+enum VideoQuality: Int, CaseIterable, Identifiable, Sendable {
+    case auto = 0
+    case p1080 = 1080
+    case p720 = 720
+    case p480 = 480
+    case p360 = 360
+
+    var id: Int { rawValue }
+    var label: String { self == .auto ? "Auto" : "\(rawValue)p" }
+    var maxHeight: Int? { self == .auto ? nil : rawValue }
 }

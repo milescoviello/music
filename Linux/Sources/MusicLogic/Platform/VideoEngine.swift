@@ -32,7 +32,7 @@ final class VideoEngine {
 
     private(set) var currentFrame: Texture?
     private var session: VideoSession?
-    private var streams: (id: String, streams: VideoClient.Streams, video: URL, audio: URL)?
+    private var streams: (id: String, quality: VideoQuality, streams: VideoClient.Streams, video: URL, audio: URL)?
     private var client: VideoClient?
     private var videoID: String?
     private var wantsPlaying = false
@@ -44,6 +44,8 @@ final class VideoEngine {
     private var finished = false
 
     var isOpen: Bool { videoID != nil }
+    /// The Streaming settings' video quality: the tallest, or the height chosen.
+    var quality: VideoQuality = .auto
 
     func open(videoID: String, client: VideoClient, at seconds: Double, playing: Bool) {
         stop()
@@ -138,16 +140,17 @@ final class VideoEngine {
         guard let videoID, let client else { return }
 
         Task {
-            let resolved: (id: String, streams: VideoClient.Streams, video: URL, audio: URL)
-            if let kept = streams, kept.id == videoID {
+            let resolved: (id: String, quality: VideoQuality, streams: VideoClient.Streams, video: URL, audio: URL)
+            let quality = quality
+            if let kept = streams, kept.id == videoID, kept.quality == quality {
                 resolved = kept
             } else {
                 do {
-                    let answer = try await client.streams(videoID: videoID)
+                    let answer = try await client.streams(videoID: videoID, quality: quality)
                     guard let video = client.mediaURL(answer.video), let audio = client.mediaURL(answer.audio) else {
                         throw SonicError.badURL
                     }
-                    resolved = (videoID, answer, video, audio)
+                    resolved = (videoID, quality, answer, video, audio)
                 } catch {
                     guard self.generation == generation else { return }
                     fail("The video service couldn't open this video.")
@@ -243,6 +246,9 @@ final class VideoSession: @unchecked Sendable {
     /// The first picture after opening is shown at once, even paused: after a seek, the
     /// frame there is a hair past the time asked for, and a paused clock never reaches it.
     private var shownFirst = false
+    /// Pictures wanted again after none were: the decoder had skipped them, so it goes back
+    /// to the time heard now, or a paused video showed black until it was played.
+    private var resync = false
     private var audioOpen = false
     private var videoOpen = false
     private var audioEnded = false
@@ -309,7 +315,15 @@ final class VideoSession: @unchecked Sendable {
     }
 
     func setWantsPictures(_ value: Bool) {
-        locked { wantsPictures = value }
+        condition.lock()
+        if value, !wantsPictures {
+            resync = true
+            shownFirst = false
+            frames.removeAll()
+        }
+        wantsPictures = value
+        condition.broadcast()
+        condition.unlock()
     }
 
     func setVolume(_ value: Float) {
@@ -476,9 +490,18 @@ final class VideoSession: @unchecked Sendable {
         }
         if startTime > 0 { decoder.seek(to: startTime) }
         locked { videoOpen = true }
+        var from = startTime
 
         while true {
             if locked({ stopped }) { return }
+            if let now = locked({ () -> Double? in
+                guard resync else { return nil }
+                resync = false
+                return currentClock()
+            }) {
+                decoder.seek(to: now)
+                from = now
+            }
             let time: Double
             do {
                 guard let next = try decoder.nextFrame() else {
@@ -491,12 +514,16 @@ final class VideoSession: @unchecked Sendable {
                 return
             }
             // Before the place asked for: the decoder starts from the key frame before it.
-            if time < startTime - 0.02 { continue }
+            if time < from - 0.02 { continue }
 
             condition.lock()
             // Never far ahead of the sound, and never more than a few frames queued.
-            while !stopped, frames.count >= Self.queueLength || time > currentClock() + 1.5 {
+            while !stopped, !resync, frames.count >= Self.queueLength || time > currentClock() + 1.5 {
                 _ = condition.wait(until: Date.now.addingTimeInterval(0.02))
+            }
+            if resync {
+                condition.unlock()
+                continue
             }
             let showing = wantsPictures
             let late = time < currentClock() - 0.1 && !frames.isEmpty

@@ -53,6 +53,11 @@ final class NowPlaying {
 
     // The pieces, made once and arranged for each layout.
     private let topBar: Widget
+    /// "Playing From" and the Song | Video switch: over the player, which side by side is
+    /// the left half, not the middle of the window between the player and the queue.
+    private let topSource: Box
+    /// The window's buttons at the two ends, which the source block keeps clear of.
+    private let windowButtons: [Widget]
     private let scroller: ScrolledWindow
     private let page = Box.vertical(spacing: 0)
     private let mainRow = Box.horizontal(spacing: 0)
@@ -103,7 +108,7 @@ final class NowPlaying {
         poster.add(visualizer.root, name: Mode.visualizer.rawValue)
         // The song's video, in the cover's place while the switch is on Video.
         let fullScreen: @MainActor () -> Void = { [env] in
-            VideoWindow.present(app, watching: nil, fullScreen: true, toast: env.toast)
+            VideoWindow.present(app, watching: nil, toast: env.toast)
         }
         poster.add(Self.videoPane(app, fullScreen: fullScreen), name: Self.videoPage)
         posterFrame = ScrolledWindow(poster, horizontal: GTK_POLICY_EXTERNAL, vertical: GTK_POLICY_EXTERNAL)
@@ -165,11 +170,13 @@ final class NowPlaying {
         }
         root.add(scroller)
 
-        let bar = Self.topBar(app, showVideo: { modeReference.value?.select(.artwork) }) { [env] in
+        let (bar, source, buttons) = Self.topBar(app, showVideo: { modeReference.value?.select(.artwork) }) { [env] in
             guard let song = app.player.currentSong else { return }
             ChangeVideo.present(app, song: song, toast: env.toast)
         }
         topBar = bar
+        topSource = source
+        windowButtons = buttons
         root.add(bar)
         // Draws nothing: there to be told the player's size, which decides the layout.
         let sizer = DrawingArea { _, _, _ in }
@@ -245,6 +252,22 @@ final class NowPlaying {
         let layout: Layout = w > 500 && w / h > 1 ? (h > 680 ? .sideBySide : .landscape) : .portrait
         let changed = layout != self.layout
         self.layout = layout
+        // Over the player: side by side with the queue beside it, the left half.
+        // Either way clear of the window's buttons, by the wider end's width on both sides
+        // so that it stays centred.
+        let clear = Int32(windowButtons.map { button -> Int32 in
+            var minimum: Int32 = 0
+            var natural: Int32 = 0
+            gtk_widget_measure(button.widget, GTK_ORIENTATION_HORIZONTAL, -1, &minimum, &natural, nil, nil)
+            return natural
+        }.max() ?? 0) + 12
+        if layout == .sideBySide, showsQueueColumn {
+            topSource.hexpand(false).halign(GTK_ALIGN_START).size(width: Int32(width / 2), height: -1)
+            topSource.margins(top: 4, bottom: 4, start: 0, end: 0)
+        } else {
+            topSource.hexpand(true).halign(GTK_ALIGN_FILL).size(width: -1, height: -1)
+            topSource.margins(top: 4, bottom: 4, start: clear, end: clear)
+        }
 
         for piece in [seek, titleBlock, codec, transportRow, toolbar, sideToolbar, posterCell] { piece.isVisible = true }
         var posterSize: Double
@@ -504,32 +527,45 @@ final class NowPlaying {
     /// window has no title bar either.
     /// The window's controls, and between them the phone's "Playing From" and where the
     /// queue came from.
+    ///
+    /// The window's buttons stay at its edges; the source block lies over them in a box
+    /// `arrange()` sizes to the player's width, inside the handle, so the strip still
+    /// drags the window wherever it is not a button.
     private static func topBar(
         _ app: AppState,
         showVideo: @escaping @MainActor () -> Void,
         changeVideo: @escaping @MainActor () -> Void
-    ) -> Widget {
+    ) -> (Widget, Box, [Widget]) {
         let source = Label("", "np-source").ellipsize().xalign(0.5).maxWidthChars(40)
         let from = Box.vertical(spacing: 0) {
             Label("Playing From", "np-source-heading").xalign(0.5)
             source
             videoSwitch(app, showVideo: showVideo, changeVideo: changeVideo)
         }
-        from.hexpand().valign(GTK_ALIGN_CENTER)
+        // Given the holder's whole width, so that centred is centred within it.
+        from.hexpand().halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_CENTER)
         from.observe {
             let described = app.player.queue.sourceDescription
             source.text = described.isEmpty ? "Queue" : described
             from.isVisible = app.player.currentSong != nil
         }
-        let bar = Box.horizontal(spacing: 6) {
-            Widget(gtk_window_controls_new(GTK_PACK_START)!)
-            from
-            Widget(gtk_window_controls_new(GTK_PACK_END)!)
+        let spacer = Box.horizontal(spacing: 0)
+        spacer.hexpand()
+        let buttons = [Widget(gtk_window_controls_new(GTK_PACK_START)!), Widget(gtk_window_controls_new(GTK_PACK_END)!)]
+        let controls = Box.horizontal(spacing: 6) {
+            buttons[0]
+            spacer
+            buttons[1]
         }.margin(horizontal: 6, vertical: 4)
+        let holder = Box.horizontal(spacing: 0) { from }
+        holder.hexpand().halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_START).margin(horizontal: 0, vertical: 4)
+        let layered = Overlay(controls).add(holder)
+        // Measured with the source block, which is taller than the buttons.
+        gtk_overlay_set_measure_overlay(layered.widget.cast(), holder.widget, 1)
         let handle = Widget(gtk_window_handle_new()!)
-        gtk_window_handle_set_child(handle.widget.cast(), bar.widget)
+        gtk_window_handle_set_child(handle.widget.cast(), layered.widget)
         handle.valign(GTK_ALIGN_START).hexpand()
-        return handle
+        return (handle, holder, buttons)
     }
 
     // MARK: - Video

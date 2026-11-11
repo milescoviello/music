@@ -310,6 +310,16 @@ enum SettingsPages {
             }
         })
 
+        let qualities = VideoQuality.allCases
+        page.add(PreferencesGroup("Music Videos", description: """
+        Auto plays the best there is, up to 1080p. A height plays that one, or the nearest under \
+        it the video has.
+        """) {
+            ComboRow("Video Quality", options: qualities.map(\.label), selected: qualities.firstIndex(of: app.video.quality) ?? 0) { index in
+                if qualities.indices.contains(index) { app.video.quality = qualities[index] }
+            }
+        })
+
         let ahead = StreamingPolicy.cacheAheadOptions
         let sizes = StreamingPolicy.cacheSizeOptions
         func aheadLabel(_ count: Int) -> String { count == 0 ? "Only Next Track" : "\(count) Tracks" }

@@ -102,7 +102,7 @@ def make_handler(service):
          lambda match, q: service.videos.match(_text(q, "artist"), _text(q, "title"), _seconds(q, "duration"),
                                                _flag(q, "warm"))),
         (re.compile(r"^/v1/video/([A-Za-z0-9_-]{11})/streams$"),
-         lambda match, q: service.videos.streams(match[1], _token_suffix(q))),
+         lambda match, q: service.videos.streams(match[1], _token_suffix(q), _int(q, "height", 0, 0, 4320) or None)),
         (re.compile(r"^/v1/history/links$"),
          lambda match, q: {"links": history_links(service.config.data_dir / "history-links.json")}),
         (re.compile(r"^/healthz$"), lambda match, q: {"ok": True}),
@@ -164,7 +164,7 @@ def make_handler(service):
                         return self._send(404, {"error": "no thumbnail"})
                     return self._bytes(200, data, "image/jpeg", "max-age=604800")
                 if name == "master.m3u8":
-                    text = service.videos.master(video_id, suffix)
+                    text = service.videos.master(video_id, suffix, _int(query, "height", 0, 0, 4320) or None)
                 elif hls_playlist:
                     text = service.videos.hls_playlist(video_id, hls_playlist, suffix)
                 elif hls_itag:

@@ -267,14 +267,19 @@ final class VideoWindow {
     private let controls: Revealer
     private var hideTask: Task<Void, Never>?
     private var isFullScreen = false
+    /// What the window manager last said, for telling when it took full screen away.
+    private var wasFullScreen = false
     private var dragging = false
 
-    /// Opens it, or brings the one already open forward with what is asked for now.
-    static func present(_ app: AppState, watching: VideoClient.Video?, fullScreen: Bool, toast: @escaping @MainActor (String) -> Void) {
+    /// Opens it full screen, or brings the one already open forward. It is only ever full
+    /// screen: leaving it closes it, back into the app -- a song's video into the player,
+    /// a watched one to where it was found, with the music picking up again. Out of full
+    /// screen it was a small window over the app, which nobody wanted.
+    static func present(_ app: AppState, watching: VideoClient.Video?, toast: @escaping @MainActor (String) -> Void) {
         if let open {
             if open.watching?.id == watching?.id {
                 gtk_window_present(open.window.cast())
-                if fullScreen { open.setFullScreen(true) }
+                open.setFullScreen(true)
                 return
             }
             open.close()
@@ -282,7 +287,7 @@ final class VideoWindow {
         let created = VideoWindow(app, watching: watching, toast: toast)
         open = created
         gtk_window_present(created.window.cast())
-        if fullScreen { created.setFullScreen(true) }
+        created.setFullScreen(true)
     }
 
     /// Closes it from elsewhere -- the watched video was closed another way.
@@ -320,19 +325,15 @@ final class VideoWindow {
             : Button(icon: "media-seek-forward-symbolic", "flat", "circular") { app.video.skip(by: 10) }
         back.tooltip(watching == nil ? "Previous" : "Back 10 Seconds")
         forward.tooltip(watching == nil ? "Next" : "Forward 10 Seconds")
-        let fullScreen = Button(icon: "view-fullscreen-symbolic", "flat", "circular") {
-            guard let view = reference.value else { return }
-            view.setFullScreen(!view.isFullScreen)
-        }
-        fullScreen.tooltip("Full Screen")
         let ends = Box.horizontal(spacing: 4)
         if let watching {
             ends.append(Button(icon: "list-add-symbolic", "flat", "circular") {
                 AddVideoToLibrary.ask(app, watching, toast: toast)
             }.tooltip("Add to Library"))
         }
-        ends.append(fullScreen)
-        ends.append(Button(icon: "window-close-symbolic", "flat", "circular") { reference.value?.close() }.tooltip("Close"))
+        // Out of full screen is closing, so one button: back into the app.
+        let leave = watching == nil ? "Back to the Player" : "Close"
+        ends.append(Button(icon: "view-restore-symbolic", "flat", "circular") { reference.value?.close() }.tooltip(leave))
 
         let bar = Box.vertical(spacing: 6) {
             Box.horizontal(spacing: 12) {
@@ -410,7 +411,7 @@ final class VideoWindow {
             case GDK_KEY_space, GDK_KEY_k:
                 view.togglePlay()
             case GDK_KEY_Escape:
-                if view.isFullScreen { view.setFullScreen(false) } else { view.close() }
+                view.close()
             case GDK_KEY_f, GDK_KEY_F11:
                 view.setFullScreen(!view.isFullScreen)
             case GDK_KEY_Left:
@@ -424,6 +425,17 @@ final class VideoWindow {
             return true
         })
         gtk_widget_add_controller(window, keys)
+        // Out of full screen some other way -- the window manager's key or menu -- is the
+        // same as Escape: back into the app, not into a small window.
+        Signal.connect(window, "notify::fullscreened", pointer: { _ in
+            guard let view = reference.value else { return }
+            let now = gtk_window_is_fullscreen(view.window.cast()) != 0
+            if view.wasFullScreen, !now {
+                view.close()
+                return
+            }
+            view.wasFullScreen = now
+        })
         Signal.connectHandled(window, "close-request") {
             reference.value?.closed()
             return false
@@ -456,8 +468,12 @@ final class VideoWindow {
     }
 
     private func setFullScreen(_ on: Bool) {
-        isFullScreen = on
-        if on { gtk_window_fullscreen(window.cast()) } else { gtk_window_unfullscreen(window.cast()) }
+        guard on else {
+            close()
+            return
+        }
+        isFullScreen = true
+        gtk_window_fullscreen(window.cast())
         showControls()
     }
 
@@ -564,6 +580,6 @@ enum YouTubeResults {
 
     static func watch(_ env: Env, _ video: VideoClient.Video) {
         env.app.video.watch(video)
-        VideoWindow.present(env.app, watching: video, fullScreen: false, toast: env.toast)
+        VideoWindow.present(env.app, watching: video, toast: env.toast)
     }
 }

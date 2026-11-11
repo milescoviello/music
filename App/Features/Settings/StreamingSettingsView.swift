@@ -6,6 +6,7 @@ struct StreamingSettingsView: View {
     @Environment(StreamCache.self) private var cache
     @Environment(Reachability.self) private var reachability
     @Environment(AppState.self) private var appState
+    @Environment(VideoService.self) private var videos
 
     @State private var isConfirmingDelete = false
 
@@ -31,6 +32,21 @@ struct StreamingSettingsView: View {
                 Maximum plays the file as stored and converts only what this phone cannot \
                 decode. A lower setting converts anything above it to MP3 on the server; \
                 files already under it play as they are. Low Data Mode counts as cellular.
+                """)
+            }
+
+            Section {
+                Picker("Video Quality", selection: Binding(get: { videos.quality }, set: { videos.quality = $0 })) {
+                    ForEach(VideoQuality.allCases) { quality in
+                        Text(quality.label).tag(quality)
+                    }
+                }
+            } header: {
+                Text("Music Videos")
+            } footer: {
+                Text("""
+                Auto plays the best this connection keeps up with, up to 1080p. A height plays \
+                that one, or the nearest under it the video has, and stays there.
                 """)
             }
 
