@@ -206,8 +206,8 @@ enum Charts {
     }
 
     /// By name and album artist, not by album id, for the same reason as `topTracks`: an
-    /// album held in both folders was two rows -- October 2026 had Mellon Collie twice, 110
-    /// plays and 23 -- and fell down the chart. The artist is the album artist's id where
+    /// album held in both folders was two rows, each with part of its plays, and fell down
+    /// the chart. The artist is the album artist's id where
     /// the play has it, so a compilation is one album; plays from before ids were recorded
     /// go by the track artist's name.
     ///
