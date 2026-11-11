@@ -81,6 +81,14 @@ final class DailyMixes {
     private var builtDay: Date?
     private var builtScope: String?
     private var buildTask: Task<Void, Never>?
+    /// The build `forgetToday` stopped, which the next one waits out: a stopped build ran
+    /// on, every request it made cancelled, found nothing for any recipe, and said there
+    /// were no more to find -- while the build for the library just chosen, seeing one
+    /// still under way, never started. Home was left with no mixes at all (2026-11-08).
+    private var stoppedBuild: Task<Void, Never>?
+    /// Bumped by `forgetToday`. A build from before it stops at its next step, and keeps
+    /// none of what it found.
+    private var generation = 0
     private var extendTask: Task<Void, Never>?
     /// Separate from `isBuilding`: a mix growing at the bottom of its own screen is a
     /// different thing to say than "the shelf is being built".
@@ -129,7 +137,9 @@ final class DailyMixes {
     /// unanswerable from the phone.
     func forgetToday() {
         buildTask?.cancel()
+        if let buildTask { stoppedBuild = buildTask }
         buildTask = nil
+        generation += 1
         builtDay = nil
         builtScope = nil
         context = nil
@@ -194,9 +204,15 @@ final class DailyMixes {
         }
         guard buildTask == nil, mixes.count < Self.maximumMixes else { return }
 
+        let generation = generation
+        let stopped = stoppedBuild
+        stoppedBuild = nil
         buildTask = Task { [weak self] in
-            await self?.page(appState: appState, scope: scope, day: today, wanted: wanted)
-            self?.buildTask = nil
+            await stopped?.value
+            await self?.page(appState: appState, scope: scope, day: today, wanted: wanted, generation: generation)
+            // Not a newer build's: this one may have been stopped while it ran.
+            guard let self, self.generation == generation else { return }
+            buildTask = nil
         }
     }
 
@@ -209,15 +225,18 @@ final class DailyMixes {
 
     // MARK: - Paging
 
-    private func page(appState: AppState, scope: LibraryScope, day: Date, wanted: Int) async {
+    private func page(appState: AppState, scope: LibraryScope, day: Date, wanted: Int, generation: Int) async {
         let scopeKey = scope.cacheKey
         let key = Self.cacheKey(scopeKey)
+        // False once `forgetToday` has stopped this build: what it finds is for mixes that
+        // are gone, and its requests are cancelled, so "nothing found" would be a lie.
+        func isCurrent() -> Bool { self.generation == generation && !Task.isCancelled }
 
         // First call of the session: adopt whatever was built earlier today, including how
         // far down the recipe list it got, so scrolling back is free and paging resumes.
         if mixes.isEmpty, builtDay == nil,
            let stored: Stored = await appState.cache.load(Stored.self, for: key),
-           stored.day == day, stored.scope == scopeKey {
+           isCurrent(), stored.day == day, stored.scope == scopeKey {
             mixes = stored.mixes
             nextRecipe = stored.nextRecipe ?? stored.mixes.count
             builtDay = stored.day
@@ -230,7 +249,9 @@ final class DailyMixes {
         isBuilding = true
         defer { isBuilding = false }
 
-        guard let context = await ensureContext(appState: appState, scope: scope) else { return }
+        guard let context = await ensureContext(appState: appState, scope: scope, generation: generation),
+              isCurrent()
+        else { return }
 
         var added = 0
         var attempts = 0
@@ -238,7 +259,7 @@ final class DailyMixes {
         // Recipes are tried until the page is filled. A recipe that cannot fill a mix is
         // skipped rather than retried -- a genre with nine tracks in it will still have
         // nine tomorrow -- and enough consecutive failures mean the ideas have run out.
-        while added < wanted, attempts < 10, mixes.count < Self.maximumMixes {
+        while added < wanted, attempts < 10, mixes.count < Self.maximumMixes, isCurrent() {
             let index = nextRecipe
             nextRecipe += 1
             attempts += 1
@@ -250,7 +271,7 @@ final class DailyMixes {
                 context: context,
                 scope: scope,
                 day: day
-            ) else { continue }
+            ), isCurrent() else { continue }
 
             var built = mix
             built.recipeIndex = index
@@ -260,6 +281,7 @@ final class DailyMixes {
             attempts = 0
         }
 
+        guard isCurrent() else { return }
         if added == 0, attempts >= 10 {
             canLoadMore = false
             await Diagnostics.shared.record("mixes", "no more recipes could be filled")
@@ -386,7 +408,7 @@ final class DailyMixes {
         scope: LibraryScope
     ) async -> [Song] {
         guard let first = seeds.first else { return [] }
-        if let sonic = await appState.sonic.radio(seeds: seeds.map(\.id), limit: 150) {
+        if let sonic = await appState.sonic.radio(seeds: seeds.map(\.id), limit: 150, inBackground: true) {
             return await appState.radio.keeping(sonic, in: scope)
         }
         return await appState.radio.mix(seed: first, scope: scope, size: 80)
@@ -513,7 +535,7 @@ final class DailyMixes {
     /// The expensive, once-a-day part: the play log, the artist ranking, and the eight
     /// `getTopSongs` calls whose results the genre ranking also needs. Per library: a
     /// change of library forgets it with the rest of the day's mixes.
-    private func ensureContext(appState: AppState, scope: LibraryScope) async -> Context? {
+    private func ensureContext(appState: AppState, scope: LibraryScope, generation: Int) async -> Context? {
         if let context { return context }
 
         let samples = await samples(appState: appState)
@@ -555,6 +577,9 @@ final class DailyMixes {
             played: played,
             affinity: affinity
         )
+        // Kept only for the mixes it was worked out for: from a stopped build, it is the
+        // other library's, or made of cancelled requests.
+        guard self.generation == generation, !Task.isCancelled else { return nil }
         context = built
         return built
     }
@@ -628,7 +653,7 @@ final class DailyMixes {
             .filter { MixEngine.artistKey($0.artist) == MixEngine.artistKey(artist) }
             .prefix(3)
             .compactMap(\.ids.first)
-        if !seeds.isEmpty, let sonic = await appState.sonic.radio(seeds: Array(seeds), limit: 150) {
+        if !seeds.isEmpty, let sonic = await appState.sonic.radio(seeds: Array(seeds), limit: 150, inBackground: true) {
             let pool = await appState.radio.keeping(sonic, in: scope)
             var generator = MixEngine.DayRandom(day: day, salt: UInt64(400 + index))
             let chosen = MixEngine.pickRadio(
@@ -890,17 +915,20 @@ final class DailyMixes {
         var found: [Int: Song] = [:]
         await withTaskGroup(of: (Int, Song?).self) { group in
             for (index, entry) in picked.enumerated() {
+                // A few at a time: see `RequestLane`.
                 group.addTask { [client = appState.client] in
-                    if let id = ids[index] {
-                        return (index, try? await client.song(id: id))
+                    await RequestLane.background.run {
+                        if let id = ids[index] {
+                            return (index, try? await client.song(id: id))
+                        }
+                        // Not among the copies counted: this library's copy, by name.
+                        let query = [entry.title, entry.artist ?? ""].joined(separator: " ")
+                        let results = try? await client.search(
+                            query: query, artistCount: 0, albumCount: 0, songCount: 8, scope: scope
+                        )
+                        let match = results?.songs.first { MixEngine.identity($0) == entry.identity }
+                        return (index, match)
                     }
-                    // Not among the copies counted: this library's copy, by name.
-                    let query = [entry.title, entry.artist ?? ""].joined(separator: " ")
-                    let results = try? await client.search(
-                        query: query, artistCount: 0, albumCount: 0, songCount: 8, scope: scope
-                    )
-                    let match = results?.songs.first { MixEngine.identity($0) == entry.identity }
-                    return (index, match)
                 }
             }
             for await (index, song) in group { found[index] = song }

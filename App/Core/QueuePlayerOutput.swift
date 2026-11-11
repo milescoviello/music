@@ -100,6 +100,8 @@ final class QueuePlayerOutput: AudioOutput {
     /// one that starts a moment later.
     private var readyItems: Set<ObjectIdentifier> = []
     private var expectedItem: AVPlayerItem?
+    /// The idle player is owed the next track, held back until the current one plays.
+    private var idleWaitsForStart = false
 
     /// The current track and what follows, as the controller last described it.
     private var window: [Song] = []
@@ -375,7 +377,15 @@ final class QueuePlayerOutput: AudioOutput {
             for item in idlePlayer.items() {
                 discard(item, from: idlePlayer)
             }
-            fill(idlePlayer, with: desiredIdle)
+            // The next track waits until this one is heard. Loaded at once, it was a
+            // second stream beside one that had not opened yet, taking half of what that
+            // needed (2026-11-08). `tick` fills it the moment this one plays.
+            if !desiredIdle.isEmpty, activePlayer.timeControlStatus != .playing {
+                idleWaitsForStart = true
+            } else {
+                idleWaitsForStart = false
+                fill(idlePlayer, with: desiredIdle)
+            }
         }
     }
 
@@ -429,6 +439,7 @@ final class QueuePlayerOutput: AudioOutput {
         readyItems.removeAll()
         plannedFade = nil
         plannedBeats = nil
+        idleWaitsForStart = false
         expectedItem = nil
         active = 0
         fadeGain = [1, 1]
@@ -957,6 +968,11 @@ final class QueuePlayerOutput: AudioOutput {
         if let itemDuration = player.currentItem?.duration.seconds,
            itemDuration.isFinite, itemDuration > 0 {
             duration = itemDuration
+        }
+
+        if idleWaitsForStart, player.timeControlStatus == .playing {
+            idleWaitsForStart = false
+            rebuildTail(includingCurrent: false)
         }
 
         onTick?(elapsed, player.timeControlStatus == .playing)

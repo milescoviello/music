@@ -33,7 +33,13 @@ actor LibraryCache {
             store(fresh, for: key)
             return (fresh, false)
         } catch {
-            return (load(T.self, for: key), true)
+            // Given up on by its caller -- a screen closed mid-load -- rather than failed:
+            // the saved copy, if anything wants it, but not "the server didn't answer".
+            // Counted as stale, a page left before it loaded had the whole app saying
+            // "Offline" (2026-11-08).
+            let wasCancelled = Task.isCancelled || error is CancellationError
+                || (error as NSError).code == NSURLErrorCancelled
+            return (load(T.self, for: key), !wasCancelled)
         }
     }
 

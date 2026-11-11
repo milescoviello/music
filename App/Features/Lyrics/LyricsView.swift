@@ -219,9 +219,12 @@ struct LyricsView: View {
         return .white.opacity(abs(index - activeIndex) >= 3 ? 0.3 : 0.5)
     }
 
+    /// After a touch, once `resumeAutoScrollAt` has passed. Not while the position is the
+    /// user's (`isPositionedByUser`): only a scroll from here makes it ours again, and none
+    /// was made while it was theirs, so one flick of the lyrics stopped them following for
+    /// as long as the screen stayed up, the highlight moving on down out of sight.
     private var shouldAutoScroll: Bool {
         guard isSynced else { return false }
-        if scrollPosition.isPositionedByUser { return false }
         guard let resumeAutoScrollAt else { return true }
         return resumeAutoScrollAt < .now
     }

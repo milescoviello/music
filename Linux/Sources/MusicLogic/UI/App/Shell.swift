@@ -286,9 +286,12 @@ final class Shell {
         banner.observe { [app] in
             let offline = !app.reachability.isOnline || app.isShowingCachedData
             let count = app.downloads.catalog.entries.count
-            banner.title = count > 0
-                ? "Offline — \(count) downloaded \(count == 1 ? "track" : "tracks") available"
-                : "Offline — nothing is downloaded yet"
+            // A network, and a server that did not answer, is not "offline".
+            banner.title = app.reachability.isOnline
+                ? "The server isn’t answering — showing saved copies"
+                : count > 0
+                    ? "Offline — \(count) downloaded \(count == 1 ? "track" : "tracks") available"
+                    : "Offline — nothing is downloaded yet"
             banner.isRevealed = offline
         }
         return banner

@@ -77,3 +77,40 @@ struct FetchRetry: Sendable {
         for key in waiting.keys { waiting[key]?.notBefore = now }
     }
 }
+
+/// Lookups made by the dozen in the background -- a mix's songs, a radio's hundred and
+/// fifty candidates -- a few at a time.
+///
+/// All at once, they filled the connections to the server. Building the day's mixes on
+/// 2026-11-08 sent 155 song lookups in a second; each took four seconds to answer, and
+/// what was tapped meanwhile queued behind them: a playlist took 3.5 s to open and a
+/// search as long. A few at a time leaves room for what is waited on.
+actor RequestLane {
+    /// For the mixes and the sonic radios: three of the six connections to the server.
+    static let background = RequestLane(limit: 3)
+
+    private let limit: Int
+    private var running = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) {
+        self.limit = max(1, limit)
+    }
+
+    /// Runs `work` once one of the lane's places is free.
+    func run<T: Sendable>(_ work: @Sendable () async -> T) async -> T {
+        if running < limit {
+            running += 1
+        } else {
+            await withCheckedContinuation { waiting.append($0) }
+        }
+        let result = await work()
+        // The place passes straight to whoever waited longest.
+        if waiting.isEmpty {
+            running -= 1
+        } else {
+            waiting.removeFirst().resume()
+        }
+        return result
+    }
+}

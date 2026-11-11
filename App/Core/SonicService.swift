@@ -96,7 +96,12 @@ final class SonicService {
     /// Only the last `maximumExcluded` of `excluding` go to the service: they go in the
     /// address, and a queue of the whole library would make one longer than the service
     /// reads (64 KiB). The rest are left to the caller, which drops what is queued anyway.
-    func radio(seeds: [String], excluding: [String] = [], limit: Int = 25, varied: Bool = false) async -> [Song]? {
+    ///
+    /// `inBackground` for a radio nobody is waiting on -- a mix being built -- whose songs
+    /// are looked up a few at a time (`RequestLane`).
+    func radio(
+        seeds: [String], excluding: [String] = [], limit: Int = 25, varied: Bool = false, inBackground: Bool = false
+    ) async -> [Song]? {
         let asked = varied ? RadioVariety.poolSize(for: limit) : limit
         guard isAvailable, !seeds.isEmpty,
               let hits = try? await client.radio(seeds: seeds, excluding: Array(excluding.suffix(Self.maximumExcluded)), limit: asked),
@@ -107,7 +112,7 @@ final class SonicService {
             var generator = SystemRandomNumberGenerator()
             ids = RadioVariety.draw(ids, count: limit, using: &generator)
         }
-        return await hydrate(ids)
+        return await hydrate(ids, inBackground: inBackground)
     }
 
     /// Plexamp's Sonic Adventure: the tracks between two, in order.
@@ -231,11 +236,16 @@ final class SonicService {
     // MARK: - Hydration
 
     /// Songs for ids, in the service's order, each fetched once and remembered.
-    private func hydrate(_ ids: [String]) async -> [Song]? {
+    private func hydrate(_ ids: [String], inBackground: Bool = false) async -> [Song]? {
         guard let appState else { return nil }
         let api = appState.client
         let missing = ids.filter { songs[$0] == nil }
-        let fetched = await ordered(missing) { id in try? await api.song(id: id) }
+        let fetched = await ordered(missing) { id -> Song? in
+            if inBackground {
+                return await RequestLane.background.run { try? await api.song(id: id) }
+            }
+            return try? await api.song(id: id)
+        }
         for song in fetched { songs[song.id] = song }
         let result = ids.compactMap { songs[$0] }
         return result.isEmpty ? nil : result

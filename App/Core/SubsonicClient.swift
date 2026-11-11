@@ -158,6 +158,13 @@ actor SubsonicClient {
 
     private let session: URLSession
     private let decoder = JSONDecoder()
+    /// Told of every answer, with when its request was sent: the app's "showing saved
+    /// copies" ends once a request sent after it began is answered.
+    private var onAnswer: (@Sendable (Date) -> Void)?
+
+    func setOnAnswer(_ hook: @escaping @Sendable (Date) -> Void) {
+        onAnswer = hook
+    }
     private var credentials: Credentials?
     private(set) var capabilities: ServerCapabilities = .init()
 
@@ -217,6 +224,7 @@ actor SubsonicClient {
         do {
             let (data, _) = try await session.data(from: url)
             await Self.recordIfSlow(endpoint, bytes: data.count, since: started)
+            onAnswer?(started)
             return data
         } catch {
             // Recorded rather than only thrown: most callers use `try?` so the screen
@@ -297,6 +305,7 @@ actor SubsonicClient {
         do {
             let (data, _) = try await session.data(for: request)
             await Self.recordIfSlow(endpoint, bytes: data.count, since: started)
+            onAnswer?(started)
             return data
         } catch {
             await Self.recordFailure(endpoint, error, since: started)

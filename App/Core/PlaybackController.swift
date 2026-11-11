@@ -104,6 +104,9 @@ final class PlaybackController {
     /// Set once Autoplay has been asked to extend the queue for the track ending now, so
     /// the 4 Hz tick asks once rather than every quarter second.
     private var autoplayRequested = false
+    /// The song just put on, while it is coming over the network and has yet to make a
+    /// sound. Until it does, the cache fetches nothing: see `planCache`.
+    private var openingSongID: String?
 
     /// Current + 2 upcoming. Preloading the next item is what makes the boundary
     /// gapless; inserting a 292-track playlist would be a connection stampede.
@@ -367,6 +370,18 @@ final class PlaybackController {
         }
     }
 
+    /// Whether `locate` would stream this song: no download it may use, and no cached copy
+    /// good enough for this network. Asked without touching the cache's bookkeeping.
+    private func streams(_ song: Song) -> Bool {
+        guard let appState else { return false }
+        let network = appState.reachability.network
+        let policy = appState.streaming.policy
+        guard network != .offline else { return false }
+        if appState.downloads.localURL(for: song) != nil, policy.usesDownload(on: network) { return false }
+        let variant = policy.variant(for: song, on: network)
+        return appState.streamCache.index.entry(for: song.id, satisfying: variant) == nil
+    }
+
     /// Where a song's bytes are, in Plexamp's order: a download (if the setting prefers
     /// it on this network), then a cached copy at least as good as what this network
     /// asks for, then the stream itself.
@@ -440,6 +455,17 @@ final class PlaybackController {
         }
         requestRhythms(window)
         guard network != .offline, let signer = appState.signer, let current = window.first else {
+            cache.pause()
+            measureLocal(window)
+            return
+        }
+
+        // The song just put on has the connection to itself until it is heard. From away,
+        // the link home carried it beside the cache's whole copy of it and then of the
+        // next songs: a stream that opens in a second sat unopened for twelve, and for
+        // eleven more when it was asked for again (2026-11-08). What it holds back is
+        // fetched the moment the song is playing.
+        if openingSongID == current.id, video == nil {
             cache.pause()
             measureLocal(window)
             return
@@ -747,6 +773,11 @@ final class PlaybackController {
         retryTask = nil
         output.pause()
         isPlaying = false
+        // Nothing is waiting to be heard now, so nothing to hold the cache back for.
+        if openingSongID != nil {
+            openingSongID = nil
+            planCache()
+        }
         tracker.interrupted(at: elapsed)
         // Pausing is when someone walks away, which is exactly what a resume position is
         // for. Track changes and finishing are handled where they happen.
@@ -1228,6 +1259,7 @@ final class PlaybackController {
             return
         }
 
+        openingSongID = startPlaying && streams(current) ? current.id : nil
         output.load(window: window, startAt: seconds)
         queueChanged()
 
@@ -1338,6 +1370,11 @@ final class PlaybackController {
     private func tick(elapsed newElapsed: Double, isMoving: Bool) {
         guard remote == nil, video == nil else { return }
         elapsed = newElapsed
+        // Heard: the cache can have the connection back.
+        if isMoving, let opening = openingSongID, opening == queue.current?.id {
+            openingSongID = nil
+            planCache()
+        }
         if isMoving, Date.now.timeIntervalSince(lastPositionSave) >= 10 { savePosition() }
         // Only when it changes: this runs four times a second, and an observed property
         // assigned its own value can still count as a change to whatever reads it.

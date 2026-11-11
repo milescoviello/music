@@ -42,6 +42,9 @@ struct OfflineBanner: View {
     }
 
     private var message: String {
+        // A network, and a server that did not answer: not "offline", which is what it
+        // said, over results the server had just sent.
+        if reachability.isOnline { return "The server isn’t answering — showing saved copies" }
         let count = downloads.catalog.entries.count
         if count > 0 {
             return "Offline — \(count) downloaded \(count == 1 ? "track" : "tracks") available"

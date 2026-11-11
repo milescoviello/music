@@ -149,6 +149,15 @@ final class AppState {
         // them to find. Set last, once everything above is wired.
         MusicIntentBridge.appState = self
 
+        // Any answer after saved copies went up means the server is there again.
+        let client = client
+        Task {
+            await client.setOnAnswer { [weak self] sent in
+                guard let self else { return }
+                Task { @MainActor in self.serverAnswered(sentAt: sent) }
+            }
+        }
+
         Task { await restore() }
     }
 
@@ -263,12 +272,28 @@ final class AppState {
         _ fetch: @escaping @Sendable () async throws -> T
     ) async -> T? {
         let (value, isStale) = await cache.value(for: key, fetch: fetch)
-        // Only ever raised, never lowered. Home loads four shelves concurrently, so an
-        // assignment here meant the last fetch to finish decided the answer for all of
+        // Only ever raised here, never lowered. Home loads four shelves concurrently, so
+        // an assignment here meant the last fetch to finish decided the answer for all of
         // them -- one stale shelf among three fresh ones silently cleared the flag.
-        // `beginLoadPass()` is what lowers it, once, before a screen starts loading.
-        if isStale, value != nil { isShowingCachedData = true }
+        // `beginLoadPass()` lowers it before a screen starts loading, and `serverAnswered`
+        // once the server answers something asked after this.
+        if isStale, value != nil {
+            isShowingCachedData = true
+            cachedDataSince = .now
+        }
         return value
+    }
+
+    /// When `isShowingCachedData` was last raised.
+    @ObservationIgnored private var cachedDataSince: Date?
+
+    /// The server answered a request sent at `sent`. Sent after the saved copies went up,
+    /// it means the server is there again, and the app stops saying otherwise. Before,
+    /// only a few screens' reloads lowered it, never Search's, which said "Offline" over
+    /// results that had just come from the server (2026-11-08).
+    func serverAnswered(sentAt sent: Date) {
+        guard isShowingCachedData, let since = cachedDataSince, sent > since else { return }
+        isShowingCachedData = false
     }
 
     /// Call before a screen begins a round of loads. Resets the staleness flag so it
