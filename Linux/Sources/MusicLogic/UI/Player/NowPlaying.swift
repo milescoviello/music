@@ -281,7 +281,7 @@ final class NowPlaying {
             playerBox.hexpand(true).halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_FILL)
             posterColumn.halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_START)
             posterPad.vexpand(false).size(width: -1, height: Int32(posterPadHeight(bar: bar, w: w, h: h, poster: posterSize)))
-            posterCell.halign(GTK_ALIGN_CENTER).margins(top: 0, bottom: 0, start: 0, end: 0)
+            posterCell.halign(GTK_ALIGN_CENTER).margins(top: 0, bottom: Int32(Self.belowPoster * z), start: 0, end: 0)
             side.vexpand(true).hexpand(true).valign(GTK_ALIGN_FILL)
             spacers(flexible: [true, true, true, false], fixed: [0, 0, 0, 0])
             adw_clamp_set_maximum_size(infoClamp.widget.cast(), Int32(500 * z))
@@ -362,6 +362,8 @@ final class NowPlaying {
         let sideWidth = Int32(layout == .landscape ? max(width - posterSize - 3 * m * z, 1) : layout == .sideBySide ? width / 2 : width)
         let posterTop = layout == .portrait ? posterPadHeight(bar: bar, w: w, h: h, poster: posterSize) : layout == .sideBySide ? bar : 0
         let minimumPoster = 100.0
+        // Stacked, a gap under the cover: the seekbar's peaks reached up to touch it.
+        let below = layout == .portrait ? Self.belowPoster * z : 0
         // Below the window controls, which sit over the top of the landscape layout.
         side.margins(top: layout == .landscape ? Int32(bar) : 0, bottom: 0, start: 0, end: 0)
         if !stacked, posterSize < minimumPoster || width - posterSize - 3 * m * z < 240 {
@@ -369,14 +371,13 @@ final class NowPlaying {
         }
         func needed() -> Double {
             let rest = measuredHeight(side, width: sideWidth)
-            return stacked && posterCell.isVisible ? posterTop + posterSize + rest : rest
+            return stacked && posterCell.isVisible ? posterTop + posterSize + below + rest : rest
         }
         let available = block
         // A little off the cover, a tenth at most, before any of the controls under it go:
         // the room over it for "Playing From" and the switch otherwise cost the volume.
         if stacked, posterCell.isVisible, needed() > available {
-            // With a little room under it too: packed tight, the seekbar's peaks touched it.
-            let room = available - posterTop - measuredHeight(side, width: sideWidth) - 6 * Self.zoom
+            let room = available - posterTop - below - measuredHeight(side, width: sideWidth)
             if room >= max(minimumPoster, posterSize * 0.9) {
                 posterSize = room
                 if mode != .visualizer, !showsVideo, mode != .lyrics || layout != .portrait { wide = room }
@@ -387,7 +388,7 @@ final class NowPlaying {
             piece.isVisible = false
         }
         if stacked, posterCell.isVisible, needed() > available {
-            let room = available - posterTop - measuredHeight(side, width: sideWidth)
+            let room = available - posterTop - below - measuredHeight(side, width: sideWidth)
             if room >= minimumPoster {
                 posterSize = room
                 if mode != .visualizer, !showsVideo, mode != .lyrics || layout != .portrait { wide = room }
@@ -445,6 +446,9 @@ final class NowPlaying {
             spacer.size(width: -1, height: Int32(fixed[index]))
         }
     }
+
+    /// Points between the cover and the seekbar under it, stacked.
+    private static let belowPoster = 8.0
 
     /// "Playing From" and the switch over the player: side by side with the queue beside
     /// it, the left half; in landscape, the cover's or the video's column; otherwise the
