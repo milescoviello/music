@@ -25,6 +25,10 @@ final class ArtworkStore {
 
     @ObservationIgnored private let memory = NSCache<NSString, Texture>()
     @ObservationIgnored private let session: URLSession
+    /// Covers fetched ahead of being seen, for downloads and the warm cache, on their own
+    /// two connections, as the iPhone's are: a long playlist's covers must not queue in
+    /// front of the one on screen.
+    @ObservationIgnored private let bulk: URLSession
     @ObservationIgnored private var inFlight: [String: Task<Texture?, Never>] = [:]
     @ObservationIgnored private var signer: SubsonicSigner?
     @ObservationIgnored private var warming: Task<Void, Never>?
@@ -35,7 +39,12 @@ final class ArtworkStore {
 
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = 12
+        configuration.httpMaximumConnectionsPerHost = 6
         session = URLSession(configuration: configuration)
+        let behind = URLSessionConfiguration.default
+        behind.timeoutIntervalForRequest = 30
+        behind.httpMaximumConnectionsPerHost = 2
+        bulk = URLSession(configuration: behind)
 
         try? FileManager.default.createDirectory(at: Self.cacheDirectory, withIntermediateDirectories: true)
         Task.detached(priority: .background) { Self.trimCache() }
@@ -76,7 +85,7 @@ final class ArtworkStore {
         guard let id else { return }
         let destination = fileURL(id, size)
         guard !FileManager.default.fileExists(atPath: destination.path) else { return }
-        guard let data = await data(for: id, size: size) else { return }
+        guard let data = await data(for: id, size: size, session: bulk) else { return }
         try? data.write(to: destination, options: .atomic)
     }
 
@@ -258,22 +267,51 @@ final class ArtworkStore {
     }
 
     /// The encoded bytes for a cover: kept copy, then cache, then server.
-    private func data(for id: String, size: Size) async -> Data? {
+    private func data(for id: String, size: Size, session: URLSession? = nil) async -> Data? {
         let kept = fileURL(id, size)
         let cache = cacheURL(id, size)
         let remote = url(for: id, size: size)
-        let session = session
+        let session = session ?? self.session
         return await Task.detached(priority: .userInitiated) { () -> Data? in
             if let data = try? Data(contentsOf: kept) { return data }
             if let data = try? Data(contentsOf: cache) { return data }
-            guard let remote,
-                  let (data, response) = try? await session.data(from: remote),
-                  (response as? HTTPURLResponse)?.statusCode ?? 200 < 300,
-                  !Self.isErrorBody(data), !CoverPlaceholder.isServerPlaceholder(data)
-            else { return nil }
+            guard let remote, let data = await Self.fetch(remote, session: session) else { return nil }
             try? data.write(to: cache, options: .atomic)
             return data
         }.value
+    }
+
+    /// A cover's bytes from the server, or nil for an error page or the server's
+    /// placeholder. A request the network dropped or let time out is asked again, twice,
+    /// a few seconds apart, as on the iPhone; an album with no cover is not.
+    private nonisolated static func fetch(_ remote: URL, session: URLSession) async -> Data? {
+        for attempt in 0..<3 {
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(from: remote)
+            } catch let error as URLError where attempt < 2 && isTransient(error.code) {
+                try? await Task.sleep(for: .seconds(attempt == 0 ? 2 : 6))
+                continue
+            } catch {
+                return nil
+            }
+            guard (response as? HTTPURLResponse)?.statusCode ?? 200 < 300,
+                  !isErrorBody(data), !CoverPlaceholder.isServerPlaceholder(data)
+            else { return nil }
+            return data
+        }
+        return nil
+    }
+
+    private nonisolated static func isTransient(_ code: URLError.Code) -> Bool {
+        switch code {
+        case .timedOut, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost,
+             .dnsLookupFailed, .secureConnectionFailed:
+            return true
+        default:
+            return false
+        }
     }
 
     /// Navidrome answers a missing cover with a JSON or XML error, not an image.
@@ -325,7 +363,7 @@ final class ArtworkStore {
                 wanted.append((cacheURL(id, size), remote))
             }
         }
-        let session = session
+        let session = bulk
         warming = Task.detached(priority: .background) {
             let missing = wanted.filter { !FileManager.default.fileExists(atPath: $0.file.path) }
             await withTaskGroup(of: Void.self) { group in
@@ -333,11 +371,7 @@ final class ArtworkStore {
                 func addNext() -> Bool {
                     guard let item = next.next() else { return false }
                     group.addTask {
-                        guard !Task.isCancelled,
-                              let (data, response) = try? await session.data(from: item.remote),
-                              (response as? HTTPURLResponse)?.statusCode ?? 200 < 300,
-                              !Self.isErrorBody(data), !CoverPlaceholder.isServerPlaceholder(data)
-                        else { return }
+                        guard !Task.isCancelled, let data = await Self.fetch(item.remote, session: session) else { return }
                         try? data.write(to: item.file, options: .atomic)
                     }
                     return true

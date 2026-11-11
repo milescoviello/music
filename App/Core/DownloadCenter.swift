@@ -65,6 +65,10 @@ final class DownloadCenter {
     /// property, changed only when one appears or goes, for the long-press menus on every
     /// album card: reading `catalog` there redrew every card on screen per finished song.
     private(set) var groups: Set<String> = []
+    /// Albums and playlists just asked for, with their songs not yet written to the
+    /// catalog as waiting. `groups` does not have them until then, and their buttons stay
+    /// on in between.
+    private(set) var asking: [String: Set<String>] = [:]
     private(set) var progress: [String: Double] = [:] {
         didSet {
             // Its own property, changed only when the number does: the tab badge reads
@@ -242,6 +246,7 @@ final class DownloadCenter {
         // assignment, so `progress`'s observers hear of a whole album once.
         progress.merge(queued.map { ($0.entry.song.id, 0.0) }) { current, _ in current }
         for (entry, _) in queued { askedAt[entry.song.id] = .now }
+        if let groupID { asking[groupID, default: []].formUnion(queued.map(\.entry.song.id)) }
         isDownloading = true
         watch()
 
@@ -252,6 +257,8 @@ final class DownloadCenter {
             // Recorded before the transfers start, so the crash window between "file
             // landed" and "catalog knows" is recoverable at launch.
             catalog = await store.markPending(queued.map(\.entry))
+            if let groupID { asking[groupID]?.subtract(queued.map(\.entry.song.id)) }
+            if let groupID, asking[groupID]?.isEmpty == true { asking[groupID] = nil }
 
             var withdrawn: [String] = []
             for (entry, url) in queued {
@@ -270,15 +277,39 @@ final class DownloadCenter {
             }
         }
 
-        for song in wanted {
-            // Lyrics and cover art are fetched now rather than at play time: offline is
-            // exactly when they cannot be fetched, and a downloaded album that loses its
-            // artwork on the train is the kind of half-measure this app exists to avoid.
-            Task { await cacheLyrics(for: song) }
-            Task { [weak self] in
-                await self?.appState?.artwork.persistAll(id: song.coverArt)
+        // Lyrics and cover art are fetched now rather than at play time: offline is
+        // exactly when they cannot be fetched, and a downloaded album that loses its
+        // artwork on the train is the kind of half-measure this app exists to avoid.
+        fetchExtras(for: wanted)
+    }
+
+    /// Songs whose lyrics and cover are still to fetch, oldest asked first.
+    @ObservationIgnored private var extras: [Song] = []
+    @ObservationIgnored private var extrasRunning = 0
+
+    /// Lyrics and covers for downloads, two songs at a time. One task per song asked for
+    /// a 366-song playlist's lyrics and covers all at once: over a slow link most of them
+    /// timed out, and everything else the app asked for waited behind them (11-10). The
+    /// songs of an album share a cover, which after the first is a file check.
+    private func fetchExtras(for songs: [Song]) {
+        extras.append(contentsOf: songs)
+        while extrasRunning < 2, !extras.isEmpty {
+            let song = extras.removeFirst()
+            extrasRunning += 1
+            Task(priority: .utility) { [weak self] in
+                await self?.fetchExtras(song)
             }
         }
+    }
+
+    private func fetchExtras(_ song: Song) async {
+        // Not for a download removed while it waited its turn.
+        if status(for: song.id) != .none {
+            await cacheLyrics(for: song)
+            await appState?.artwork.persistAll(id: song.coverArt)
+        }
+        extrasRunning -= 1
+        fetchExtras(for: [])
     }
 
     /// What to fetch for a song, and the extension its file is stored under.
@@ -375,7 +406,18 @@ final class DownloadCenter {
 
     private func checkStalls() async {
         let now = Date.now
-        for task in await session.allTasks {
+        let tasks = await session.allTasks
+        // Whether any transfer received something since the last look. A transfer not yet
+        // started -- no response, nothing received -- is waiting for one of the session's
+        // few connections behind the rest of a long playlist, and while others move that
+        // is its turn not yet come, not a stall. Cancelled as stalled, most of a 366-song
+        // playlist was asked for again every five minutes (11-10).
+        let moving = tasks.contains { task in
+            guard let id = task.taskDescription, task.state == .running else { return false }
+            let bytes = task.countOfBytesReceived
+            return lastBytes[id].map { $0.bytes != bytes } ?? (bytes > 0)
+        }
+        for task in tasks {
             guard let id = task.taskDescription, catalog.pending[id] != nil else { continue }
             if task.state == .suspended {
                 task.resume()
@@ -385,6 +427,7 @@ final class DownloadCenter {
             let bytes = task.countOfBytesReceived
             if let last = lastBytes[id], last.bytes == bytes {
                 guard now.timeIntervalSince(last.at) > 300 else { continue }
+                if bytes == 0, task.response == nil, moving { continue }
                 let title = catalog.pending[id]?.song.title ?? id
                 let percent = Int((progress[id] ?? 0) * 100)
                 await Diagnostics.shared.record("download", "“\(title)” (\(id)) stalled at \(percent)% for five minutes: asked for again")
@@ -403,12 +446,18 @@ final class DownloadCenter {
     func waitingSummary() async -> [String] {
         let tasks = await session.allTasks
         var states: [String: URLSessionTask.State] = [:]
-        for task in tasks { if let id = task.taskDescription { states[id] = task.state } }
+        var started: Set<String> = []
+        for task in tasks {
+            guard let id = task.taskDescription else { continue }
+            states[id] = task.state
+            if task.response != nil || task.countOfBytesReceived > 0 { started.insert(id) }
+        }
         return catalog.pending.values.sorted { $0.addedAt < $1.addedAt }.prefix(8).map { entry in
             let id = entry.song.id
             let percent = progress[id].map { "\(Int($0 * 100))%" } ?? "no progress"
             let transfer: String
             switch states[id] {
+            case .running? where (progress[id] ?? 0) == 0 && !started.contains(id): transfer = "queued"
             case .running?: transfer = "transferring"
             case .suspended?: transfer = "transfer suspended"
             case .canceling?: transfer = "transfer cancelling"
@@ -450,7 +499,18 @@ final class DownloadCenter {
     }
 
     func hasDownload(group groupID: String) -> Bool {
-        groups.contains(groupID)
+        groups.contains(groupID) || asking[groupID] != nil
+    }
+
+    /// What the download button of the album or playlist `groupID`, with these songs,
+    /// shows. See `DownloadCatalog.collectionState`.
+    func collectionState(of songs: [Song], groupID: String) -> CollectionDownloadState {
+        catalog.collectionState(
+            of: songs.map(\.id),
+            groupID: groupID,
+            progress: progress,
+            asked: asking[groupID] != nil
+        )
     }
 
     /// Ends one album's or playlist's download -- all of it, or just `songIDs`. A song
@@ -463,8 +523,15 @@ final class DownloadCenter {
         // Gone from the screen at once, as in `remove`; the files follow.
         var mirror = catalog
         let gone = mirror.leave(groupID, songIDs: songIDs)
-        let removed = Set((gone.finished + gone.waiting).map(\.song.id))
+        var removed = Set((gone.finished + gone.waiting).map(\.song.id))
         catalog = mirror
+        // Asked for a moment ago and not written down yet: dropping their progress is what
+        // stops their transfers from starting.
+        if let asked = asking[groupID] {
+            let leaving = songIDs.map { asked.intersection($0) } ?? asked
+            removed.formUnion(leaving)
+            asking[groupID] = asked.subtracting(leaving).isEmpty ? nil : asked.subtracting(leaving)
+        }
         if progress.keys.contains(where: removed.contains) {
             progress = progress.filter { !removed.contains($0.key) }
         }

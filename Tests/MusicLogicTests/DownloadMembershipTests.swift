@@ -115,4 +115,60 @@ struct DownloadMembershipTests {
         #expect(byName == ["Main": ["shared"], "Road Trip": ["shared", "road-only"]])
         #expect(folders.albums.isEmpty)
     }
+
+    // MARK: - The album or playlist download button
+
+    /// Playlist "Main" is downloading, and shares "shared" with "Road Trip". Road Trip's
+    /// button read as Main's ring, and tapping it removed a Road Trip download that did
+    /// not exist, so Road Trip could not be downloaded until Main was done.
+    @Test func anotherDownloadStillArrivingDoesNotTakeOverThisButton() {
+        var catalog = DownloadCatalog()
+        catalog.entries["main-done"] = entry("main-done", group: "pl-main", name: "Main")
+        catalog.pending["shared"] = entry("shared", group: "pl-main", name: "Main")
+        let progress = ["shared": 0.4]
+
+        let road = catalog.collectionState(of: ["shared", "road-only"], groupID: "pl-road", progress: progress, asked: false)
+        #expect(road == .none)
+        let main = catalog.collectionState(of: ["main-done", "shared"], groupID: "pl-main", progress: progress, asked: false)
+        #expect(main == .working(fraction: 0.7))
+    }
+
+    /// Between the tap and the catalog write, the songs have progress but no entry.
+    @Test func justAskedForReadsAsArriving() {
+        let catalog = DownloadCatalog()
+        let state = catalog.collectionState(of: ["a", "b"], groupID: "pl-road", progress: ["a": 0, "b": 0], asked: true)
+        #expect(state == .working(fraction: 0))
+    }
+
+    /// Once Road Trip joins the shared song, the button follows its own download.
+    @Test func aJoinedSongCountsForBothDownloads() {
+        var catalog = DownloadCatalog()
+        catalog.pending["shared"] = entry("shared", group: "pl-main", name: "Main")
+        catalog.entries["road-only"] = entry("road-only", group: "pl-road", name: "Road Trip")
+        _ = catalog.join(songIDs: ["shared"], roadTrip)
+
+        let road = catalog.collectionState(of: ["shared", "road-only"], groupID: "pl-road", progress: [:], asked: false)
+        #expect(road == .working(fraction: 0.5))
+        catalog.entries["shared"] = catalog.pending.removeValue(forKey: "shared")
+        #expect(catalog.collectionState(of: ["shared", "road-only"], groupID: "pl-road", progress: [:], asked: false) == .complete)
+    }
+
+    /// Every song on the device, but for other playlists: a tap makes it this one's too,
+    /// where a check would have been a button that removes nothing.
+    @Test func songsHereOnlyForOtherDownloadsAreNotThisOnesDownload() {
+        var catalog = DownloadCatalog()
+        catalog.entries["a"] = entry("a", group: "pl-main", name: "Main")
+        catalog.entries["b"] = entry("b", group: "pl-main", name: "Main")
+        #expect(catalog.collectionState(of: ["a", "b"], groupID: "pl-road", progress: [:], asked: false) == .none)
+    }
+
+    /// Songs downloaded one at a time are their album's download, as the Downloads screen
+    /// files them.
+    @Test func anAlbumDownloadedSongBySongIsComplete() {
+        var catalog = DownloadCatalog()
+        catalog.entries["one"] = entry("one", group: nil, album: "al-1")
+        catalog.entries["two"] = entry("two", group: nil, album: "al-1")
+        #expect(catalog.collectionState(of: ["one", "two"], groupID: "al-1", progress: [:], asked: false) == .complete)
+        #expect(catalog.collectionState(of: ["one", "two", "three"], groupID: "al-1", progress: [:], asked: false) == .none)
+    }
 }

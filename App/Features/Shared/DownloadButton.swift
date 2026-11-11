@@ -65,43 +65,11 @@ struct CollectionDownloadButton: View {
 
     /// Not named `State`: a nested type by that name shadows SwiftUI's `@State`
     /// throughout the type, and the resulting errors point everywhere but here.
-    private enum Progress {
-        /// Not on the phone, or only some of it with nothing arriving: a tap downloads
-        /// whatever is missing.
-        case none
-        case working(fraction: Double)
-        case complete
+    private typealias Progress = CollectionDownloadState
 
-        var isOn: Bool {
-            if case .none = self { return false }
-            return true
-        }
-    }
-
+    /// This album's or playlist's own download only; see `DownloadCatalog.collectionState`.
     private var state: Progress {
-        guard !songs.isEmpty else { return .none }
-
-        var downloaded = 0
-        var arriving = 0
-        var transferred = 0.0
-
-        for song in songs {
-            switch downloads.status(for: song.id) {
-            case .downloaded: downloaded += 1
-            case .waiting: arriving += 1
-            case let .downloading(fraction):
-                arriving += 1
-                transferred += fraction
-            case .none: break
-            }
-        }
-
-        if arriving > 0 {
-            // Across the whole collection, counting the tracks already here: otherwise
-            // the ring jumps backwards at every track boundary.
-            return .working(fraction: (Double(downloaded) + transferred) / Double(songs.count))
-        }
-        return downloaded == songs.count ? .complete : .none
+        downloads.collectionState(of: songs, groupID: groupID)
     }
 
     private func accessibilityLabel(_ state: Progress) -> String {

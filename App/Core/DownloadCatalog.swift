@@ -291,6 +291,58 @@ struct DownloadCatalog: Codable, Sendable {
         guard seconds > 60 else { return 1_000_000 }
         return bytes / seconds
     }
+
+    /// What an album's or playlist's download button shows, for its songs `songIDs`.
+    ///
+    /// Only its own download counts: `asked` says one was just asked for, before its
+    /// waiting songs are written here. Songs it shares with another download still
+    /// arriving used to make its button that download's ring, and tapping the ring took
+    /// away a download it never had, so a second playlist could not be downloaded until
+    /// the first was done. Not downloaded as itself, it is `.none` whatever is on the
+    /// device, and a tap downloads it, taking in the songs already here or on their way.
+    func collectionState(
+        of songIDs: [String],
+        groupID: String,
+        progress: [String: Double],
+        asked: Bool
+    ) -> CollectionDownloadState {
+        guard !songIDs.isEmpty else { return .none }
+        let isOwn = asked || songIDs.contains { id in
+            (entries[id] ?? pending[id])?.isMember(of: groupID) == true
+        }
+        guard isOwn else { return .none }
+
+        var downloaded = 0
+        var arriving = 0
+        var transferred = 0.0
+        for id in songIDs {
+            if entries[id] != nil {
+                downloaded += 1
+            } else if let fraction = progress[id] {
+                arriving += 1
+                transferred += fraction
+            } else if pending[id] != nil {
+                arriving += 1
+            }
+        }
+        if arriving > 0 {
+            // Across the whole collection, counting the songs already here: otherwise the
+            // ring jumps backwards at every song.
+            return .working(fraction: (Double(downloaded) + transferred) / Double(songIDs.count))
+        }
+        return downloaded == songIDs.count ? .complete : .none
+    }
+}
+
+/// An album's or playlist's download button.
+enum CollectionDownloadState: Equatable, Sendable {
+    /// Not downloaded as itself, or only partly with nothing arriving: a tap downloads
+    /// whatever is missing.
+    case none
+    case working(fraction: Double)
+    case complete
+
+    var isOn: Bool { self != .none }
 }
 
 /// Owns the catalog file. An actor because the download delegate, the UI and the

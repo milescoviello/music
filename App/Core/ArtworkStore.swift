@@ -36,6 +36,11 @@ final class ArtworkStore {
     private let cards = NSCache<NSString, UIImage>()
     private let fulls = NSCache<NSString, UIImage>()
     private let session: URLSession
+    /// Covers fetched ahead of being seen: kept for offline and warmed into the cache.
+    /// Their own two connections, so a long playlist's covers never queue in front of the
+    /// one on screen. On one session, a 366-song download's covers took all six and the
+    /// playing song's cover timed out behind them (11-10).
+    private let bulk: URLSession
     // None of this is anything a view should redraw for. Observed, every fetch starting
     // and finishing, and every palette cached while the visualiser draws, was a change
     // notification.
@@ -70,6 +75,10 @@ final class ArtworkStore {
         configuration.timeoutIntervalForRequest = 12
         configuration.httpMaximumConnectionsPerHost = 6
         session = URLSession(configuration: configuration)
+        let behind = configuration.copy() as! URLSessionConfiguration
+        behind.httpMaximumConnectionsPerHost = 2
+        behind.timeoutIntervalForRequest = 30
+        bulk = URLSession(configuration: behind)
 
         // Version 2 cleared covers fetched while Navidrome was rebuilding its artwork,
         // which `returnCacheDataElseLoad` would have kept forever. Version 3 drops the
@@ -151,17 +160,18 @@ final class ArtworkStore {
         persisting.insert(destination)
         defer { persisting.remove(destination) }
 
-        guard let image = await image(for: id, size: size) else { return }
-
-        // The server's own bytes when the cover cache has them, which it does once the
-        // image above came from the network; encoded again only when it does not.
-        // Off the main actor either way: a JPEG encode of a 1,200-pixel cover is long
-        // enough to see, and it ran three times per track of an album being downloaded.
+        // The server's own bytes, from the cover cache or else fetched into it through the
+        // slow lane, and copied: no decode and no second JPEG pass, both of which ran
+        // three times per track of an album being downloaded. Off the main actor.
         let cached = Self.coverURL(id, size)
+        let remote = url(for: id, size: size)
+        let bulk = bulk
         await Task.detached(priority: .utility) {
-            if (try? FileManager.default.copyItem(at: cached, to: destination)) != nil { return }
-            guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-            try? data.write(to: destination, options: .atomic)
+            if !FileManager.default.fileExists(atPath: cached.path) {
+                guard let remote, let data = await Self.fetch(remote, session: bulk) else { return }
+                try? data.write(to: cached, options: .atomic)
+            }
+            try? FileManager.default.copyItem(at: cached, to: destination)
         }.value
     }
 
@@ -386,15 +396,44 @@ final class ArtworkStore {
 
     /// A cover's bytes, or nil for anything that is not an image: Navidrome answers a
     /// failure with an error page, which must not be kept as the cover.
+    ///
+    /// A request the network dropped or let time out is asked again, twice, a few seconds
+    /// apart. Nothing else asks again: the player's cover stayed a grey square for the
+    /// whole song after one timeout. An album with no cover is not a network failure and
+    /// is not asked again.
     nonisolated private static func fetch(_ url: URL, session: URLSession) async -> Data? {
-        guard let (data, response) = try? await session.data(from: url),
-              (response as? HTTPURLResponse).map({ (200...299).contains($0.statusCode) }) ?? true,
-              !(response.mimeType ?? "").contains("json"),
-              !(response.mimeType ?? "").contains("xml"),
-              !data.isEmpty,
-              !CoverPlaceholder.isServerPlaceholder(data)
-        else { return nil }
-        return data
+        for attempt in 0..<3 {
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(from: url)
+            } catch let error as URLError where attempt < 2 && isTransient(error.code) {
+                try? await Task.sleep(for: .seconds(attempt == 0 ? 2 : 6))
+                continue
+            } catch {
+                return nil
+            }
+            guard (response as? HTTPURLResponse).map({ (200...299).contains($0.statusCode) }) ?? true,
+                  !(response.mimeType ?? "").contains("json"),
+                  !(response.mimeType ?? "").contains("xml"),
+                  !data.isEmpty,
+                  !CoverPlaceholder.isServerPlaceholder(data)
+            else { return nil }
+            return data
+        }
+        return nil
+    }
+
+    /// Worth asking again: the request got lost on the way, not refused, and the device
+    /// is still online.
+    nonisolated static func isTransient(_ code: URLError.Code) -> Bool {
+        switch code {
+        case .timedOut, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost,
+             .dnsLookupFailed, .secureConnectionFailed:
+            return true
+        default:
+            return false
+        }
     }
 
     /// Loads the covers a grid is about to show into memory, so a fast scroll finds them
@@ -423,7 +462,7 @@ final class ArtworkStore {
                 wanted.append((Self.coverURL(id, size), remote))
             }
         }
-        let session = session
+        let session = bulk
         warming = Task.detached(priority: .background) {
             let missing = wanted.filter { !FileManager.default.fileExists(atPath: $0.file.path) }
             await withTaskGroup(of: Void.self) { group in

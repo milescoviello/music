@@ -33,6 +33,7 @@ final class CollectionDownloadButton {
             guard let button = reference.value else { return }
             _ = env.app.downloads.catalog
             _ = env.app.downloads.progress
+            _ = env.app.downloads.asking
             button.refresh()
             ring.redraw()
         }
@@ -48,28 +49,20 @@ final class CollectionDownloadButton {
 
     private func refresh() {
         let list = songs()
-        let downloads = env.app.downloads
-        var downloaded = 0
-        var arriving = 0
-        var transferred = 0.0
-        for song in list {
-            switch downloads.status(for: song.id) {
-            case .downloaded: downloaded += 1
-            case .waiting: arriving += 1
-            case let .downloading(value):
-                arriving += 1
-                transferred += value
-            case .none: break
-            }
-        }
-        if arriving > 0 {
-            fraction = (Double(downloaded) + transferred) / Double(max(list.count, 1))
+        // This album's or playlist's own download only; see `DownloadCatalog.collectionState`.
+        switch env.app.downloads.collectionState(of: list, groupID: groupID) {
+        case let .working(value):
+            fraction = value
             complete = false
             root.tooltip("Downloading — click to remove")
-        } else {
+        case .complete:
             fraction = nil
-            complete = !list.isEmpty && downloaded == list.count
-            root.tooltip(complete ? "Downloaded — click to remove" : "Download")
+            complete = true
+            root.tooltip("Downloaded — click to remove")
+        case .none:
+            fraction = nil
+            complete = false
+            root.tooltip("Download")
         }
         root.isSensitive = !list.isEmpty
     }
