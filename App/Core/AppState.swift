@@ -307,18 +307,40 @@ final class AppState {
     /// the screen to show at once: Navidrome serves them once its watcher has scanned the
     /// folder again, a few seconds later.
     func saveLyrics(_ timing: LyricsTiming, from lyrics: StructuredLyrics, songID: String) async throws -> StructuredLyrics {
-        guard let credentials else { throw LyricsSaveError(message: "Sign in to the server to save lyrics.") }
-        let salt = SubsonicAuth.makeSalt()
-        let signIn = SonicClient.SignIn(
-            u: credentials.username,
-            t: SubsonicAuth.token(password: credentials.password, salt: salt),
-            s: salt
-        )
+        let signIn = try sonicSignIn()
         try await SonicClient(configuration: sonic.configuration).saveLyrics(songID: songID, timing: timing, signIn: signIn)
         let saved = timing.saved(from: lyrics)
         await LyricsStore.shared.replace(lyrics, with: saved, for: songID)
         await Diagnostics.shared.record("lyrics", "saved \(timing.lines.count) timed lines into \(songID)")
         return saved
+    }
+
+    /// LRCLIB's lyrics for a song with none, saved beside it on the server by the sonic
+    /// service, and with the download when the song is one.
+    func findLyrics(songID: String) async throws -> SonicClient.FoundLyrics {
+        let signIn = try sonicSignIn()
+        let answer = try await SonicClient(configuration: sonic.configuration).findLyrics(songID: songID, signIn: signIn)
+        switch answer {
+        case let .found(lyrics):
+            if downloads.isDownloaded(songID) { await LyricsStore.shared.save([lyrics], for: songID) }
+            await Diagnostics.shared.record("lyrics", "found \(lyrics.lines.count) lines for \(songID) on LRCLIB")
+        case .notFound:
+            await Diagnostics.shared.record("lyrics", "none on LRCLIB for \(songID)")
+        case .instrumental:
+            await Diagnostics.shared.record("lyrics", "LRCLIB has \(songID) as instrumental")
+        }
+        return answer
+    }
+
+    /// The Subsonic sign-in, for the sonic service to check with Navidrome.
+    private func sonicSignIn() throws -> SonicClient.SignIn {
+        guard let credentials else { throw LyricsSaveError(message: "Sign in to the server first.") }
+        let salt = SubsonicAuth.makeSalt()
+        return SonicClient.SignIn(
+            u: credentials.username,
+            t: SubsonicAuth.token(password: credentials.password, salt: salt),
+            s: salt
+        )
     }
 
     /// Adopts a queue saved by another client, at its position, **paused**. Resuming

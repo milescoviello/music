@@ -299,6 +299,47 @@ struct SonicClient: Sendable {
         }
     }
 
+    // MARK: - Lyrics for a song with none
+
+    private struct LyricsFind: Encodable {
+        var id: String
+        var auth: SignIn
+    }
+
+    private struct FindAnswer: Decodable {
+        var found: Bool
+        var instrumental: Bool?
+        var synced: Bool?
+        var lines: [LyricLine]?
+    }
+
+    enum FoundLyrics: Equatable, Sendable {
+        /// Found, and saved beside the song as a `.lrc`.
+        case found(StructuredLyrics)
+        /// Nothing on LRCLIB for this recording.
+        case notFound
+        /// LRCLIB has the song as an instrumental: no words to find.
+        case instrumental
+    }
+
+    /// LRCLIB's lyrics for a song that has none, which the service saves beside the song.
+    /// Throws `LyricsSaveError` with the service's reason.
+    func findLyrics(songID: String, signIn: SignIn) async throws -> FoundLyrics {
+        let (data, status) = try await post("v1/lyrics/find", LyricsFind(id: songID, auth: signIn), timeout: 60)
+        guard status == 200 else {
+            let reason = try? JSONDecoder().decode(Refusal.self, from: data).error
+            if status == 404, reason == "no such endpoint" {
+                throw LyricsSaveError(message: "The sonic service is too old to find lyrics. Update it on the server.")
+            }
+            throw LyricsSaveError(message: reason ?? "The sonic service answered \(status).")
+        }
+        let answer = try JSONDecoder().decode(FindAnswer.self, from: data)
+        guard answer.found, let lines = answer.lines, !lines.isEmpty else {
+            return answer.instrumental == true ? .instrumental : .notFound
+        }
+        return .found(StructuredLyrics(synced: answer.synced == true, line: lines))
+    }
+
     private func post<Body: Encodable>(_ path: String, _ body: Body, timeout: TimeInterval = 20) async throws -> (Data, Int) {
         guard let url = url(path) else { throw SonicError.badURL }
         var request = URLRequest(url: url, timeoutInterval: timeout)

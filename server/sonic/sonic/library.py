@@ -51,23 +51,36 @@ def read_with_lyrics(config: Config) -> tuple[list[LibraryTrack], list[lyrics.Ly
         return _read(connection, config), lyrics.read(connection)
 
 
-def locate(config: Config, track_id: str) -> str | None:
-    """Where one track's file is here, from a fresh copy of the database: for a file about
-    to be written, the analysis's view of the library, hours old, will not do."""
+@dataclass(frozen=True)
+class Located:
+    path: str          # local, readable here
+    title: str
+    artist: str
+    album: str
+    duration: float
+
+
+def locate(config: Config, track_id: str) -> Located | None:
+    """One track's file here, and what it is, from a fresh copy of the database: for a
+    file about to be written, the analysis's view of the library, hours old, will not do."""
     with _snapshot(config) as connection:
         columns = _columns(connection, "media_file")
         missing = "and mf.missing = 0" if "missing" in columns else ""
+        fields = "mf.path, mf.title, mf.artist, mf.album, mf.duration"
         if "library_id" in columns and _columns(connection, "library"):
             row = connection.execute(
-                f"select l.path, mf.path from media_file mf join library l on l.id = mf.library_id "
+                f"select l.path, {fields} from media_file mf join library l on l.id = mf.library_id "
                 f"where mf.id = ? {missing}", (track_id,)).fetchone()
         else:
             row = connection.execute(
-                f"select '', mf.path from media_file mf where mf.id = ? {missing}", (track_id,)).fetchone()
+                f"select '', {fields} from media_file mf where mf.id = ? {missing}", (track_id,)).fetchone()
     if row is None:
         return None
-    library_root, relative = row
-    return config.local_path(f"{library_root.rstrip('/')}/{relative}" if library_root else relative)
+    library_root, relative, title, artist, album, duration = row
+    path = config.local_path(f"{library_root.rstrip('/')}/{relative}" if library_root else relative)
+    if path is None:
+        return None
+    return Located(path, title or "", artist or "", album or "", float(duration or 0))
 
 
 @contextmanager

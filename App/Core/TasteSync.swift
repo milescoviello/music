@@ -7,13 +7,20 @@ import Foundation
 /// and stats read only those, so a song skipped twice on the desktop was still served on
 /// the phone. Now each device sends what it recorded and takes in what the others did.
 /// Records keep their own ids, so the same one arriving twice is recognised, and sending
-/// is from a day before the last send, so nothing is missed at the edges.
+/// looks from a day before the last send, so nothing is missed at the edges -- a play is
+/// stamped with when it started, which can be before a send it is recorded after. Of
+/// those, only the ones the server does not have yet go: every record sent or taken in is
+/// remembered by id for as long as the look-back can reach it. Before, the whole last day
+/// went again on every foreground ("sent 71 plays and 15 skips" each time), the other
+/// devices' plays included, sent back to the server they came from.
 @MainActor
 final class TasteSync {
     private enum Key {
         static let device = "taste.device"
         static let seq = "taste.seq"
         static let pushed = "taste.pushedThrough"
+        /// Ids the server has, sent or taken in, to when each happened (seconds since 1970).
+        static let known = "taste.knownIDs"
     }
 
     /// This install's own name on the server.
@@ -51,17 +58,23 @@ final class TasteSync {
         let client = SonicClient(configuration: appState.sonic.configuration)
         let defaults = UserDefaults.standard
 
-        // Out: what this device recorded since a day before the last send.
+        // Out: what this device recorded since a day before the last send, less what the
+        // server already has.
         let started = Date.now
         let since = (defaults.object(forKey: Key.pushed) as? Date)?.addingTimeInterval(-86_400) ?? .distantPast
-        let plays = appState.history.plays.filter { $0.at >= since }.map(Self.event)
-        let skips = appState.skips.skips.filter { $0.at >= since }.map(Self.event)
+        // Values through NSNumber as well: Linux's defaults hand numbers back that way.
+        var known = (defaults.dictionary(forKey: Key.known) ?? [:]).compactMapValues {
+            ($0 as? Double) ?? ($0 as? NSNumber)?.doubleValue
+        }
+        let plays = appState.history.plays.filter { $0.at >= since }.map(Self.event).filter { known[$0.id] == nil }
+        let skips = appState.skips.skips.filter { $0.at >= since }.map(Self.event).filter { known[$0.id] == nil }
         let outgoing = plays + skips
         do {
             for start in stride(from: 0, to: outgoing.count, by: 2_000) {
                 try await client.pushTaste(device: device, events: Array(outgoing[start..<min(start + 2_000, outgoing.count)]))
             }
             defaults.set(started, forKey: Key.pushed)
+            for event in outgoing { known[event.id] = event.at }
         } catch {
             await Diagnostics.shared.record("taste", "could not send \(outgoing.count): \(Diagnostics.describe(error))")
             return
@@ -75,6 +88,7 @@ final class TasteSync {
             while true {
                 let page = try await client.pullTaste(device: device, since: seq)
                 for event in page.events {
+                    known[event.id] = event.at
                     switch event.kind {
                     case "play": if let play = Self.play(event) { newPlays.append(play) }
                     case "skip": if let skip = Self.skip(event) { newSkips.append(skip) }
@@ -91,6 +105,10 @@ final class TasteSync {
         let addedPlays = appState.history.merge(newPlays)
         let addedSkips = appState.skips.merge(newSkips)
         defaults.set(seq, forKey: Key.seq)
+        // Only as far back as the next send can look: a day before this one, and a day of
+        // slack for a clock that moved.
+        let horizon = started.addingTimeInterval(-2 * 86_400).timeIntervalSince1970
+        defaults.set(known.filter { $0.value >= horizon }, forKey: Key.known)
         if !outgoing.isEmpty || addedPlays + addedSkips > 0 {
             await Diagnostics.shared.record(
                 "taste", "sent \(plays.count) plays and \(skips.count) skips; took in \(addedPlays) plays and \(addedSkips) skips from other devices"

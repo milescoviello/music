@@ -24,6 +24,9 @@ struct LyricsView: View {
     @State private var timingSongID: String?
     @State private var isSavingTiming = false
     @State private var timingError: String?
+    /// Asking LRCLIB for lyrics the song has none of, and what came of it.
+    @State private var isFindingLyrics = false
+    @State private var findNote: String?
 
     private enum LoadState { case loading, loaded, missing }
 
@@ -406,6 +409,56 @@ struct LyricsView: View {
             Text("No lyrics for this track")
                 .font(.callout)
                 .foregroundStyle(.white.opacity(0.7))
+
+            // LRCLIB, through the service, which saves what it finds beside the song.
+            if isFindingLyrics {
+                ProgressView()
+                    .padding(.top, 8)
+                Text("Looking on LRCLIB…")
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.6))
+            } else {
+                Button("Find Lyrics", systemImage: "magnifyingglass") { findLyrics() }
+                    .buttonStyle(.bordered)
+                    .tint(.white)
+                    .padding(.top, 8)
+            }
+            if let findNote {
+                Text(findNote)
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+        }
+    }
+
+    private func findLyrics() {
+        let songID = song.id
+        isFindingLyrics = true
+        findNote = nil
+        Task {
+            let answer: SonicClient.FoundLyrics?
+            var failure: String?
+            do {
+                answer = try await appState.findLyrics(songID: songID)
+            } catch {
+                answer = nil
+                failure = error.localizedDescription
+            }
+            // The song moved on while LRCLIB was asked: the answer is not this one's.
+            guard song.id == songID else { return }
+            isFindingLyrics = false
+            switch answer {
+            case let .found(lyrics)?:
+                await load(showing: lyrics)
+            case .notFound?:
+                findNote = "LRCLIB has no lyrics for this recording."
+            case .instrumental?:
+                findNote = "LRCLIB lists this song as instrumental."
+            case nil:
+                findNote = failure
+            }
         }
     }
 
@@ -445,6 +498,8 @@ struct LyricsView: View {
         guard timing == nil else { return }
         state = .loading
         loadedSongID = nil
+        isFindingLyrics = false
+        findNote = nil
         activeIndex = nil
         resumeAutoScrollAt = nil
 

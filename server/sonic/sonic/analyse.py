@@ -40,6 +40,11 @@ LONG_TRACK_SECONDS = 20 * 60
 # Longer than this is a recording of a whole concert or a broadcast; not analysed.
 MAX_TRACK_SECONDS = 3 * 3600
 
+# Codecs Essentia's own FFmpeg was built without, decoded here by libsndfile instead
+# (`soundfile`). Essentia does not just refuse one: it frees its decoder twice tearing
+# down, and the worker dies -- an Opus file did, on every pass.
+FOREIGN_SUFFIXES = {".opus"}
+
 _model = None
 
 
@@ -115,6 +120,21 @@ def _rhythm(es, mono: np.ndarray, rate: float) -> dict:
         return {}
 
 
+def _decode_elsewhere(path: str) -> tuple[np.ndarray, float, int]:
+    """What `AudioLoader` gives -- stereo float samples, the rate, the file's channel
+    count -- through libsndfile, for a codec Essentia cannot read."""
+    import soundfile
+
+    data, rate = soundfile.read(path, dtype="float32", always_2d=True)
+    channels = data.shape[1]
+    if channels == 1:
+        data = np.repeat(data, 2, axis=1)
+    elif channels > 2:
+        # Front left and right: what a stereo fold-down keeps most of.
+        data = data[:, :2]
+    return np.ascontiguousarray(data), float(rate), min(channels, 2)
+
+
 def analyse(job: tuple[str, str, float]) -> dict:
     """`(track id, local path, duration from Navidrome)` → the results, or an error."""
     track_id, path, known_duration = job
@@ -125,13 +145,23 @@ def analyse(job: tuple[str, str, float]) -> dict:
             return {"id": track_id, "error": "too long to analyse"}
 
         rhythm: dict = {}
+        foreign = os.path.splitext(path)[1].lower() in FOREIGN_SUFFIXES
         if known_duration > LONG_TRACK_SECONDS:
-            mono16 = es.MonoLoader(filename=path, sampleRate=16000, resampleQuality=0)()
+            if foreign:
+                audio, rate, channels = _decode_elsewhere(path)
+                mono16 = es.Resample(inputSampleRate=rate, outputSampleRate=16000, quality=0)(
+                    es.MonoMixer()(audio, channels))
+                del audio
+            else:
+                mono16 = es.MonoLoader(filename=path, sampleRate=16000, resampleQuality=0)()
             duration = len(mono16) / 16000
             stereo = np.stack([mono16, mono16], axis=1).astype(np.float32)
             momentary, _, integrated, lra = es.LoudnessEBUR128(sampleRate=16000, hopSize=LEVEL_HOP, startAtZero=True)(stereo)
         else:
-            audio, rate, channels, *_ = es.AudioLoader(filename=path)()
+            if foreign:
+                audio, rate, channels = _decode_elsewhere(path)
+            else:
+                audio, rate, channels, *_ = es.AudioLoader(filename=path)()
             duration = len(audio) / rate
             momentary, integrated, lra = _loudness(es, audio, rate)
             mono = es.MonoMixer()(audio, channels)

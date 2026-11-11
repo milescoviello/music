@@ -1,6 +1,7 @@
 """The HTTP side: small, JSON, and read-only apart from the logs the app sends for
 fixing a bug, the plays and skips it shares between devices, which music video a song
-gets, and lyrics fixed by hand, which go back into the file they came from (`lyricsfile`). Standard library only, so the service has nothing to install beyond Essentia, NumPy
+gets, lyrics fixed by hand, which go back into the file they came from (`lyricsfile`), and
+lyrics found on LRCLIB for a song with none (`lrclib`). Standard library only, so the service has nothing to install beyond Essentia, NumPy
 and, for the videos, yt-dlp."""
 
 from __future__ import annotations
@@ -288,6 +289,8 @@ def make_handler(service):
                 return self._words(path)
             if path == "/v1/lyrics/save":
                 return self._save_lyrics()
+            if path == "/v1/lyrics/find":
+                return self._find_lyrics()
             if path != "/v1/logs":
                 return self._send(404, {"error": "no such endpoint"})
             try:
@@ -368,6 +371,20 @@ def make_handler(service):
             except Exception as error:  # noqa: BLE001
                 log.exception("could not save lyrics")
                 return self._send(500, {"error": f"Couldn't save the lyrics: {error}"})
+
+        def _find_lyrics(self):
+            """LRCLIB's lyrics for a song with none, beside it as a `.lrc`: see `lrclib`."""
+            try:
+                body = self._body()
+            except ValueError as error:
+                return self._send(400, {"error": str(error)})
+            try:
+                return self._send(200, service.find_lyrics(body))
+            except Refused as refused:
+                return self._send(refused.status, {"error": refused.message})
+            except Exception as error:  # noqa: BLE001
+                log.exception("could not find lyrics")
+                return self._send(500, {"error": f"Couldn't find lyrics: {error}"})
 
         def _send(self, status: int, body: dict):
             try:

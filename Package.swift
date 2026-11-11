@@ -134,6 +134,7 @@ func logicPackage() -> Package {
                     "Romanizer.swift",
                     "LyricsLanguage.swift",
                     "LyricsTiming.swift",
+                    "SigningInfo.swift",
                     "LyricTranslationStore.swift",
                     "RemoteControl.swift",
                     "RecordingMatch.swift",

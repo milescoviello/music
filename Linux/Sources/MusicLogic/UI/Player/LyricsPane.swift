@@ -162,7 +162,7 @@ final class LyricsPane {
         }
 
         guard let lyrics, !lyrics.lines.isEmpty else {
-            status.child = StatusPage(icon: "format-justify-left-symbolic", title: "No Lyrics", description: "There are no lyrics for this track.")
+            showMissing(stack: stack, songID: song.id)
             return
         }
 
@@ -182,6 +182,40 @@ final class LyricsPane {
         // into view, and it only tries again when the line changes: paused, the view
         // stayed at the top with the line out of sight.
         if let active { scrollOnceLaidOut(to: active) }
+    }
+
+    /// No lyrics, and a way to find some: LRCLIB, through the service, which saves what it
+    /// finds beside the song.
+    private func showMissing(stack: Stack, songID: String) {
+        let find = Button("Find Lyrics", "suggested-action", "pill").halign(GTK_ALIGN_CENTER)
+        let page = StatusPage(
+            icon: "format-justify-left-symbolic", title: "No Lyrics",
+            description: "There are no lyrics for this track.", child: find
+        )
+        status.child = page
+        let reference = WeakReference(self)
+        find.onClicked { [env] in
+            find.isSensitive = false
+            page.descriptionText = "Looking on LRCLIB…"
+            Task { @MainActor in
+                let said: String
+                do {
+                    switch try await env.app.findLyrics(songID: songID) {
+                    case let .found(lyrics):
+                        guard let pane = reference.value, pane.songID == songID else { return }
+                        await pane.load(stack: stack, showing: lyrics)
+                        return
+                    case .notFound: said = "LRCLIB has no lyrics for this recording."
+                    case .instrumental: said = "LRCLIB lists this song as instrumental."
+                    }
+                } catch {
+                    said = error.localizedDescription
+                }
+                guard reference.value?.songID == songID else { return }
+                page.descriptionText = said
+                find.isSensitive = true
+            }
+        }
     }
 
     /// A row for each line. A click goes to the line, or while timing marks it.

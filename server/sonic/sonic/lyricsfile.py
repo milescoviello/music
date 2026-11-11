@@ -147,10 +147,11 @@ def _milliseconds(match: re.Match) -> int:
     return total
 
 
-def words(text: str) -> tuple[list[str], bool]:
-    """The lines of a lyrics tag as a reader sees them, without blanks, and whether the tag
-    is timed. A line stamped twice -- a chorus sung twice, written once -- is two lines,
-    and timed lyrics are put in time order, both as Navidrome serves them."""
+def timed_lines(text: str) -> tuple[list[tuple[int | None, str]], bool]:
+    """The lines of a lyrics file or tag as a reader sees them -- each with when it starts,
+    if it is timed -- without blanks, and whether it is timed. A line stamped twice, a
+    chorus sung twice and written once, is two lines, and timed lyrics are put in time
+    order, both as Navidrome serves them."""
     timed: list[tuple[int, int, str]] = []
     plain: list[str] = []
     for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
@@ -164,7 +165,7 @@ def words(text: str) -> tuple[list[str], bool]:
             line = line[match.end():].lstrip()
         if not stamps and _HEADER.match(line):
             continue
-        value = _same(line)
+        value = " ".join(line.split())
         if stamps:
             for stamp in stamps:
                 if value:
@@ -172,8 +173,14 @@ def words(text: str) -> tuple[list[str], bool]:
         elif value:
             plain.append(value)
     if timed:
-        return [value for _, _, value in sorted(timed)], True
-    return plain, False
+        return [(stamp, value) for stamp, _, value in sorted(timed)], True
+    return [(None, value) for value in plain], False
+
+
+def words(text: str) -> tuple[list[str], bool]:
+    """`timed_lines`' words alone, made comparable (`_same`)."""
+    lines, timed = timed_lines(text)
+    return [_same(value) for _, value in lines], timed
 
 
 def _same(text: str) -> str:
@@ -197,7 +204,7 @@ def _replacement(old: str, lines: list[Line]) -> str:
     return "\n".join(headers + [lrc(lines)]) + ("\n" if headers or old.endswith("\n") else "")
 
 
-def _read_text(path: Path) -> str:
+def read_text(path: Path) -> str:
     data = path.read_bytes()
     if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
         return data.decode("utf-16", errors="replace")
@@ -358,7 +365,7 @@ def _write(path: str, original: list[str], synced: bool, lines: list[Line], chec
             sidecar = source.with_suffix(suffix)
             if not sidecar.is_file():
                 continue
-            text = _read_text(sidecar)
+            text = read_text(sidecar)
             if not words(text)[0]:
                 continue        # nothing in it, so Navidrome looks further
             if not _matches(text, original, synced):

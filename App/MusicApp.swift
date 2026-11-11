@@ -13,7 +13,11 @@ struct MusicApp: App {
         _appState = State(initialValue: appState)
         // Where every stretch of the log starts: which build, on what.
         let launched = "launched \(SettingsView.version) on \(LogReport.currentSystem)"
-        Task { await Diagnostics.shared.record("app", launched) }
+        let signed = "signed: \(SigningInfo.summary)"
+        Task {
+            await Diagnostics.shared.record("app", launched)
+            await Diagnostics.shared.record("app", signed)
+        }
         _remotePlayers = State(initialValue: RemotePlayers(appState: appState, browser: NetworkRemoteBrowser()))
         // The desktop can play to the phone too, when it is allowed in Settings.
         RemoteControlServer.shared.start(app: appState, advertiser: BonjourAdvertiser())

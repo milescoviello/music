@@ -18,10 +18,13 @@ runtime.
   MusiCNN vector, BS.1770 momentary loudness every 100 ms, beats, tempo and key.
 - Keeps it all in `data/sonic.db` (SQLite), re-reads the library every six hours, and
   analyses whatever is new or changed. A first pass over ~26,000 tracks takes several
-  hours; results are served as they land.
+  hours; results are served as they land. Opus is decoded by libsndfile (`soundfile`),
+  since Essentia's own decoder cannot read it and crashes trying. The pass runs a few
+  tracks at a time, so a file that crashes its worker is found and marked ("crashed the
+  decoder") instead of failing the pass for every track beside it.
 - Answers on port 8650. Nearly every endpoint is a GET returning JSON; a track not
-  analysed yet is a 404. The writes are the app's Send Logs, shared taste, and which
-  video a song gets (below).
+  analysed yet is a 404. The writes are the app's Send Logs, shared taste, which video a
+  song gets, and lyrics fixed or found in the apps (below).
 
 | Endpoint | Answers |
 |---|---|
@@ -87,6 +90,19 @@ It answers `{ok, changed}`, or an error the app shows: 401/403 for the sign-in o
 the NAS won't let it write, 404 for a song or file it can't find, 409 when the file's words
 aren't `original`, 422 for a file it can't tag. These are the only writes the service makes
 to the music, and why its mounts of it are not read-only.
+
+`POST /v1/lyrics/find` `{id, auth}` is for a song with no lyrics (`sonic/lrclib.py`): the
+same admin check, then LRCLIB, asked the way plexlyrics asked it -- the exact song and
+length first, then a search, taking only a recording within 3 seconds of the file's length,
+timed lyrics before plain ones. What it finds is written beside the song as `<name>.lrc`
+with plexlyrics' headers and `[by:LRCLIB via sonic]`, and returned as `{found, synced,
+lines}`; `{found: false, instrumental}` when there is nothing, and nothing is written.
+A song that has a lyrics file with words in it already is refused (409).
+
+`/v1/lyrics/search` covers the lyrics files beside the songs as well as the tags' (in
+Navidrome's order, a file first), which is most of the library's lyrics: each file's size
+and time are kept with its lines in `data/lyric-files.db`, so only a changed file is read
+again. Lyrics saved or found through the two endpoints above are searchable at once.
 
 `POST /v1/logs` takes the plain-text report from the app's Diagnostics → Send Logs and
 keeps it as `data/logs/<UTC time>-<source>-<random>.txt`, where `source` is the app's

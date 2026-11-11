@@ -8,6 +8,10 @@ ENV TF_CPP_MIN_LOG_LEVEL=3 \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Opus, which Essentia's own decoder cannot read (analyse.FOREIGN_SUFFIXES). A layer of
+# its own, so adding it did not rebuild the one above, whose unpinned packages a rebuild
+# would move to newer versions than the ones Essentia runs with now.
+RUN pip install --no-cache-dir soundfile==0.13.1
 COPY sonic ./sonic
 
 EXPOSE 8650
