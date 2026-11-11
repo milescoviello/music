@@ -202,9 +202,16 @@ final class NowPlaying {
         // A video starting -- the switch, or play with Video left on -- is shown, rather
         // than left behind a visualiser that has no sound to draw. Only at its start: one
         // chosen while it plays stays.
+        // Also laid out again whenever the strip over the cover changes height: the switch
+        // appears only once the song's video is known, often after the player has opened,
+        // and its note line comes and goes. Measured at the opening alone, the cover was
+        // placed under a strip without them and the switch landed on it.
         var wasStandingIn = false
         root.observe {
             _ = app.video.wantsVideo
+            _ = app.video.isAvailable
+            _ = app.video.showing
+            _ = app.player.currentSong?.id
             let standing = app.video.isStandingIn
             let started = standing && !wasStandingIn
             wasStandingIn = standing
