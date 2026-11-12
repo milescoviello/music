@@ -115,14 +115,21 @@ enum AutoplayRules {
     /// than not at all: a radio around the same few songs draws from the same pool, and
     /// Autoplay played the same twenty every evening. Held back, not banned, so a small
     /// pool still fills its count before the option is given up for the next.
+    ///
+    /// `queuedRecordings` (`MixEngine.identity`): a song queued under one library's id is
+    /// queued, and its copy in the other library is not added after it, nor two copies of
+    /// one among these. Nil for an album, kept whole, whose two tracks may share a name.
     static func fresh(
-        _ songs: [Song], queued: Set<String>, avoided: Set<String>, recent: Set<String> = [], limit: Int
+        _ songs: [Song], queued: Set<String>, avoided: Set<String>, recent: Set<String> = [],
+        queuedRecordings: Set<String>? = nil, limit: Int
     ) -> [Song] {
         var seen = queued
+        var seenRecordings = queuedRecordings ?? []
         var kept: [Song] = []
         var heldBack: [Song] = []
         for song in songs where kept.count < limit && !avoided.contains(MixEngine.identity(song)) {
             guard seen.insert(song.id).inserted else { continue }
+            if queuedRecordings != nil, !seenRecordings.insert(MixEngine.identity(song)).inserted { continue }
             if recent.contains(MixEngine.identity(song)) {
                 heldBack.append(song)
             } else {

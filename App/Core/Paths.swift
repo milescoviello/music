@@ -70,6 +70,23 @@ enum Paths {
             values.isExcludedFromBackup = true
             try? url.setResourceValues(values)
         }
+        removeAbandonedWrites()
+    }
+
+    /// Linux's Foundation writes a file "atomically" through a hidden `.dat.nosync…` file
+    /// beside it, and one cut off half-way stays there: the desktop's data folder had
+    /// fourteen, a few weeks old. Any older than a day go; a younger one may be a write
+    /// still under way in another copy of the app.
+    static func removeAbandonedWrites(in directory: URL = root, olderThan age: TimeInterval = 86_400) {
+        let manager = FileManager.default
+        guard let names = try? manager.contentsOfDirectory(atPath: directory.path) else { return }
+        for name in names where name.hasPrefix(".dat.nosync") {
+            let url = directory.appendingPathComponent(name)
+            guard let modified = (try? manager.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date,
+                  Date.now.timeIntervalSince(modified) > age
+            else { continue }
+            try? manager.removeItem(at: url)
+        }
     }
 
     static func mediaFile(songID: String, suffix: String) -> URL {

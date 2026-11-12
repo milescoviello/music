@@ -601,6 +601,8 @@ final class PlaybackController {
         station: Station? = nil
     ) {
         guard !songs.isEmpty else { return }
+        // One copy of each recording, whatever list this came from.
+        let (songs, index) = PlaybackQueue.oneCopyEach(songs, startingAt: index)
         playGeneration += 1
         lastMoveByHand = .now
         if let remote {

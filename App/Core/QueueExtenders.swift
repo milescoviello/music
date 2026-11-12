@@ -246,6 +246,7 @@ final class AutoplayService {
                 queued: Set(appState.player.queue.tracks.map(\.id)),
                 avoided: option.choice.isAlbum ? [] : appState.skips.avoided(),
                 recent: option.choice.isAlbum ? [] : memory.recent(),
+                queuedRecordings: option.choice.isAlbum ? nil : Set(appState.player.queue.tracks.map(MixEngine.identity)),
                 limit: option.choice.trackCount
             )
             if !fresh.isEmpty { return (option, fresh) }

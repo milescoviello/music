@@ -183,6 +183,31 @@ struct PlaybackQueue: Codable, Sendable {
         isShuffled = false
     }
 
+    /// `songs` with each recording once: a second copy of one -- the other library's,
+    /// under another id (`Song.isSameRecording`) -- left out, and `index` moved with the
+    /// song it pointed at, to the copy kept when it was the one left out. The same id twice
+    /// is kept: a playlist that repeats a song means to.
+    ///
+    /// Lists can hold both copies: a starred song is starred in both libraries, a playlist
+    /// or a smart one ("Recently Played") lists whichever copy was played, and playing one
+    /// played the song twice, 50 minutes apart (11-10).
+    static func oneCopyEach(_ songs: [Song], startingAt index: Int) -> (songs: [Song], index: Int) {
+        var firstByRecording: [String: Int] = [:]
+        var kept: [Song] = []
+        var placed: [Int] = []
+        for song in songs {
+            let recording = PlaylistMembership.recording(song)
+            if let first = firstByRecording[recording], kept[first].id != song.id, song.isSameRecording(as: kept[first]) {
+                placed.append(first)
+                continue
+            }
+            if firstByRecording[recording] == nil { firstByRecording[recording] = kept.count }
+            placed.append(kept.count)
+            kept.append(song)
+        }
+        return (kept, placed.indices.contains(index) ? placed[index] : 0)
+    }
+
     /// Advances honouring the repeat mode. Returns false when the queue is done.
     mutating func advance() -> Bool {
         guard !order.isEmpty else { return false }
