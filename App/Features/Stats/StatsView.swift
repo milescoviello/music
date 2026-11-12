@@ -86,7 +86,7 @@ struct StatsView: View {
             if history.plays.isEmpty {
                 Text("Nothing yet. Plays are recorded as they happen, on this phone.")
             } else {
-                Text("Recorded by the app here and on your other devices, shared through your server, from when each was installed.")
+                Text("Every play your server has logged, from any player, with what this app recorded here and on your other devices.")
             }
         }
 
