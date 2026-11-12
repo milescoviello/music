@@ -184,7 +184,7 @@ struct ArtistDetailView: View {
                     .multilineTextAlignment(.center)
 
                 if let count = detail?.albumCount {
-                    Text("\(count) albums")
+                    Text(count == 1 ? "1 album" : "\(count) albums")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

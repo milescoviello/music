@@ -182,7 +182,7 @@ enum ArtistPage {
             let detail = try? await client.artistDetail(id: artist.id)
             guard alive.isAlive else { return }
             if let detail {
-                albumCount.text = detail.albumCount.map { "\($0) albums" } ?? ""
+                albumCount.text = detail.albumCount.map { $0 == 1 ? "1 album" : "\($0) albums" } ?? ""
                 if let cover = detail.coverArt { artwork.show(cover, fallback: artist.name) }
                 let starredOnServer = detail.starred != nil
                 favourite.observe {
