@@ -47,7 +47,7 @@ struct SnapshotProvider: TimelineProvider {
     }
 }
 
-private let tint = Color(red: 0.98, green: 0.28, blue: 0.36)
+private let accent = Color(red: 0.98, green: 0.28, blue: 0.36)
 
 private struct Cover: View {
     let data: Data?
@@ -156,7 +156,7 @@ struct NowPlayingView: View {
             Image(systemName: snapshot?.isPlaying == true ? "pause.fill" : "play.fill")
         }
         .buttonStyle(.plain)
-        .foregroundStyle(family == .accessoryRectangular ? Color.primary : tint)
+        .foregroundStyle(family == .accessoryRectangular ? Color.primary : accent)
     }
 }
 
