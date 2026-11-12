@@ -231,13 +231,13 @@ enum StatsPage {
             }
             if !history.plays.isEmpty {
                 let count = history.plays.count
-                local.append(PreferencesGroup(description: "\(count) plays recorded on this computer. Clearing does not touch the server's own play counts.") {
+                local.append(PreferencesGroup(description: "\(count) plays in this computer's history. Clearing does not touch the server's own play counts or its play log.") {
                     ButtonRow("Export History…", icon: "document-save-symbolic") {
                         FilePicker.save(Data(csv(history.plays).utf8), suggestedName: "listening-history.csv", title: "Export Listening History")
                     }
                     ButtonRow("Clear Listening History", icon: "user-trash-symbolic", destructive: true) {
                         Dialogs.alert(
-                            "Delete \(count) plays recorded on this computer?",
+                            "Delete \(count) plays from this computer's history?",
                             body: "Play counts on the server are unaffected.",
                             responses: [("cancel", "Cancel", ADW_RESPONSE_DEFAULT), ("delete", "Delete", ADW_RESPONSE_DESTRUCTIVE)]
                         ) { if $0 == "delete" { history.clear(); fill() } }
