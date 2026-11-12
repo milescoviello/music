@@ -9,6 +9,7 @@ enum HomeHub: String, Codable, CaseIterable, Identifiable, Sendable {
     case onThisDay
     case recentlyAdded
     case newReleases
+    case shows
     case favourites
     case mostPlayed
     case mostPlayedThisMonth
@@ -28,6 +29,7 @@ enum HomeHub: String, Codable, CaseIterable, Identifiable, Sendable {
         case .onThisDay: return "On This Day"
         case .recentlyAdded: return "Recently Added"
         case .newReleases: return "New Releases"
+        case .shows: return "Shows Near You"
         case .favourites: return "Favourites"
         case .mostPlayed: return "Most Played"
         case .mostPlayedThisMonth: return "Most Played This Month"

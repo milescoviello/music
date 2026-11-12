@@ -110,14 +110,26 @@ enum AutoplayRules {
 
     /// What an option's songs add: those not already in the queue and not skipped early
     /// lately -- unless it is an album, which is kept whole -- up to its count.
-    static func fresh(_ songs: [Song], queued: Set<String>, avoided: Set<String>, limit: Int) -> [Song] {
+    ///
+    /// `recent`, the songs Autoplay itself added lately (`AutoplayMemory`), go last rather
+    /// than not at all: a radio around the same few songs draws from the same pool, and
+    /// Autoplay played the same twenty every evening. Held back, not banned, so a small
+    /// pool still fills its count before the option is given up for the next.
+    static func fresh(
+        _ songs: [Song], queued: Set<String>, avoided: Set<String>, recent: Set<String> = [], limit: Int
+    ) -> [Song] {
         var seen = queued
         var kept: [Song] = []
+        var heldBack: [Song] = []
         for song in songs where kept.count < limit && !avoided.contains(MixEngine.identity(song)) {
             guard seen.insert(song.id).inserted else { continue }
-            kept.append(song)
+            if recent.contains(MixEngine.identity(song)) {
+                heldBack.append(song)
+            } else {
+                kept.append(song)
+            }
         }
-        return kept
+        return kept + heldBack.prefix(max(0, limit - kept.count))
     }
 
     /// What to try, in order, when the queue runs out: the selection, then every other
@@ -229,3 +241,34 @@ enum PlaylistRadio {
         return result
     }
 }
+
+/// The songs Autoplay added, and when, for two weeks: what `AutoplayRules.fresh` holds back.
+/// By recording (`MixEngine.identity`), so the other library's copy of a song is the same
+/// song. Kept in the defaults; a few hundred entries at most.
+struct AutoplayMemory: Equatable, Sendable {
+    static let span: TimeInterval = 14 * 86_400
+
+    /// Recording identity to when Autoplay last added it, seconds since 1970.
+    private(set) var added: [String: Double]
+
+    init(added: [String: Double] = [:]) {
+        self.added = added
+    }
+
+    mutating func note(_ songs: [Song], at date: Date = .now) {
+        let time = date.timeIntervalSince1970
+        for song in songs { added[MixEngine.identity(song)] = time }
+        forget(before: date)
+    }
+
+    func recent(at date: Date = .now) -> Set<String> {
+        let since = date.timeIntervalSince1970 - Self.span
+        return Set(added.filter { $0.value >= since }.keys)
+    }
+
+    mutating func forget(before date: Date) {
+        let since = date.timeIntervalSince1970 - Self.span
+        added = added.filter { $0.value >= since }
+    }
+}
+

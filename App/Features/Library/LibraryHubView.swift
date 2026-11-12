@@ -63,6 +63,7 @@ struct LibraryHubView: View {
                     row("Trip Mode", "airplane", .tripMode)
                     row("Stats", "chart.bar.xaxis", .stats)
                     row("Library Health", "stethoscope", .libraryHealth)
+                    row("Duplicate Albums", "square.on.square", .duplicateAlbums)
                     row("Request Music", "arrow.down.heart", .requestMusic(""))
                     row("Settings", "gearshape", .settings)
                 }

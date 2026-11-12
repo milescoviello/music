@@ -102,9 +102,16 @@ class Requests(unittest.TestCase):
         self.assertEqual(caught.exception.status, 400)
 
     def test_a_line_without_a_time(self):
-        for start in (None, -1, 1.5, True):
+        for start in (-1, 1.5, True):
             with self.assertRaises(Refused):
                 request(self.body(lines=[{"start": start, "value": "a"}]))
+        with self.assertRaises(Refused):
+            request(self.body(lines=[{"start": 0, "value": "a"}, {"value": "b"}]))
+
+    def test_words_alone(self):
+        fix = request(self.body(lines=[{"value": "First light"}, {"start": None, "value": "Over the harbor"}]))
+        self.assertEqual(fix.lines, [Line(None, "First light"), Line(None, "Over the harbor")])
+        self.assertEqual(lrc(fix.lines), "First light\nOver the harbor")
 
     def test_no_sign_in(self):
         with self.assertRaises(Refused) as caught:

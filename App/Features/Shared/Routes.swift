@@ -38,6 +38,7 @@ enum Destination: Hashable {
     case lyricSearch(String)
     case vibePlaylist
     case libraryHealth
+    case duplicateAlbums
     case dailyMixes
     case stations
     case mixBuilder(MixBuilderKind)
@@ -119,6 +120,8 @@ extension View {
                 VibePlaylistView()
             case .libraryHealth:
                 LibraryHealthView()
+            case .duplicateAlbums:
+                DuplicateAlbumsView()
             case .dailyMixes:
                 DailyMixesView()
             case .stations:

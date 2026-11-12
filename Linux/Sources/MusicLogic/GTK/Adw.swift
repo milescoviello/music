@@ -341,7 +341,7 @@ final class ActionRow: Widget {
         super.init(adw_action_row_new()!)
         self.title = title
         if let subtitle { self.subtitle = subtitle }
-        if let icon { adw_action_row_add_prefix(widget.cast(), Icon(icon).widget) }
+        if let icon { adw_action_row_add_prefix(widget.cast(), Icon(icon).css("row-icon").widget) }
         if let action { activated(action) }
     }
 
@@ -373,7 +373,7 @@ final class ActionRow: Widget {
     /// A chevron, for a row that opens another page.
     @discardableResult
     func chevron() -> Self {
-        suffix(Icon("go-next-symbolic"))
+        suffix(Icon("go-next-symbolic").css("row-chevron"))
     }
 
     @discardableResult

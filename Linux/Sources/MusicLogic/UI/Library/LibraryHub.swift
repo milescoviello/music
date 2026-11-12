@@ -44,11 +44,12 @@ enum LibraryHub {
             row("Trip Mode", "airplane-mode-symbolic", .tripMode)
             row("Stats", "x-office-spreadsheet-symbolic", .stats)
             row("Library Health", "dialog-information-symbolic", .libraryHealth)
+            row("Duplicate Albums", "edit-copy-symbolic", .duplicateAlbums)
             row("Request Music", "list-add-symbolic", .requestMusic(""))
         }
 
         let recent = FlowBox(spacing: 12).columns(min: 2, max: 6).homogeneous()
-        let recentGroup = PreferencesGroup("Recently Added").suffix(Button("See All", "flat") { env.open(.albums(.newest)) })
+        let recentGroup = PreferencesGroup("Recently Added").suffix(Button("See All", "flat", "see-all") { env.open(.albums(.newest)) })
         recentGroup.add(recent)
         recentGroup.isVisible = false
 

@@ -260,7 +260,8 @@ struct SonicClient: Sendable {
 
     private struct LyricsSave: Encodable {
         struct Line: Encodable {
-            var start: Int
+            /// Nil for lyrics saved as words alone.
+            var start: Int?
             var value: String
         }
 
@@ -278,10 +279,10 @@ struct SonicClient: Sendable {
     /// Lyrics timed by hand, into the song's own file on the server, in place of the
     /// lyrics they were made from. Throws `LyricsSaveError` with the service's reason.
     func saveLyrics(songID: String, timing: LyricsTiming, signIn: SignIn) async throws {
-        let lines = timing.lines.compactMap { line in line.start.map { LyricsSave.Line(start: $0, value: line.value) } }
-        guard timing.isComplete, lines.count == timing.lines.count else {
+        guard timing.canSave else {
             throw LyricsSaveError(message: "Every line needs a time before the lyrics can be saved.")
         }
+        let lines = timing.lines.map { LyricsSave.Line(start: timing.isComplete ? $0.start : nil, value: $0.value) }
         let body = LyricsSave(
             id: songID, original: timing.original, synced: timing.wasSynced, lines: lines, auth: signIn
         )
@@ -297,6 +298,91 @@ struct SonicClient: Sendable {
                 throw LyricsSaveError(message: reason ?? "The sonic service answered \(status).")
             }
         }
+    }
+
+    // MARK: - Albums in both libraries
+
+    /// An album held in both libraries, its copies weakest first (`duplicates.py`).
+    struct DuplicateAlbum: Decodable, Sendable, Identifiable, Hashable {
+        struct Copy: Decodable, Sendable, Identifiable, Hashable {
+            var albumId: String
+            var name: String
+            var artist: String
+            var library: String
+            var tracks: Int
+            var format: String
+            var size: Int64
+            var plays: Int
+            var year: Int?
+            var folder: String
+            var lossless: Bool
+            var id: String { albumId }
+        }
+
+        var name: String
+        var artist: String
+        /// Every copy the same format, depth, rate and track count.
+        var alike: Bool
+        var copies: [Copy]
+        var id: String { copies.map(\.albumId).joined(separator: "+") }
+    }
+
+    private struct DuplicateList: Decodable {
+        var items: [DuplicateAlbum]
+    }
+
+    func duplicateAlbums() async throws -> [DuplicateAlbum] {
+        try await get("v1/library/duplicates", as: DuplicateList.self).items
+    }
+
+    // MARK: - Shows near home
+
+    /// A concert by an artist played lots, near home (`shows.py`).
+    struct Show: Decodable, Sendable, Identifiable, Hashable {
+        var id: String
+        var artist: String
+        var name: String
+        /// "2026-12-05", the venue's own date.
+        var date: String
+        /// "20:00:00", when it is known.
+        var time: String?
+        var venue: String
+        var city: String
+        var url: String
+        var image: String?
+    }
+
+    private struct ShowList: Decodable {
+        var items: [Show]
+    }
+
+    /// Nil when the service has no Ticketmaster key: no shelf.
+    func shows() async throws -> [Show]? {
+        try await getIfPresent("v1/shows", [:], as: ShowList.self)?.items
+    }
+
+    // MARK: - Word by word
+
+    /// A line of lyrics as LRCLIB times it word by word (`wordsync.py`), in milliseconds.
+    struct WordLine: Decodable, Sendable, Equatable {
+        struct Word: Decodable, Sendable, Equatable {
+            var start: Int
+            var text: String
+        }
+
+        var start: Int
+        var end: Int
+        var text: String
+        var words: [Word]
+    }
+
+    private struct WordList: Decodable {
+        var lines: [WordLine]
+    }
+
+    /// Nil when there is no word timing to be had for the song.
+    func words(songID: String) async throws -> [WordLine]? {
+        try await getIfPresent("v1/lyrics/\(songID)/words", [:], as: WordList.self)?.lines
     }
 
     // MARK: - Lyrics for a song with none

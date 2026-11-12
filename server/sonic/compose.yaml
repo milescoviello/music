@@ -19,6 +19,8 @@ services:
       SONIC_PATH_MAP: /music/my_music=/mnt/hdd-pool-media/my_music,/music/music=/mnt/hdd-pool-media/music
       SONIC_WORKERS: "4"
       SONIC_RESYNC_HOURS: "6"
+      # The Shows shelf's Ticketmaster key, from ./.env beside this file -- never in git.
+      SONIC_TICKETMASTER_KEY: ${SONIC_TICKETMASTER_KEY:-}
     volumes:
       - ./data:/data
       - /home/miles/media-stack/navidrome/data:/navidrome:ro

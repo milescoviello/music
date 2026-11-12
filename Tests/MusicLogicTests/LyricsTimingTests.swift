@@ -107,4 +107,30 @@ struct LyricsTimingTests {
         #expect(LyricsTiming.current(at: 1_000, in: lines) == 0)
         #expect(LyricsTiming.current(at: 9_000, in: lines) == 1)
     }
+
+    @Test func wordsAreChangedAndLinesTakenOut() {
+        var timing = LyricsTiming(synced([1_000, 2_000, 3_000]))
+        timing.edit(1, to: "  Over the harbour ")
+        #expect(timing.lines[1] == LyricLine(start: 2_000, value: "Over the harbour"))
+        timing.mark(2)
+        timing.delete(0)
+        #expect(timing.lines.map(\.value) == ["Over the harbour", "Line 2"])
+        #expect(timing.next == 1)
+        #expect(timing.canSave)
+        timing.undo()
+        timing.undo()
+        #expect(!timing.hasChanges)
+    }
+
+    @Test func untimedLyricsCanBeSavedAsWordsAlone() {
+        let lyrics = StructuredLyrics(synced: false, line: [LyricLine(value: "First lihgt"), LyricLine(value: "Over the harbor")])
+        var timing = LyricsTiming(lyrics)
+        #expect(!timing.canSave)
+        timing.edit(0, to: "First light")
+        #expect(timing.canSave)
+        #expect(!timing.saved(from: lyrics).synced)
+        // Half timed is neither.
+        timing.timeNext(at: 500)
+        #expect(!timing.canSave)
+    }
 }

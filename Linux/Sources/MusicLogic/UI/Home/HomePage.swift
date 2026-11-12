@@ -29,6 +29,7 @@ enum HomePage {
             _ = app.recentPlays.recent.origins
             _ = app.radar.items
             _ = app.radar.requested
+            _ = app.shows.items
             rebuild(env, model: model, into: shelves)
         }
         body.observe {
@@ -36,6 +37,7 @@ enum HomePage {
             _ = app.scope.generation
             Task { await model.load(appState: app, scope: scope) }
             Task { await app.radar.load() }
+            Task { await app.shows.load() }
         }
         // The month's chart again once old plays are given new ids, after the first load.
         body.observe {
@@ -118,6 +120,8 @@ enum HomePage {
             return albums(env, "Recently Added", model.recentlyAdded, more: .albums(.newest))
         case .newReleases:
             return ReleaseShelf.make(env)
+        case .shows:
+            return ShowsShelf.make(env)
         case .mostPlayed:
             return albums(env, "Most Played", model.mostPlayed, more: .albums(.frequent))
         case .mostPlayedThisMonth:

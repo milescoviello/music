@@ -5,9 +5,9 @@ import Foundation
 /// down, the others fading with distance. Click a line to go there. Scrolling by hand
 /// stops the following for four seconds, so it never fights the reader.
 ///
-/// Fix Timing, in the options, times them by hand as the phone does (`LyricsTiming`):
-/// every line moved at once, or each line given the moment it starts, then saved into the
-/// song's file on the server.
+/// Fix Lyrics, in the options, fixes them by hand as the phone does (`LyricsTiming`):
+/// every line moved at once, each line given the moment it starts, a line's words changed
+/// or the line taken out (right-click), then saved into the song's file on the server.
 ///
 /// Romanization comes from the shared `Romanizer`; Japanese is read by the sonic service's
 /// MeCab, since there is no Japanese tokenizer here, and joined as the phone joins it.
@@ -30,6 +30,12 @@ final class LyricsPane {
     private var active: Int?
     private var holdUntil: Date?
     private var animation: UnsafeMutablePointer<AdwAnimation>?
+
+    /// Word by word (`WordTiming`): each line's words and when each is sung, and the line
+    /// whose words are lighting up now, redrawn as they are sung.
+    private var cues: [Int: [WordCue]] = [:]
+    private var wordTask: Task<Void, Never>?
+    private var wordLine: Int?
 
     // Timing by hand. The song stays the one being timed while the next plays, so one
     // timed to its last line can still be saved.
@@ -75,7 +81,7 @@ final class LyricsPane {
         let reference = WeakReference(self)
         let menu = MenuButton(icon: "preferences-desktop-locale-symbolic", "circular", "osd") {
             Menu([
-                [.action("Fix Timing", enabled: reference.value?.loadedID != nil) { reference.value?.startTiming() }],
+                [.action("Fix Lyrics", enabled: reference.value?.loadedID != nil) { reference.value?.startTiming() }],
                 [
                     .toggle("Romanize", isOn: settings.romanizesLyrics) { settings.romanizesLyrics = $0 },
                     .toggle("Translate to English", isOn: settings.translatesLyrics) { settings.translatesLyrics = $0 },
@@ -143,6 +149,8 @@ final class LyricsPane {
         lines.removeAll()
         labels = []
         active = nil
+        stopWords()
+        cues = [:]
         translating?.cancel()
         translationNote.isVisible = false
 
@@ -182,6 +190,61 @@ final class LyricsPane {
         // into view, and it only tries again when the line changes: paused, the view
         // stayed at the top with the line out of sight.
         if let active { scrollOnceLaidOut(to: active) }
+        if lyrics.synced { loadWords(for: song.id, lyrics: lyrics) }
+    }
+
+    // MARK: - Word by word
+
+    private func loadWords(for id: String, lyrics: StructuredLyrics) {
+        // Where each line is sung: its stamp less the set's offset (`follow`).
+        let offset = lyrics.offset ?? 0
+        let sung = lyrics.lines.map { LyricLine(start: $0.start.map { $0 - offset }, value: $0.value) }
+        let configuration = env.app.sonic.configuration
+        let reference = WeakReference(self)
+        Task { @MainActor in
+            guard let pane = reference.value else { return }
+            let found = await pane.env.app.wordTimings.cues(for: id, lines: sung, sonic: configuration)
+            guard let pane = reference.value, pane.loadedID == id, pane.timing == nil else { return }
+            pane.cues = found
+            pane.active = nil
+            pane.follow()
+        }
+    }
+
+    /// The line `index` lights up word by word while it is the one sung, if it can.
+    private func startWords(on index: Int?) {
+        stopWords()
+        guard let index, let words = cues[index], let lyrics, index < labels.count,
+              let start = lyrics.lines[index].start else { return }
+        wordLine = index
+        let label = labels[index].line
+        let offset = lyrics.offset ?? 0
+        let reference = WeakReference(self)
+        wordTask = Task { @MainActor in
+            var shown = -1
+            while !Task.isCancelled {
+                guard let pane = reference.value else { return }
+                let into = Int(pane.env.player.elapsedNow * 1000) + offset - start
+                let count = WordTiming.sung(words, at: into)
+                if count != shown {
+                    shown = count
+                    let done = words.prefix(count).map(\.text).joined()
+                    let rest = words.dropFirst(count).map(\.text).joined()
+                    label.setMarkup("\(Markup.escape(done))<span alpha=\"45%\">\(Markup.escape(rest))</span>")
+                }
+                try? await Task.sleep(for: .milliseconds(60))
+            }
+        }
+    }
+
+    private func stopWords() {
+        wordTask?.cancel()
+        wordTask = nil
+        if let wordLine, wordLine < labels.count, let lyrics, wordLine < lyrics.lines.count {
+            let value = lyrics.lines[wordLine].value
+            labels[wordLine].line.text = value.isEmpty ? "♪" : value
+        }
+        wordLine = nil
     }
 
     /// No lyrics, and a way to find some: LRCLIB, through the service, which saves what it
@@ -236,6 +299,8 @@ final class LyricsPane {
                 box.onClick { reference.value?.clicked(index) }
                 gtk_widget_set_cursor_from_name(box.widget, "pointer")
             }
+            // While fixing them: a line's words, or the line itself.
+            box.contextMenu { reference.value?.lineMenu(index) }
             lines.append(box)
             labels.append((label, romanized, translated, time))
         }
@@ -387,6 +452,7 @@ final class LyricsPane {
             pair.line.setCSS("current", index == found)
             pair.line.setCSS("past", found.map { index < $0 } ?? false)
         }
+        startWords(on: found)
         guard let found, holdUntil.map({ $0 < .now }) ?? true else { return }
         scroll(to: found)
     }
@@ -441,6 +507,7 @@ final class LyricsPane {
             let current = LyricsTiming.current(at: Int(env.player.elapsedNow * 1000), in: made.lines)
             made.mark(made.lines.indices.first { $0 > (current ?? -1) && !made.lines[$0].value.isEmpty })
         }
+        stopWords()
         timing = made
         timingSongID = id
         timingShowedPlaying = nil
@@ -474,11 +541,35 @@ final class LyricsPane {
         let marked = current.next
         edit(&current)
         timing = current
+        // A line taken out, or put back by Undo: the rows again. Words changed: the text.
+        if current.lines.count != labels.count {
+            lines.removeAll()
+            labels = []
+            showLines(current.lines, clickable: true)
+        } else {
+            for (pair, line) in zip(labels, current.lines) { pair.line.text = line.value.isEmpty ? "♪" : line.value }
+        }
         timingError.isVisible = false
         refreshTiming()
         active = nil
         followTiming()
         if let next = current.next, next != marked, holdUntil.map({ $0 < .now }) ?? true { scroll(to: next) }
+    }
+
+    private func lineMenu(_ index: Int) -> Menu? {
+        guard let timing, timing.lines.indices.contains(index) else { return nil }
+        let reference = WeakReference(self)
+        let words = timing.lines[index].value
+        return Menu([[
+            .action("Edit Words…") {
+                Dialogs.prompt("Edit Line", text: words, confirm: "Done") { edited in
+                    reference.value?.change { $0.edit(index, to: edited) }
+                }
+            },
+            .action("Delete Line", destructive: true, enabled: timing.lines.count > 1) {
+                reference.value?.change { $0.delete(index) }
+            },
+        ]])
     }
 
     private func markLine(_ index: Int) {
@@ -499,15 +590,15 @@ final class LyricsPane {
             pair.line.setCSS("lyric-marked", timing.next == index)
         }
         shiftLabel.text = Self.shiftText(timing.shift)
-        progressLabel.text = timing.isComplete ? "" : "\(timing.timedCount) of \(timing.lines.count) timed"
+        progressLabel.text = timing.isTimed && !timing.isComplete ? "\(timing.timedCount) of \(timing.lines.count) timed" : ""
         timingNote.text = showsPlayingSong
-            ? "Click a line to time it, or move them all"
+            ? "Click a line to time it, right-click to change its words"
             : "This song has ended. Save, or play it again to keep timing."
         for button in nudges { button.isSensitive = timing.isTimed && !isSaving }
         nowButton.label = timing.next == nil ? "Every Line Timed" : "Line Starts Now"
         nowButton.isSensitive = timing.next != nil && showsPlayingSong && !isSaving
         undoButton.isSensitive = timing.canUndo && !isSaving
-        saveButton.isSensitive = timing.isComplete && timing.hasChanges && !isSaving
+        saveButton.isSensitive = timing.canSave && !isSaving
         cancelButton.isSensitive = !isSaving
         saveButton.label = isSaving ? "Saving…" : "Save"
     }

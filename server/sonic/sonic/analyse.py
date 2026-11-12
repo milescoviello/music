@@ -21,8 +21,11 @@ without it.
 
 from __future__ import annotations
 
+import contextlib
 import math
 import os
+import shutil
+import tempfile
 
 import numpy as np
 
@@ -120,6 +123,60 @@ def _rhythm(es, mono: np.ndarray, rate: float) -> dict:
         return {}
 
 
+def _decode(es, path: str) -> tuple[np.ndarray, float, int]:
+    """The file's samples (stereo), rate and channel count, however they can be read."""
+    if os.path.splitext(path)[1].lower() in FOREIGN_SUFFIXES:
+        return _decode_elsewhere(path)
+    try:
+        audio, rate, channels, *_ = es.AudioLoader(filename=path)()
+    except RuntimeError:
+        if not path.lower().endswith(".flac"):
+            raise
+        audio = np.zeros((0, 2), np.float32)
+    if len(audio) == 0 and path.lower().endswith(".flac"):
+        # A cover picture bigger than a FLAC block can say (16 MB: they run to 125 MB in
+        # this library) leaves Essentia's decoder, and libsndfile's, with no audio or no
+        # file at all -- 343 tracks. A copy without the pictures reads.
+        with _without_pictures(path) as copy:
+            audio, rate, channels, *_ = es.AudioLoader(filename=copy)()
+    return audio, rate, channels
+
+
+def _mono16(es, path: str) -> np.ndarray:
+    """A long track as mono at 16 kHz, read that way so all of it is never in memory at
+    its own rate: the same fallbacks as `_decode`."""
+    if os.path.splitext(path)[1].lower() in FOREIGN_SUFFIXES:
+        audio, rate, channels = _decode_elsewhere(path)
+        return es.Resample(inputSampleRate=rate, outputSampleRate=16000, quality=0)(es.MonoMixer()(audio, channels))
+    try:
+        mono = es.MonoLoader(filename=path, sampleRate=16000, resampleQuality=0)()
+    except RuntimeError:
+        if not path.lower().endswith(".flac"):
+            raise
+        mono = np.zeros(0, np.float32)
+    if len(mono) == 0 and path.lower().endswith(".flac"):
+        with _without_pictures(path) as copy:
+            mono = es.MonoLoader(filename=copy, sampleRate=16000, resampleQuality=0)()
+    return mono
+
+
+@contextlib.contextmanager
+def _without_pictures(path: str):
+    """A temporary copy of a FLAC with its pictures taken out; the original untouched."""
+    import mutagen.flac
+
+    handle, copy = tempfile.mkstemp(suffix=".flac", prefix="sonic-")
+    os.close(handle)
+    try:
+        shutil.copyfile(path, copy)
+        flac = mutagen.flac.FLAC(copy)
+        flac.clear_pictures()
+        flac.save()
+        yield copy
+    finally:
+        os.unlink(copy)
+
+
 def _decode_elsewhere(path: str) -> tuple[np.ndarray, float, int]:
     """What `AudioLoader` gives -- stereo float samples, the rate, the file's channel
     count -- through libsndfile, for a codec Essentia cannot read."""
@@ -145,23 +202,13 @@ def analyse(job: tuple[str, str, float]) -> dict:
             return {"id": track_id, "error": "too long to analyse"}
 
         rhythm: dict = {}
-        foreign = os.path.splitext(path)[1].lower() in FOREIGN_SUFFIXES
         if known_duration > LONG_TRACK_SECONDS:
-            if foreign:
-                audio, rate, channels = _decode_elsewhere(path)
-                mono16 = es.Resample(inputSampleRate=rate, outputSampleRate=16000, quality=0)(
-                    es.MonoMixer()(audio, channels))
-                del audio
-            else:
-                mono16 = es.MonoLoader(filename=path, sampleRate=16000, resampleQuality=0)()
+            mono16 = _mono16(es, path)
             duration = len(mono16) / 16000
             stereo = np.stack([mono16, mono16], axis=1).astype(np.float32)
             momentary, _, integrated, lra = es.LoudnessEBUR128(sampleRate=16000, hopSize=LEVEL_HOP, startAtZero=True)(stereo)
         else:
-            if foreign:
-                audio, rate, channels = _decode_elsewhere(path)
-            else:
-                audio, rate, channels, *_ = es.AudioLoader(filename=path)()
+            audio, rate, channels = _decode(es, path)
             duration = len(audio) / rate
             momentary, integrated, lra = _loudness(es, audio, rate)
             mono = es.MonoMixer()(audio, channels)

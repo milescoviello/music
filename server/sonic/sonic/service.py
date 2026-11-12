@@ -12,7 +12,7 @@ from concurrent.futures.process import BrokenProcessPool
 
 import numpy as np
 
-from . import library, lrclib, lyricsfile
+from . import duplicates, library, lrclib, lyricsfile
 from . import lyrics as lyric_files
 from .analyse import analyse, init_worker
 from .config import ANALYSIS_VERSION, MODEL_NAME, MODEL_URL, Config
@@ -20,6 +20,8 @@ from .index import Index, bucket_levels, stored_levels
 from .lyrics import LyricIndex
 from .words import Readings, Translations
 from .radar import Radar
+from .shows import Shows
+from .wordsync import WordTimings
 from .store import Store
 from .taste import TasteStore
 from .video import Videos
@@ -33,6 +35,13 @@ class Service:
         self.store = Store(config.database)
         self.taste = TasteStore(config.data_dir / "taste.db")
         self.radar = Radar(config.navidrome_db, config.data_dir / "radar.json")
+        self.shows = Shows(config.ticketmaster_key, config.shows_place, config.shows_radius,
+                           self.radar.artists, config.data_dir / "shows.json")
+        self.word_timings = WordTimings(config.data_dir / "word-timings.db")
+        # The library's songs at the last pass, for what a song is without a copy of the
+        # database: title, artist, album, length.
+        self.songs: dict = {}
+        self._duplicates: tuple[float, list] | None = None
         self.index = Index(self.store.rows())
         # Filled by the first sync, a few seconds after start.
         self.lyrics = LyricIndex([])
@@ -131,6 +140,29 @@ class Service:
             "lines": [{"start": start, "value": value} if found.synced else {"value": value} for start, value in lines],
         }
 
+    def duplicate_albums(self) -> dict:
+        """Albums in both libraries, side by side (`duplicates`); worked out at most every
+        ten minutes, as it reads a copy of the whole database."""
+        if self._duplicates is None or time.time() - self._duplicates[0] > 600:
+            with library._snapshot(self.config) as connection:
+                self._duplicates = (time.time(), duplicates.find(connection))
+        pairs = self._duplicates[1]
+        return {"items": pairs, "count": len(pairs)}
+
+    def words(self, track_id: str) -> dict | None:
+        """When each word of the song's lyrics is sung, from LRCLIB (`wordsync`); None for
+        a song unknown, or with no word timing to be had."""
+        song = self.songs.get(track_id)
+        if song is None:
+            located = library.locate(self.config, track_id)
+            if located is None:
+                return None
+            title, artist, duration = located.title, located.artist, located.duration
+        else:
+            title, artist, duration = song.title, song.artist, song.duration
+        lines = self.word_timings.answer(track_id, title, artist, duration)
+        return None if lines is None else {"id": track_id, "lines": lines}
+
     def _index_lyrics(self, track_id: str, song, text: str) -> None:
         """Lyrics just written, into the search at once rather than at the next pass."""
         track = lyric_files.from_text(track_id, song.title, song.artist, text)
@@ -157,6 +189,7 @@ class Service:
 
     def sync(self) -> None:
         tracks, lyric_tracks = library.read_with_lyrics(self.config)
+        self.songs = {track.id: track for track in tracks}
         # The tags' lyrics at once on a first start, while the files beside the songs are
         # read: that is minutes the first time, and a search meanwhile finds something.
         if not len(self.lyrics):

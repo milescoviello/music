@@ -46,6 +46,7 @@ final class AutoplayService {
         static let albumChoice = "autoplay.albumChoice"
         static let otherChoice = "autoplay.otherChoice"
         static let albumDirection = "autoplay.albumDirection"
+        static let memory = "autoplay.recentlyAdded"
     }
 
     private(set) var options: [Option] = []
@@ -78,6 +79,12 @@ final class AutoplayService {
     }
 
     @ObservationIgnored private weak var appState: AppState?
+    /// What Autoplay added lately, held back from what it adds next.
+    @ObservationIgnored private var memory = AutoplayMemory(
+        added: (UserDefaults.standard.dictionary(forKey: Key.memory) ?? [:]).compactMapValues {
+            ($0 as? Double) ?? ($0 as? NSNumber)?.doubleValue
+        }
+    )
     @ObservationIgnored private var queueKey: String?
     @ObservationIgnored private var computeTask: Task<Void, Never>?
     @ObservationIgnored private var addTask: Task<Bool, Never>?
@@ -238,12 +245,21 @@ final class AutoplayService {
                 songs,
                 queued: Set(appState.player.queue.tracks.map(\.id)),
                 avoided: option.choice.isAlbum ? [] : appState.skips.avoided(),
+                recent: option.choice.isAlbum ? [] : memory.recent(),
                 limit: option.choice.trackCount
             )
             if !fresh.isEmpty { return (option, fresh) }
             await Diagnostics.shared.record("autoplay", "\(option.choice.title) had nothing new (\(songs.count) found)")
         }
         return nil
+    }
+
+    /// Songs Autoplay put on, remembered for two weeks (`AutoplayMemory`). An album is the
+    /// album, not a pick, and is not.
+    private func remember(_ songs: [Song], from option: Option) {
+        guard !option.choice.isAlbum else { return }
+        memory.note(songs)
+        UserDefaults.standard.set(memory.added, forKey: Key.memory)
     }
 
     /// One of the songs under the carousel, tapped: Autoplay's songs go on now, and play
@@ -256,6 +272,7 @@ final class AutoplayService {
         let player = appState.player
         let first = player.queue.order.count
         player.append(songs)
+        remember(songs, from: option)
         Task { await Diagnostics.shared.record("autoplay", "added \(songs.count) from \(option.title), playing from #\(index + 1)") }
         player.jump(toOrderIndex: first + index)
     }
@@ -386,6 +403,7 @@ final class AutoplayService {
                 return false
             }
             appState.player.append(picked.songs)
+            self.remember(picked.songs, from: picked.option)
             await Diagnostics.shared.record("autoplay", "added \(picked.songs.count) from \(picked.option.title)")
             return true
         }

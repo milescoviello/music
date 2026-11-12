@@ -56,7 +56,7 @@ class Refused(Exception):
 
 @dataclass(frozen=True)
 class Line:
-    start: int          # milliseconds
+    start: int | None   # milliseconds; None for lyrics saved as words alone
     value: str
 
 
@@ -87,10 +87,14 @@ def request(body: dict) -> Request:
     lines = []
     for item in raw:
         start, value = (item.get("start"), item.get("value")) if isinstance(item, dict) else (None, None)
-        if isinstance(start, bool) or not isinstance(start, int) or start < 0 or not isinstance(value, str):
-            raise Refused(400, "every line needs a start in milliseconds and its words")
-        lines.append(Line(start, value))
-    if any(later.start < earlier.start for earlier, later in zip(lines, lines[1:])):
+        timed = isinstance(start, int) and not isinstance(start, bool) and start >= 0
+        if not isinstance(value, str) or not (timed or start is None):
+            raise Refused(400, "every line needs its words, and a start in milliseconds or none")
+        lines.append(Line(start if timed else None, value))
+    # Every line timed, or -- words alone -- none.
+    if len({line.start is None for line in lines}) > 1:
+        raise Refused(400, "every line needs a start, or none of them")
+    if lines[0].start is not None and any(later.start < earlier.start for earlier, later in zip(lines, lines[1:])):
         raise Refused(400, "lines must be in time order")
     auth = body.get("auth")
     if not isinstance(auth, dict) or not all(isinstance(auth.get(key), str) and auth.get(key) for key in "uts"):
@@ -127,7 +131,10 @@ def ask_scan(navidrome_url: str, auth: dict[str, str], open_url=urllib.request.u
 
 
 def lrc(lines: list[Line]) -> str:
-    """The lines as LRC, to the hundredth of a second: what every player reads."""
+    """The lines as LRC, to the hundredth of a second: what every player reads. Lines
+    without times are the words alone, one to a line."""
+    if lines and all(line.start is None for line in lines):
+        return "\n".join(" ".join(line.value.split()) for line in lines)
     out = []
     for line in lines:
         hundredths = round(max(0, line.start) / 10)

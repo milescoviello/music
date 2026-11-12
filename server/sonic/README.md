@@ -104,6 +104,25 @@ Navidrome's order, a file first), which is most of the library's lyrics: each fi
 and time are kept with its lines in `data/lyric-files.db`, so only a changed file is read
 again. Lyrics saved or found through the two endpoints above are searchable at once.
 
+`GET /v1/lyrics/{id}/words` is when each word of the song is sung, from LRCLIB's word
+timing (`sonic/wordsync.py`): `{id, lines: [{start, end, text, words: [{start, text}]}]}`,
+taken only for a recording within 3 seconds of the file's length, kept in
+`data/word-timings.db` (a miss is asked about again after a month), and 404 when there is
+none. Nothing is written into the music; the apps line the words up against the lyrics they
+show (`WordTiming.align`), so a timing fixed by hand is kept.
+
+`python -m sonic fill-lyrics [--limit N] [--delay S]` (`sonic/fill.py`) is Find Lyrics for
+the whole library: every recording with no lyrics asked about once, a second apart, its
+`.lrc` written beside every copy. What each run did is in `data/lyrics-fill.json`; a miss is
+not asked about again for a month. Run it at night.
+
+### Library extras
+
+| Endpoint | Answers |
+|---|---|
+| `GET /v1/library/duplicates` | albums in both libraries, copies weakest first: `{items: [{name, artist, alike, copies: [{albumId, library, format, tracks, plays, size, folder, …}]}]}` (`duplicates.py`). Read-only. |
+| `GET /v1/shows` | concerts coming up near `SONIC_SHOWS_PLACE` (default Oakland) within `SONIC_SHOWS_RADIUS` miles by the radar's artists, from Ticketmaster's Discovery API, kept a day (`shows.py`). 404 without `SONIC_TICKETMASTER_KEY`, which goes in `.env` beside `compose.yaml`, never in git. |
+
 `POST /v1/logs` takes the plain-text report from the app's Diagnostics → Send Logs and
 keeps it as `data/logs/<UTC time>-<source>-<random>.txt`, where `source` is the app's
 `X-Log-Source` ("ios", "linux-<host>"). It answers 201 with `{"name"}`. A report is at

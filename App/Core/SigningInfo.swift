@@ -19,7 +19,22 @@ enum SigningInfo {
         let team = (profile["TeamIdentifier"] as? [String])?.first ?? "?"
         let name = profile["Name"] as? String ?? "?"
         let expires = (profile["ExpirationDate"] as? Date).map { ISO8601DateFormatter().string(from: $0) } ?? "?"
-        return "bundle \(bundle), app id \(appID), team \(team), profile \"\(name)\" until \(expires)"
+        return "bundle \(bundle), app id \(appID), team \(team), profile \"\(name)\" until \(expires); "
+            + "can: \(capabilities(entitlements))"
+    }
+
+    /// What the profile lets the app do, by its entitlements' names, less the ones every
+    /// profile has: whether App Groups (for widgets), Siri or push are among them decides
+    /// what the app can have.
+    static func capabilities(_ entitlements: [String: Any]) -> String {
+        let everyone: Set<String> = [
+            "application-identifier", "com.apple.developer.team-identifier", "keychain-access-groups", "get-task-allow",
+        ]
+        let names = entitlements.keys
+            .filter { !everyone.contains($0) }
+            .map { $0.replacingOccurrences(of: "com.apple.developer.", with: "").replacingOccurrences(of: "com.apple.", with: "") }
+            .sorted()
+        return names.isEmpty ? "nothing beyond the basics" : names.joined(separator: ", ")
     }
 
     /// The profile's plist, from inside its signature: the XML between `<?xml` and

@@ -35,6 +35,7 @@ enum Destination: Hashable {
     case lyricSearch(String)
     case vibePlaylist
     case libraryHealth
+    case duplicateAlbums
     case dailyMixes
     case stations
     case mixBuilder(MixBuilderKind)

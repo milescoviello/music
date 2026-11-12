@@ -118,17 +118,29 @@ def save_for(song_path: str, title: str, artist: str, album: str, duration: floa
     """Finds lyrics for the song at `song_path` and writes them beside it as `<name>.lrc`.
     Returns what was found and its lines; nothing is written for no match or an
     instrumental. Refuses a song that has a lyrics file with words in it already."""
-    source = Path(song_path)
-    sidecar = source.with_suffix(".lrc")
-    if sidecar.is_file() and words(read_text(sidecar))[0]:
+    if has_lyrics_file(song_path):
         raise Refused(409, "This song has lyrics already. Open them again.")
     found = find(title, artist, album, duration, open_url)
     if found is None or found.instrumental:
         return found, []
+    lines = write_beside(song_path, found, title, artist, album, duration)
+    return (found, lines) if lines else (None, [])
+
+
+def has_lyrics_file(song_path: str) -> bool:
+    sidecar = Path(song_path).with_suffix(".lrc")
+    return sidecar.is_file() and bool(words(read_text(sidecar))[0])
+
+
+def write_beside(song_path: str, found: Found, title: str, artist: str, album: str,
+                 duration: float) -> list[tuple[int | None, str]]:
+    """`found` written beside the song as `<name>.lrc`; its lines, or none if it had none."""
+    source = Path(song_path)
+    sidecar = source.with_suffix(".lrc")
     text = lrc_file(found, title, artist, album, duration)
     lines, _ = timed_lines(text)
     if not lines:
-        return None, []
+        return []
     copy = source.with_name(f".{sidecar.name}.sonic-lyrics")
     try:
         copy.write_text(text, encoding="utf-8")
@@ -138,4 +150,4 @@ def save_for(song_path: str, title: str, artist: str, album: str, duration: floa
                            "needs to be the music share's user.") from error
     finally:
         copy.unlink(missing_ok=True)
-    return found, lines
+    return lines

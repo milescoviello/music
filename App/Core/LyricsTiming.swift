@@ -11,6 +11,9 @@ import Foundation
 /// Timing a line that already had a time moves every later line by as much, so one tap at
 /// the first wrong line carries the rest along with it; tapping each line after that as it
 /// comes fixes them one by one.
+///
+/// A line's words can be changed too, or the line taken out: a typo, a misheard line.
+/// Lyrics never timed can then be saved as they are, words only.
 struct LyricsTiming: Equatable, Sendable {
     /// The words as they came, for the service to find in the file.
     let original: [String]
@@ -53,9 +56,12 @@ struct LyricsTiming: Equatable, Sendable {
     /// Whether any line has a time: what the highlight follows.
     var isTimed: Bool { lines.contains { $0.start != nil } }
     var timedCount: Int { lines.filter { $0.start != nil }.count }
-    /// Every line timed, which saving needs.
+    /// Every line timed.
     var isComplete: Bool { !lines.isEmpty && lines.allSatisfy { $0.start != nil } }
     var hasChanges: Bool { lines != startingLines }
+    /// Something to save, and in a form the file can hold: every line timed, or -- lyrics
+    /// that never were -- none, the words alone.
+    var canSave: Bool { hasChanges && !lines.isEmpty && (isComplete || (!wasSynced && !isTimed)) }
     var canUndo: Bool { !history.isEmpty }
 
     /// The line the next tap times. A blank line between verses cannot be marked: it
@@ -99,6 +105,24 @@ struct LyricsTiming: Equatable, Sendable {
         next = lines.indices.first { $0 > index && !Self.isBlank(lines[$0].value) }
     }
 
+    /// The line's words, changed. Its time stays.
+    mutating func edit(_ index: Int, to text: String) {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard lines.indices.contains(index), !words.isEmpty, words != lines[index].value else { return }
+        remember()
+        lines[index] = LyricLine(start: lines[index].start, value: words)
+    }
+
+    /// The line taken out; the mark moves to the one that took its place.
+    mutating func delete(_ index: Int) {
+        guard lines.indices.contains(index), lines.count > 1 else { return }
+        remember()
+        lines.remove(at: index)
+        if let marked = next {
+            if marked > index { next = marked - 1 } else if marked == index { mark(min(index, lines.count - 1)) }
+        }
+    }
+
     mutating func undo() {
         guard let last = history.popLast() else { return }
         lines = last.lines
@@ -106,10 +130,10 @@ struct LyricsTiming: Equatable, Sendable {
         shift = last.shift
     }
 
-    /// The lyrics as saved: every line timed, no offset of their own.
+    /// The lyrics as saved: timed, with no offset of their own, or the words alone.
     func saved(from lyrics: StructuredLyrics) -> StructuredLyrics {
         var saved = lyrics
-        saved.synced = true
+        saved.synced = isComplete
         saved.offset = nil
         saved.line = lines
         return saved

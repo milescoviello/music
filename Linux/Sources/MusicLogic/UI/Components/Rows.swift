@@ -258,7 +258,7 @@ enum Shelf {
                 Label(title, "shelf-title")
                 if let subtitle { Label(subtitle, "caption", "dim") }
             }.hexpand()
-            if let more { Button("See All", "flat", action: more) }
+            if let more { Button("See All", "flat", "see-all", action: more) }
         }
         let row = Box.horizontal(spacing: 4)
         for card in cards { row.append(card) }

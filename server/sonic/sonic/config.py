@@ -48,6 +48,11 @@ class Config:
     host: str = field(default_factory=lambda: os.environ.get("SONIC_HOST", "0.0.0.0"))
     port: int = field(default_factory=lambda: int(os.environ.get("SONIC_PORT", "8650")))
     token: str = field(default_factory=lambda: os.environ.get("SONIC_TOKEN", ""))
+    # The Shows shelf: a Ticketmaster Discovery API key, and where "near" is (latitude,
+    # longitude; Northeastern's Oakland campus) and how far, in miles.
+    ticketmaster_key: str = field(default_factory=lambda: os.environ.get("SONIC_TICKETMASTER_KEY", ""))
+    shows_place: str = field(default_factory=lambda: os.environ.get("SONIC_SHOWS_PLACE", "37.8044,-122.2712"))
+    shows_radius: int = field(default_factory=lambda: int(os.environ.get("SONIC_SHOWS_RADIUS", "60")))
     # Navidrome itself, asked whether whoever saves lyrics into a file is one of its admins.
     navidrome_url: str = field(default_factory=lambda: os.environ.get("SONIC_NAVIDROME_URL", "http://127.0.0.1:4533"))
     # Lyric translations for the desktop app: a local model through Ollama.

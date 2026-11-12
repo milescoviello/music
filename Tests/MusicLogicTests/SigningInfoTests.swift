@@ -28,6 +28,15 @@ struct SigningInfoTests {
         #expect(entitlements?["application-identifier"] as? String == "ABCDE12345.com.example.music")
     }
 
+    @Test func capabilitiesLeaveOutTheBasics() {
+        let listed = SigningInfo.capabilities([
+            "application-identifier": "X.app", "get-task-allow": true,
+            "com.apple.security.application-groups": ["group.x"], "com.apple.developer.siri": true,
+        ])
+        #expect(listed == "security.application-groups, siri")
+        #expect(SigningInfo.capabilities(["application-identifier": "X.app"]) == "nothing beyond the basics")
+    }
+
     @Test func noProfileSaysSo() {
         #expect(SigningInfo.summary.contains("no embedded profile"))
     }

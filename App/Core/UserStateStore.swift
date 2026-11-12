@@ -97,8 +97,26 @@ final class UserStateStore {
         }
     }
 
+    /// The song, and the same recording in the other library with it: most songs are
+    /// there twice under different ids, and a star on one copy left the other unstarred --
+    /// unloved in Favourites and the mixes whenever that copy was the one listed.
     func toggleStar(_ song: Song) {
-        toggleStar(id: song.id, kind: .song, currentlyStarred: isStarred(song))
+        let wanted = !isStarred(song)
+        toggleStar(id: song.id, kind: .song, currentlyStarred: !wanted)
+        guard let client else { return }
+        Task { [weak self] in
+            for copy in await Self.otherCopies(of: song, client: client) {
+                guard let self, self.isStarred(copy) != wanted else { continue }
+                self.toggleStar(id: copy.id, kind: .song, currentlyStarred: !wanted)
+            }
+        }
+    }
+
+    /// The same recording under other ids (`Song.isSameRecording`), found by its title.
+    nonisolated static func otherCopies(of song: Song, client: SubsonicClient) async -> [Song] {
+        guard let found = try? await client.search(query: song.title, artistCount: 0, albumCount: 0, songCount: 50)
+        else { return [] }
+        return found.songs.filter { $0.id != song.id && $0.isSameRecording(as: song) }
     }
 
     func toggleStar(_ album: Album) {

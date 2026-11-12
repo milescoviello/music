@@ -24,6 +24,11 @@ struct LyricsView: View {
     @State private var timingSongID: String?
     @State private var isSavingTiming = false
     @State private var timingError: String?
+    /// A line's words being changed: which line, and the words so far.
+    @State private var editingLine: Int?
+    @State private var editedWords = ""
+    /// Word by word (`WordTiming`): each line's words and when each is sung.
+    @State private var cues: [Int: [WordCue]] = [:]
     /// Asking LRCLIB for lyrics the song has none of, and what came of it.
     @State private var isFindingLyrics = false
     @State private var findNote: String?
@@ -51,6 +56,17 @@ struct LyricsView: View {
             }
         }
         .task(id: song.id) { await load() }
+        // The words' timing, once the lyrics are on screen: a request of its own, which a
+        // song without any answers quickly.
+        .task(id: loadedSongID) {
+            cues = [:]
+            guard let id = loadedSongID, let lyrics, lyrics.synced else { return }
+            let offset = lyrics.offset ?? 0
+            let sung = lyrics.lines.map { LyricLine(start: $0.start.map { $0 - offset }, value: $0.value) }
+            let found = await appState.wordTimings.cues(for: id, lines: sung, sonic: appState.sonic.configuration)
+            guard !Task.isCancelled, loadedSongID == id else { return }
+            cues = found
+        }
         .task(id: ReadAlongRequest(
             songID: loadedSongID,
             romanizes: settings.romanizesLyrics,
@@ -105,10 +121,16 @@ struct LyricsView: View {
                 // string would break both scrolling and highlighting.
                 ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(timing != nil && line.value.isEmpty ? "♪" : line.value)
-                            .font(index == activeIndex
-                                ? .title2.weight(.bold)
-                                : .title3.weight(.semibold))
+                        Group {
+                            if timing == nil, index == activeIndex, let words = cues[index], let start = line.start {
+                                SungWords(words: words, start: start - (lyrics?.offset ?? 0))
+                            } else {
+                                Text(timing != nil && line.value.isEmpty ? "♪" : line.value)
+                            }
+                        }
+                        .font(index == activeIndex
+                            ? .title2.weight(.bold)
+                            : .title3.weight(.semibold))
                         if timing != nil {
                             // When it starts now, to see what a nudge or a tap did.
                             Text(line.start.map(Self.stamp) ?? "Not timed")
@@ -147,6 +169,18 @@ struct LyricsView: View {
                     }
                     .id(index)
                     .contentShape(Rectangle())
+                    // While fixing them: a line's words, or the line itself.
+                    .contextMenu {
+                        if timing != nil {
+                            Button("Edit Words", systemImage: "pencil") {
+                                editedWords = line.value
+                                editingLine = index
+                            }
+                            Button("Delete Line", systemImage: "trash", role: .destructive) {
+                                timing?.delete(index)
+                            }
+                        }
+                    }
                     .onTapGesture {
                         if timing != nil {
                             markLine(index)
@@ -190,7 +224,7 @@ struct LyricsView: View {
             VStack(spacing: 4) {
                 if timing != nil {
                     Text(showsPlayingSong
-                        ? "Tap a line to time it, or move them all"
+                        ? "Tap a line to time it, hold it to change its words"
                         : "This song has ended. Save, or play it again to keep timing.")
                 } else if !isSynced {
                     Text("Lyrics not timed")
@@ -210,6 +244,17 @@ struct LyricsView: View {
         }
         .overlay(alignment: .bottom) {
             if let timing { timingControls(timing) }
+        }
+        .alert("Edit Line", isPresented: Binding(
+            get: { editingLine != nil },
+            set: { if !$0 { editingLine = nil } }
+        )) {
+            TextField("Words", text: $editedWords)
+            Button("Done") {
+                if let editingLine { timing?.edit(editingLine, to: editedWords) }
+                editingLine = nil
+            }
+            Button("Cancel", role: .cancel) { editingLine = nil }
         }
     }
 
@@ -253,7 +298,7 @@ struct LyricsView: View {
                 Button("Cancel") { endTiming(saved: nil) }
                     .disabled(isSavingTiming)
                 Spacer()
-                Text(timing.isComplete ? "" : "\(timing.timedCount) of \(timing.lines.count) timed")
+                Text(timing.isTimed && !timing.isComplete ? "\(timing.timedCount) of \(timing.lines.count) timed" : "")
                     .font(.footnote.monospacedDigit())
                     .foregroundStyle(.white.opacity(0.7))
                 Spacer()
@@ -270,7 +315,7 @@ struct LyricsView: View {
                     Button("Save") { saveTiming() }
                         .fontWeight(.semibold)
                         .padding(.leading, 12)
-                        .disabled(!timing.isComplete || !timing.hasChanges)
+                        .disabled(!timing.canSave)
                 }
             }
         }
@@ -373,7 +418,7 @@ struct LyricsView: View {
                 Button {
                     startTiming()
                 } label: {
-                    Label("Fix Timing", systemImage: "timer")
+                    Label("Fix Lyrics", systemImage: "timer")
                 }
             }
             Section {
@@ -543,6 +588,24 @@ struct LyricsView: View {
 
         state = .loaded
         loadedSongID = song.id
+    }
+}
+
+/// The line being sung, lit word by word as each is sung: the words still to come dimmer.
+/// Redrawn by a timeline of its own, a dozen times a second, so only this line is.
+private struct SungWords: View {
+    @Environment(AppState.self) private var appState
+    let words: [WordCue]
+    /// When the line is sung, in milliseconds.
+    let start: Int
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.08)) { _ in
+            let count = WordTiming.sung(words, at: Int(appState.player.elapsedNow * 1000) - start)
+            let done = words.prefix(count).map(\.text).joined()
+            let rest = words.dropFirst(count).map(\.text).joined()
+            Text(done) + Text(rest).foregroundStyle(.white.opacity(0.45))
+        }
     }
 }
 

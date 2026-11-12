@@ -68,7 +68,22 @@ enum Style {
     gridview > child:hover { background-color: alpha(currentColor, 0.06); }
 
     /* Shelves on Home and artist pages. */
-    .shelf-title { font-size: 1.25em; font-weight: 800; }
+    .shelf-title { font-size: 1.4em; font-weight: 800; letter-spacing: -0.2px; }
+    .see-all { color: var(--accent-color); font-weight: 600; }
+
+    /* A light refresh (his "make the app look a bit better on Linux"): the phone's tinted
+       symbols in rows and the sidebar, a little depth under artwork, and cards that answer
+       the pointer. */
+    .row-icon { color: var(--accent-color); }
+    .row-chevron { opacity: 0.35; }
+    .navigation-sidebar > row { border-radius: 10px; margin: 1px 6px; }
+    .navigation-sidebar > row:selected { background-color: alpha(var(--accent-bg-color), 0.18); }
+    .navigation-sidebar > row:selected image { color: var(--accent-color); }
+    .navigation-sidebar > row:selected label { font-weight: 700; }
+    .card-button .artwork, gridview > child .artwork { box-shadow: 0 6px 18px alpha(black, 0.35); }
+    .card-button:hover .artwork, gridview > child:hover .artwork { filter: brightness(1.12); }
+    .card-button:active .artwork { filter: brightness(0.92); }
+    .mini-player { background-color: alpha(white, 0.03); border-top: 1px solid alpha(white, 0.07); }
     .page-title { font-size: 2em; font-weight: 800; }
     .page-subtitle { opacity: 0.65; }
 

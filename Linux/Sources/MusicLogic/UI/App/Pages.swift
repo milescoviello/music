@@ -96,6 +96,8 @@ enum Pages {
             return HermesPages.vibePlaylist(env)
         case .libraryHealth:
             return HermesPages.libraryHealth(env)
+        case .duplicateAlbums:
+            return DuplicateAlbumsPage.make(env)
         }
     }
 }
