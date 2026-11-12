@@ -1,3 +1,4 @@
+import Intents
 import UIKit
 
 /// Exists for the two callbacks SwiftUI has no equivalent for:
@@ -23,6 +24,30 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
         MainActor.assumeIsolated { VideoOrientation.mask }
+    }
+
+    /// Siri's "play <something>" (`SiriPlayMedia`), handled in the app rather than in an
+    /// extension: the player is here.
+    func application(_ application: UIApplication, handlerFor intent: INIntent) -> Any? {
+        intent is INPlayMediaIntent ? SiriPlayMedia() : nil
+    }
+
+    /// The second half: Siri found it and answered "in the app", and the system has woken
+    /// the app, with leave to start audio, to play it.
+    func application(
+        _ application: UIApplication,
+        handle intent: INIntent,
+        completionHandler: @escaping (INIntentResponse) -> Void
+    ) {
+        guard let request = intent as? INPlayMediaIntent, let identifier = request.mediaItems?.first?.identifier else {
+            completionHandler(INPlayMediaIntentResponse(code: .failure, userActivity: nil))
+            return
+        }
+        let shuffled = request.playShuffled == true
+        Task { @MainActor in
+            let played = await SiriPlayMedia.play(identifier, shuffled: shuffled)
+            completionHandler(INPlayMediaIntentResponse(code: played ? .success : .failure, userActivity: nil))
+        }
     }
 }
 

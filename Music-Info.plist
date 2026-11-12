@@ -65,6 +65,17 @@
 	</array>
 	<!-- Playback must survive the screen locking; without this iOS suspends the
 	     app and audio stops. -->
+	<!-- Siri's "play <something>" (SiriPlayMedia), handled in the app. -->
+	<key>INIntentsSupported</key>
+	<array>
+		<string>INPlayMediaIntent</string>
+	</array>
+	<key>INSupportedMediaCategories</key>
+	<array>
+		<string>INMediaCategoryMusic</string>
+	</array>
+	<key>NSSiriUsageDescription</key>
+	<string>Siri plays your playlists, artists, albums and songs from your library.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

@@ -137,6 +137,8 @@ final class NowPlayingCenter {
 
         info = next
         MPNowPlayingInfoCenter.default().nowPlayingInfo = next
+        // The widgets show the same, at the same moments.
+        WidgetPublisher.shared.nowPlaying(song, isPlaying: isPlaying)
     }
 
     private var currentArtworkSongID: String?
@@ -161,6 +163,7 @@ final class NowPlayingCenter {
 
         info[MPMediaItemPropertyArtwork] = artwork
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+        WidgetPublisher.shared.artwork(image, songID: songID)
     }
 
     /// `UIImage` is not formally `Sendable`, but one that is never mutated after
@@ -175,5 +178,6 @@ final class NowPlayingCenter {
         info = [:]
         currentArtworkSongID = nil
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        WidgetPublisher.shared.nowPlaying(nil, isPlaying: false)
     }
 }

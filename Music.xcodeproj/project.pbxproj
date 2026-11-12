@@ -14,7 +14,60 @@
 			path = App;
 			sourceTree = "<group>";
 		};
+		A1A0000000000000000010 /* Widgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A1A000000000000000001E /* Exceptions for "Widgets" folder in "MusicWidgets" target */,
+			);
+			path = Widgets;
+			sourceTree = "<group>";
+		};
+		A1A0000000000000000011 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		A1A000000000000000001E /* Exceptions for "Widgets" folder in "MusicWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A1A0000000000000000016 /* MusicWidgets */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXBuildFile section */
+		A1A0000000000000000013 /* MusicWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1A0000000000000000012 /* MusicWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A1A0000000000000000015 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1A000000000000000000A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1A0000000000000000016;
+			remoteInfo = MusicWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A1A0000000000000000014 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1A0000000000000000013 /* MusicWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A1A0000000000000000002 /* Music.app */ = {
@@ -24,10 +77,24 @@
 			path = Music.app;
 			sourceTree = BUILT_PRODUCTS_DIR;
 		};
+		A1A0000000000000000012 /* MusicWidgets.appex */ = {
+			isa = PBXFileReference;
+			explicitFileType = "wrapper.app-extension";
+			includeInIndex = 0;
+			path = MusicWidgets.appex;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A1A0000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1A000000000000000001A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -41,6 +108,8 @@
 			isa = PBXGroup;
 			children = (
 				A1A0000000000000000001 /* App */,
+				A1A0000000000000000011 /* Shared */,
+				A1A0000000000000000010 /* Widgets */,
 				A1A0000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -49,6 +118,7 @@
 			isa = PBXGroup;
 			children = (
 				A1A0000000000000000002 /* Music.app */,
+				A1A0000000000000000012 /* MusicWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -63,18 +133,42 @@
 				A1A0000000000000000008 /* Sources */,
 				A1A0000000000000000003 /* Frameworks */,
 				A1A0000000000000000009 /* Resources */,
+				A1A0000000000000000014 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1A0000000000000000017 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A1A0000000000000000001 /* App */,
+				A1A0000000000000000011 /* Shared */,
+			);
+			name = Music;
+			productName = Music;
+			productReference = A1A0000000000000000002 /* Music.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A1A0000000000000000016 /* MusicWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1A0000000000000000018 /* Build configuration list for PBXNativeTarget "MusicWidgets" */;
+			buildPhases = (
+				A1A0000000000000000019 /* Sources */,
+				A1A000000000000000001A /* Frameworks */,
+				A1A000000000000000001B /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				A1A0000000000000000001 /* App */,
+				A1A0000000000000000010 /* Widgets */,
+				A1A0000000000000000011 /* Shared */,
 			);
-			name = Music;
-			productName = Music;
-			productReference = A1A0000000000000000002 /* Music.app */;
-			productType = "com.apple.product-type.application";
+			name = MusicWidgets;
+			productName = MusicWidgets;
+			productReference = A1A0000000000000000012 /* MusicWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -87,6 +181,9 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					A1A0000000000000000006 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					A1A0000000000000000016 = {
 						CreatedOnToolsVersion = 16.0;
 					};
 				};
@@ -105,12 +202,20 @@
 			projectRoot = "";
 			targets = (
 				A1A0000000000000000006 /* Music */,
+				A1A0000000000000000016 /* MusicWidgets */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A1A0000000000000000009 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1A000000000000000001B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -127,7 +232,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1A0000000000000000019 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A1A0000000000000000017 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1A0000000000000000016 /* MusicWidgets */;
+			targetProxy = A1A0000000000000000015 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A1A000000000000000000C /* Debug */ = {
@@ -211,6 +331,54 @@
 			};
 			name = Release;
 		};
+		A1A000000000000000001C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Widgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.milescoviello.music.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A1A000000000000000001D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Widgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.1;
+				PRODUCT_BUNDLE_IDENTIFIER = com.milescoviello.music.widgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -228,6 +396,15 @@
 			buildConfigurations = (
 				A1A000000000000000000C /* Debug */,
 				A1A000000000000000000D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1A0000000000000000018 /* Build configuration list for PBXNativeTarget "MusicWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1A000000000000000001C /* Debug */,
+				A1A000000000000000001D /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -19,8 +19,9 @@ enum SigningInfo {
         let team = (profile["TeamIdentifier"] as? [String])?.first ?? "?"
         let name = profile["Name"] as? String ?? "?"
         let expires = (profile["ExpirationDate"] as? Date).map { ISO8601DateFormatter().string(from: $0) } ?? "?"
+        let groups = (entitlements["com.apple.security.application-groups"] as? [String]) ?? []
         return "bundle \(bundle), app id \(appID), team \(team), profile \"\(name)\" until \(expires); "
-            + "can: \(capabilities(entitlements))"
+            + "groups: \(groups.isEmpty ? "none" : groups.joined(separator: ", ")); can: \(capabilities(entitlements))"
     }
 
     /// What the profile lets the app do, by its entitlements' names, less the ones every

@@ -21,6 +21,16 @@ struct MusicApp: App {
         _remotePlayers = State(initialValue: RemotePlayers(appState: appState, browser: NetworkRemoteBrowser()))
         // The desktop can play to the phone too, when it is allowed in Settings.
         RemoteControlServer.shared.start(app: appState, advertiser: BonjourAdvertiser())
+        // The widgets' buttons, run here (`WidgetControl`).
+        WidgetControl.handler = { action in
+            guard let appState = await MusicIntentBridge.state() else { return }
+            switch action {
+            case .toggle: appState.player.togglePlayPause()
+            case .next: appState.player.next()
+            case .previous: appState.player.previous()
+            case let .mix(number): _ = await appState.quickPlay(.madeForYou, mix: number)
+            }
+        }
     }
 
     var body: some Scene {
@@ -52,6 +62,10 @@ struct MusicApp: App {
                 .environment(appState.streamCache)
                 .environment(remotePlayers)
                 .remotePairingPrompt()
+                // Today's mixes, for the Made for You widget, whenever they change.
+                .task(id: appState.mixes.mixes.map(\.id)) {
+                    await WidgetPublisher.shared.mixes(appState.mixes.mixes, artwork: appState.artwork)
+                }
                 .preferredColorScheme(.dark)
                 .tint(.appTint)
                 .onChange(of: scenePhase) { _, phase in
@@ -79,6 +93,7 @@ struct MusicApp: App {
                         Task { await appState.playlistStore.refreshIfStale() }
                         // Siri's names for playlists, artists and albums, read again.
                         MusicShortcuts.refreshNamesIfStale()
+                        SiriPlayMedia.askForSiriIfNeeded()
                         Task {
                             await appState.queueSync.check(
                                 localSavedAt: appState.player.lastSavedAt

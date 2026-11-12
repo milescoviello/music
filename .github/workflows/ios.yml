@@ -61,6 +61,9 @@ jobs:
                   plutil -replace CFBundleVersion -string "$BUILD" Music-Info.plist
                   plutil -replace GitCommit -string "$SHA" Music-Info.plist
                   plutil -p Music-Info.plist | grep -E "CFBundleShortVersionString|CFBundleVersion|GitCommit"
+                  # The widgets' extension carries the app's version: iOS expects the two to match.
+                  plutil -replace CFBundleShortVersionString -string "$BASE.$BUILD" Widgets/Info.plist
+                  plutil -replace CFBundleVersion -string "$BUILD" Widgets/Info.plist
 
             - name: Archive (ad-hoc signed)
               run: |
