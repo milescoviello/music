@@ -841,7 +841,7 @@ final class NowPlaying {
                 let star = Button(value <= rating ? "★" : "☆", "flat", "np-star")
                 star.setCSS("filled", value <= rating)
                 star.tooltip("\(value) Star\(value == 1 ? "" : "s")")
-                star.onClicked { user.setRating(id: song.id, to: value, current: rating) }
+                star.onClicked { user.setRating(song, to: value, current: rating) }
                 stars.append(star)
             }
         }

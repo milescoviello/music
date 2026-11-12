@@ -75,7 +75,7 @@ enum Menus {
                 options: (1...5).reversed().map { ("\($0)", "\($0) Star\($0 == 1 ? "" : "s")") },
                 selected: current > 0 ? "\(current)" : nil
             ) { value in
-                user.setRating(id: song.id, to: Int(value) ?? 0, current: user.rating(song))
+                user.setRating(song, to: Int(value) ?? 0, current: user.rating(song))
             })
         }
         sections.append(personal)

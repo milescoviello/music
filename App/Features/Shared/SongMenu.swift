@@ -164,16 +164,15 @@ struct SongJumpItems: View {
 struct RatingStars: View {
     @Environment(UserStateStore.self) private var userState
 
-    let songID: String
-    let serverRating: Int?
+    let song: Song
 
     var body: some View {
-        let current = userState.rating(id: songID, serverValue: serverRating)
+        let current = userState.rating(id: song.id, serverValue: song.userRating)
 
         HStack(spacing: 10) {
             ForEach(1...5, id: \.self) { value in
                 Button {
-                    userState.setRating(id: songID, to: value, current: current)
+                    userState.setRating(song, to: value, current: current)
                 } label: {
                     Image(systemName: value <= current ? "star.fill" : "star")
                         .font(.system(size: 18))

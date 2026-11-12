@@ -127,6 +127,21 @@ final class UserStateStore {
         toggleStar(id: artist.id, kind: .artist, currentlyStarred: isStarred(artist))
     }
 
+    /// The song and the same recording in the other library, like `toggleStar(_:)`: a
+    /// rating on one copy left the other unrated, so whether a song showed as rated
+    /// depended on which copy was playing.
+    func setRating(_ song: Song, to rating: Int, current: Int) {
+        let wanted = rating == current ? 0 : rating
+        setRating(id: song.id, to: rating, current: current)
+        guard let client else { return }
+        Task { [weak self] in
+            for copy in await Self.otherCopies(of: song, client: client) {
+                guard let self, self.rating(copy) != wanted else { continue }
+                self.setRating(id: copy.id, to: wanted, current: -1)
+            }
+        }
+    }
+
     /// Tapping the star already showing clears the rating, the way every rating
     /// control on iOS behaves.
     func setRating(id: String, to rating: Int, current: Int) {

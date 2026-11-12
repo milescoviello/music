@@ -104,7 +104,7 @@ struct NowPlayingView: View {
                 // Rating happens while listening, which is why it belongs here and not
                 // only in a list's context menu.
                 if mode == .artwork {
-                    RatingStars(songID: song.id, serverRating: song.userRating)
+                    RatingStars(song: song)
                         .padding(.top, 6)
                 }
 
