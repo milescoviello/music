@@ -141,4 +141,17 @@ struct ChartsTests {
         #expect(albums.first?.plays == 5)
         #expect(albums.first?.albumID == "tide-1")
     }
+
+    @Test func tiesGoToWhatWasPlayedOnMoreDays() {
+        let period = ChartPeriod(span: .week, start: date(2026, 11, 9, 0), end: date(2026, 11, 16, 0))
+        func play(_ title: String, _ day: Int, _ hour: Int) -> ChartPlay {
+            ChartPlay(songID: title, title: title, artist: "The Lanterns", album: "Glass Harbor", at: date(2026, 11, day, hour))
+        }
+        // Two plays each: one song in one evening's run (the latest), one on two days.
+        let plays = [play("Low Tide", 9, 20), play("Pale Orchid", 10, 20), play("Low Tide", 11, 20),
+                     play("Mira", 12, 21), play("Mira", 12, 22)]
+        let rows = Charts.topTracks(plays, in: period, limit: 10)
+        #expect(rows.map(\.title) == ["Low Tide", "Mira", "Pale Orchid"])
+        #expect(rows.map(\.plays) == [2, 2, 1])
+    }
 }

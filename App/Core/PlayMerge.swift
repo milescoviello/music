@@ -42,3 +42,17 @@ enum PlayMerge {
         return fresh
     }
 }
+
+/// The app's own files store a date as Swift does by default, seconds since 2001; the
+/// server's answers and sonic's use 1970. Each is read by its own decoder, so the two
+/// never meet in the app. A file written by something else with 1970 seconds would read
+/// 31 years late, though, and quietly push every play out of every window. Such a date is
+/// in the future; read as 1970 seconds it lands in the past, where it belongs.
+enum StoredDate {
+    static func repaired(_ date: Date, now: Date = .now) -> Date {
+        let slack: TimeInterval = 86_400
+        guard date.timeIntervalSince(now) > slack else { return date }
+        let as1970 = Date(timeIntervalSince1970: date.timeIntervalSinceReferenceDate)
+        return as1970.timeIntervalSince(now) <= slack ? as1970 : date
+    }
+}

@@ -137,8 +137,9 @@ enum ReleaseKind: String, CaseIterable, Sendable {
 
     /// The first type that settles it, in precedence order. A live compilation is filed as
     /// live, and a soundtrack single as a soundtrack, because those are the words that
-    /// describe what it sounds like. With no types at all it is an album: that is what
-    /// every release was before tags said otherwise.
+    /// describe what it sounds like. With no types at all it is an album -- that is what
+    /// every release was before tags said otherwise -- unless it holds one song: a lone
+    /// download of a hit, untyped, sat among the albums under the song's own name.
     init(album: Album) {
         let types = Set((album.releaseTypes ?? []).map { $0.lowercased() })
         if types.contains("live") {
@@ -150,6 +151,8 @@ enum ReleaseKind: String, CaseIterable, Sendable {
         } else if types.contains("remix") {
             self = .remix
         } else if types.contains("single") || types.contains("ep") {
+            self = .singleOrEP
+        } else if types.isEmpty, album.songCount == 1 {
             self = .singleOrEP
         } else if types.isEmpty || types.contains("album") {
             self = .album

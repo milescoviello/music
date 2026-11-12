@@ -13,6 +13,14 @@ import Observation
 @Observable
 final class SkipLog {
     @ObservationIgnored private(set) var skips: [SkipMemory.Skip] = []
+
+    /// Songs skipped in `window`, beside the plays in Stats. A skip is kept apart from the
+    /// plays on purpose -- a play is a song let run, the way the server counts one -- but
+    /// it is still listening, and without a count it showed up nowhere.
+    func count(in window: ListeningHistory.Window) -> Int {
+        guard let start = window.start else { return skips.count }
+        return skips.reduce(0) { $0 + ($1.at >= start ? 1 : 0) }
+    }
     @ObservationIgnored private let url = Paths.root.appendingPathComponent("skips.json")
     /// A year of skipping at ten a day: they fade out of any score long before.
     @ObservationIgnored private let limit = 3_000
@@ -38,7 +46,11 @@ final class SkipLog {
         Task { [weak self] in
             let stored = await Task.detached(priority: .utility) { () -> [SkipMemory.Skip] in
                 guard let data = try? Data(contentsOf: url) else { return [] }
-                return (try? JSONDecoder().decode([SkipMemory.Skip].self, from: data)) ?? []
+                return ((try? JSONDecoder().decode([SkipMemory.Skip].self, from: data)) ?? []).map { skip in
+                    var skip = skip
+                    skip.at = StoredDate.repaired(skip.at)
+                    return skip
+                }
             }.value
             guard let self else { return }
             let recordedMeanwhile = !skips.isEmpty

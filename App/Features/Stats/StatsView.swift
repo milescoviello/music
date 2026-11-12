@@ -78,6 +78,8 @@ struct StatsView: View {
                 figure(hours, "listened")
                 Divider()
                 figure("\(log.streak)", log.streak == 1 ? "day streak" : "day streak")
+                Divider()
+                figure("\(appState.skips.count(in: window))", "skipped")
             }
             .frame(maxWidth: .infinity)
         } header: {

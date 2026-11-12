@@ -277,7 +277,11 @@ enum Charts {
     }
 
     /// Counts by key within the period. The row is built from the most recent play of
-    /// each, so a renamed album or newer artwork wins. Ties go to whoever got there last.
+    /// each, so a renamed album or newer artwork wins.
+    ///
+    /// Ties go to whatever was played on more separate days, then to whoever got there
+    /// last. Below the top few, most songs in a week have one or two plays; a song come
+    /// back to on three days says more than three plays in one evening's run.
     private static func rank(
         _ plays: [ChartPlay],
         in period: ChartPeriod,
@@ -285,19 +289,25 @@ enum Charts {
         key: (ChartPlay) -> String,
         row: (ChartPlay) -> ChartRow
     ) -> [ChartRow] {
-        var counts: [String: (count: Int, latest: ChartPlay)] = [:]
+        var counts: [String: (count: Int, latest: ChartPlay, days: Set<Int>)] = [:]
         for play in plays where period.contains(play.at) {
             let name = key(play)
             guard !name.isEmpty else { continue }
+            let day = Int((play.at.timeIntervalSinceReferenceDate + Double(TimeZone.current.secondsFromGMT(for: play.at))) / 86_400)
             if let existing = counts[name] {
-                counts[name] = (existing.count + 1, play.at > existing.latest.at ? play : existing.latest)
+                counts[name] = (existing.count + 1, play.at > existing.latest.at ? play : existing.latest,
+                                existing.days.union([day]))
             } else {
-                counts[name] = (1, play)
+                counts[name] = (1, play, [day])
             }
         }
 
         return counts.values
-            .sorted { $0.count == $1.count ? $0.latest.at > $1.latest.at : $0.count > $1.count }
+            .sorted {
+                if $0.count != $1.count { return $0.count > $1.count }
+                if $0.days.count != $1.days.count { return $0.days.count > $1.days.count }
+                return $0.latest.at > $1.latest.at
+            }
             .prefix(limit)
             .map { entry in
                 let base = row(entry.latest)

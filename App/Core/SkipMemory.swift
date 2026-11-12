@@ -16,7 +16,7 @@ enum SkipMemory {
         let songID: String
         let title: String
         let artist: String
-        let at: Date
+        var at: Date
         /// Seconds into the song.
         let position: Double
     }

@@ -26,7 +26,8 @@ final class ListeningHistory {
         var genre: String?
         /// Seconds, so totals do not need the library to answer.
         let duration: Int
-        let at: Date
+        /// `var` for `StoredDate.repaired` on load.
+        var at: Date
         // Recorded since the charts arrived, so a charted album or artist can be opened.
         // Optional, so the history written before them still decodes.
         var albumID: String?
@@ -82,7 +83,11 @@ final class ListeningHistory {
         let url = url
         let stored = await Task.detached(priority: .userInitiated) { () -> [Play] in
             guard let data = try? Data(contentsOf: url) else { return [] }
-            return (try? JSONDecoder().decode([Play].self, from: data)) ?? []
+            return ((try? JSONDecoder().decode([Play].self, from: data)) ?? []).map { play in
+                var play = play
+                play.at = StoredDate.repaired(play.at)
+                return play
+            }
         }.value
 
         if !discardsStored {

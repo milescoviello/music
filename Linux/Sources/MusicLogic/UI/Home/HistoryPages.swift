@@ -202,6 +202,7 @@ enum StatsPage {
                 figure("\(plays.count)", "plays")
                 figure(hours, "listened")
                 figure("\(history.streak)", "day streak")
+                figure("\(app.skips.count(in: window))", "skipped")
             }.homogeneous()
             local.append(RediscoverPage.section("Your Listening",
                 footer: history.plays.isEmpty ? "Nothing yet. Plays are recorded as they happen, on this computer." : "Every play your server has logged, from any player, with what this app recorded here and on your other devices.",
