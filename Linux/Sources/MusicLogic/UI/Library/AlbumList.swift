@@ -97,7 +97,7 @@ final class AlbumList {
 
     private func showDownloaded() {
         var downloaded = env.app.downloads.catalog.downloadedAlbums
-        if let genre { downloaded = downloaded.filter { $0.genre?.caseInsensitiveCompare(genre) == .orderedSame } }
+        if let genre { downloaded = downloaded.filter { $0.hasGenre(genre) } }
         grid.set(downloaded)
         if downloaded.isEmpty {
             status.child = Loader.empty(

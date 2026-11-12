@@ -133,7 +133,7 @@ struct AlbumListView: View {
 
         let downloaded = downloads.catalog.downloadedAlbums
         guard let genre else { return downloaded }
-        return downloaded.filter { $0.genre?.caseInsensitiveCompare(genre) == .orderedSame }
+        return downloaded.filter { $0.hasGenre(genre) }
     }
 
     @State private var loadedKey: LoadKey?

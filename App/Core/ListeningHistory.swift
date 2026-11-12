@@ -22,7 +22,8 @@ final class ListeningHistory {
         var title: String
         var artist: String
         var album: String
-        let genre: String?
+        /// `var` for `regenre`: the genre the play was counted under, from the tags of the day.
+        var genre: String?
         /// Seconds, so totals do not need the library to answer.
         let duration: Int
         let at: Date
@@ -104,7 +105,7 @@ final class ListeningHistory {
             title: song.title,
             artist: song.artist ?? "Unknown Artist",
             album: song.album ?? "Unknown Album",
-            genre: song.genre,
+            genre: song.mainGenre,
             duration: song.duration ?? 0,
             at: date,
             albumID: song.albumId,
@@ -160,6 +161,22 @@ final class ListeningHistory {
             relinked += 1
             scheduleSave()
         }
+        return changed
+    }
+
+    /// Gives each play of a song in `genres` that song's genre as the server tags it now,
+    /// so the stats follow a retag instead of keeping what the tags said at play time.
+    /// Returns how many plays changed.
+    @discardableResult
+    func regenre(_ genres: [String: String]) -> Int {
+        guard !genres.isEmpty else { return 0 }
+        var changed = 0
+        for index in plays.indices {
+            guard let genre = genres[plays[index].songID], genre != plays[index].genre else { continue }
+            plays[index].genre = genre
+            changed += 1
+        }
+        if changed > 0 { scheduleSave() }
         return changed
     }
 

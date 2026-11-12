@@ -98,7 +98,7 @@ final class HomeModel {
 
         // The shelves cut from the whole album list. After the rest, so they never hold
         // Home up; the list itself is kept on disk and only refetched every few hours.
-        if let genre = recentlyPlayed.lazy.compactMap(\.genre).first(where: { !$0.isEmpty }) {
+        if let genre = recentlyPlayed.lazy.compactMap(\.mainGenre).first(where: { !$0.isEmpty }) {
             let seen = Set(recentlyPlayed.map(\.id))
             let albums = (try? await client.albums(type: .random, size: 20, scope: scope, genre: genre)) ?? []
             let fresh = SearchRanking.oneOfEach(albums.filter { !seen.contains($0.id) })

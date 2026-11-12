@@ -172,7 +172,7 @@ enum AlbumPage {
         if let released = (detail.originalReleaseDate ?? detail.releaseDate)?.spelledOut {
             parts.append("Released \(released)")
         }
-        if let genres = detail.genres?.map(\.name).filter({ !$0.isEmpty }), !genres.isEmpty {
+        if let genres = detail.genres.map({ MainGenre.usable($0.map(\.name)) }), !genres.isEmpty {
             parts.append(genres.joined(separator: ", "))
         } else if let genre = detail.genre, !genre.isEmpty {
             parts.append(genre)

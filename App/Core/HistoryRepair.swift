@@ -40,8 +40,8 @@ enum HistoryRepair {
     }
 
     /// A new key when the repair learns something, so the next build runs it at once
-    /// rather than a day after the last run: `.2` brought links made by hand.
-    private static let ranKey = "history.relinkedAt.2"
+    /// rather than a day after the last run: `.2` brought links made by hand, `.3` genres.
+    private static let ranKey = "history.relinkedAt.3"
     /// Launch and a regained network both sync, a moment apart.
     private static var isRunning = false
     /// Searches for songs that are gone, per run. A long history could hold hundreds.
@@ -68,6 +68,13 @@ enum HistoryRepair {
             return
         }
         let alive = Dictionary(current.filter { $0.missing != true }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+
+        // Retagged: a play keeps the genre its song had when it was played, so after the
+        // library's genres were redone the stats still counted the old first tag.
+        let regenred = appState.history.regenre(alive.compactMapValues(\.mainGenre))
+        if regenred > 0 {
+            await Diagnostics.shared.record("history", "gave \(regenred) plays their song's current genre")
+        }
 
         // Moved: the song is there, and some of its plays name another album id or none.
         // Every play, not the latest: an album's latest plays can have the new id and

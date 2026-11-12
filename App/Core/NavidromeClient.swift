@@ -35,6 +35,11 @@ actor NavidromeClient {
         var duration: Double?
         /// Its file is gone and the next full scan will drop it.
         var missing: Bool?
+        var genre: String?
+        var genres: [NamedItem]?
+
+        /// What `Song.mainGenre` would say: the genre that describes it, not the first tag.
+        var mainGenre: String? { MainGenre.pick(MainGenre.names(genres, first: genre)) }
     }
 
     /// One window onto a native-API collection, and how many rows exist behind it.

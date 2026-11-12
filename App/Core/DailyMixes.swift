@@ -996,7 +996,7 @@ final class DailyMixes {
         // do, so the most common genre among those is still a personal answer and costs
         // nothing extra.
         var counts: [String: Int] = [:]
-        for genre in candidates.compactMap(\.genre) where !genre.isEmpty {
+        for genre in candidates.compactMap(\.mainGenre) where !genre.isEmpty {
             counts[genre, default: 0] += 1
         }
         let fromCandidates = counts
