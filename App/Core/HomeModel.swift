@@ -74,8 +74,10 @@ final class HomeModel {
         async let added: [Album]? = appState.cached(CacheKey.shelf("newest", key)) {
             try await client.albums(type: .newest, size: 12, scope: scope)
         }
-        async let frequent: [Album]? = appState.cached(CacheKey.shelf("frequent", key)) {
-            try await client.albums(type: .frequent, size: 12, scope: scope)
+        // Forty, merged down to twelve: an album in both folders has its plays split
+        // between two rows, and only both together say where it belongs.
+        async let frequent: [Album]? = appState.cached(CacheKey.shelf("frequent-40", key)) {
+            try await client.albums(type: .frequent, size: 40, scope: scope)
         }
         async let starred: Starred2? = appState.cached(CacheKey.starred(key)) {
             try await client.starred(scope: scope)
@@ -88,7 +90,7 @@ final class HomeModel {
         // One of each: the two library folders hold many albums twice.
         recentlyPlayed = SearchRanking.oneOfEach(await played ?? [])
         recentlyAdded = SearchRanking.oneOfEach(await added ?? [])
-        mostPlayed = SearchRanking.oneOfEach(await frequent ?? [])
+        mostPlayed = Array(Charts.mergingCopies(await frequent ?? []).prefix(12))
         favoriteSongs = Array((await starred?.songs ?? []).prefix(4))
         forgotten = await neglected
         hasLoaded = true
