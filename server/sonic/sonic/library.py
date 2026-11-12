@@ -33,8 +33,12 @@ class LibraryTrack:
     duration: float
     year: int
     plays: int
-    # Changes when the file does: what decides that a track needs analysing again.
+    # Changes when the audio does: what decides that a track needs analysing again.
     fingerprint: str
+
+
+def audio_fingerprint(suffix, rate, depth, channels, duration) -> str:
+    return f"audio:{(suffix or '').lower()}:{rate or 0}:{depth or 0}:{channels or 0}:{float(duration or 0):.3f}"
 
 
 def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
@@ -103,7 +107,11 @@ def _read(connection: sqlite3.Connection, config: Config) -> list[LibraryTrack]:
     has_libraries = "library_id" in columns and _columns(connection, "library")
     album_artist = "album_artist_id" if "album_artist_id" in columns else "artist_id"
     missing = "and mf.missing = 0" if "missing" in columns else ""
-    changed = "mf.updated_at" if "updated_at" in columns else "''"
+    # The audio's identity, not the file's: a retag rewrites the file (new size, new
+    # updated_at) without touching a sample, and on 2026-11-12 a library-wide genre pass
+    # threw away 17,000 analyses that way. Format, rate, depth, channels and the length to
+    # the millisecond change with any real replacement of the audio.
+    audio = [c if c in columns else "''" for c in ("suffix", "sample_rate", "bit_depth", "channels")]
 
     root = "l.path" if has_libraries else "''"
     join = "join library l on l.id = mf.library_id" if has_libraries else ""
@@ -118,12 +126,12 @@ def _read(connection: sqlite3.Connection, config: Config) -> list[LibraryTrack]:
     tracks = []
     for row in connection.execute(f"""
         select mf.id, {root}, mf.path, mf.album_id, mf.{album_artist}, mf.artist_id, mf.title, mf.artist,
-               mf.album, mf.duration, mf.year, mf.size, {changed}
+               mf.album, mf.duration, mf.year, {", ".join("mf." + c if c != "''" else c for c in audio)}
         from media_file mf {join}
         where 1 = 1 {missing}
     """):
         (track_id, library_root, relative, album_id, album_artist_id, artist_id, title, artist,
-         album, duration, year, size, updated) = row
+         album, duration, year, suffix, rate, depth, channels) = row
         navidrome_path = f"{library_root.rstrip('/')}/{relative}" if library_root else relative
         local = config.local_path(navidrome_path)
         if local is None:
@@ -132,6 +140,6 @@ def _read(connection: sqlite3.Connection, config: Config) -> list[LibraryTrack]:
             id=track_id, path=local, album_id=album_id or "", artist_id=album_artist_id or artist_id or "",
             track_artist_id=artist_id or "", title=title or "", artist=artist or "", album=album or "",
             duration=float(duration or 0), year=int(year or 0), plays=plays.get(track_id, 0),
-            fingerprint=f"{size}:{updated}",
+            fingerprint=audio_fingerprint(suffix, rate, depth, channels, duration),
         ))
     return tracks

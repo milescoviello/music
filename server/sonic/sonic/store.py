@@ -79,8 +79,11 @@ class Store:
                         (*metadata, track.id),
                     )
                 else:
+                    # A fingerprint from before they described the audio ("size:updated_at")
+                    # says nothing about it: take the new one without analysing again.
+                    legacy = not known[track.id].startswith("audio:")
                     reset = ", vector = null, levels = null, analysed_at = null, error = null" \
-                        if known[track.id] != track.fingerprint else ""
+                        if known[track.id] != track.fingerprint and not legacy else ""
                     if reset:
                         changed += 1
                     self._db.execute(

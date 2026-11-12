@@ -51,3 +51,39 @@ class RequeueTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FingerprintTests(unittest.TestCase):
+    """A retag rewrites the file but not the audio: the analysis stays. New audio is analysed."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.store = Store(Path(folder.name) / "sonic.db")
+
+    def synced(self, fingerprint):
+        from dataclasses import replace
+        self.store.sync([replace(track("s1"), fingerprint=fingerprint)])
+
+    def test_same_audio_keeps_its_analysis(self):
+        from sonic.library import audio_fingerprint
+        self.synced(audio_fingerprint("flac", 44100, 16, 2, 201.6))
+        self.store.save(result("s1", [-40, -12, -9]))
+        self.synced(audio_fingerprint("FLAC", 44100, 16, 2, 201.6004))
+        self.assertEqual(self.store.pending(), [])
+
+    def test_new_audio_is_analysed_again(self):
+        from sonic.library import audio_fingerprint
+        self.synced(audio_fingerprint("flac", 96000, 24, 2, 324.0))
+        self.store.save(result("s1", [-40, -12, -9]))
+        self.synced(audio_fingerprint("flac", 44100, 16, 2, 325.16))
+        self.assertEqual([job[0] for job in self.store.pending()], ["s1"])
+
+    def test_an_old_style_fingerprint_moves_over_without_analysing(self):
+        from sonic.library import audio_fingerprint
+        self.synced("41923515:2026-11-01T10:00:00Z")
+        self.store.save(result("s1", [-40, -12, -9]))
+        self.synced(audio_fingerprint("flac", 44100, 16, 2, 325.16))
+        self.assertEqual(self.store.pending(), [])
+        self.synced(audio_fingerprint("flac", 48000, 24, 2, 325.16))
+        self.assertEqual([job[0] for job in self.store.pending()], ["s1"])
