@@ -116,6 +116,11 @@ the whole library: every recording with no lyrics asked about once, a second apa
 `.lrc` written beside every copy. What each run did is in `data/lyrics-fill.json`; a miss is
 not asked about again for a month. Run it at night.
 
+`python -m sonic scan-damage` (`sonic/damage.py`) reads every file end to end for a megabyte
+or more of zero bytes in its audio, after its tags and FLAC metadata: what a copy cut short
+and padded out looks like, which no decoder reports. Run at night at the lowest priority
+(`ionice -c 3 nice -n 19`); the report is `data/damage-report.json`.
+
 ### Library extras
 
 | Endpoint | Answers |

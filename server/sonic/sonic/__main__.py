@@ -1,6 +1,7 @@
 """`python -m sonic serve` runs the service; `python -m sonic compare-plex` checks it;
 `python -m sonic requeue-unreadable-levels` queues tracks whose loudness was mismeasured;
-`python -m sonic fill-lyrics` finds lyrics on LRCLIB for every song with none (`fill`)."""
+`python -m sonic fill-lyrics` finds lyrics on LRCLIB for every song with none (`fill`);
+`python -m sonic scan-damage` reads every file for stretches of zeros (`damage`)."""
 
 from __future__ import annotations
 
@@ -28,6 +29,7 @@ def main() -> None:
     fill = commands.add_parser("fill-lyrics", help="LRCLIB's lyrics for every song with none, as .lrc files")
     fill.add_argument("--limit", type=int, help="ask about at most this many recordings")
     fill.add_argument("--delay", type=float, default=1.0, help="seconds between LRCLIB requests")
+    commands.add_parser("scan-damage", help="read every file for a megabyte or more of zeros in its audio")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -52,6 +54,10 @@ def main() -> None:
         from .fill import run
 
         print(run(config, limit=args.limit, delay=args.delay))
+    elif args.command == "scan-damage":
+        from .damage import run as scan
+
+        print(scan(config))
 
 
 if __name__ == "__main__":
