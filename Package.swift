@@ -136,6 +136,7 @@ func logicPackage() -> Package {
                     "LyricsTiming.swift",
                     "SigningInfo.swift",
                     "MainGenre.swift",
+                    "PlayMerge.swift",
                     "WordTiming.swift",
                     "LyricTranslationStore.swift",
                     "RemoteControl.swift",

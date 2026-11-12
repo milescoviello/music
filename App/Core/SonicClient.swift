@@ -176,6 +176,35 @@ struct SonicClient: Sendable {
         var links: [String: String]
     }
 
+    /// A play from the music server's own log: every player's, the plays imported from
+    /// Plex among them, each with the moment it started.
+    struct ServerPlay: Decodable, Sendable {
+        var id: String
+        var at: Double
+        var songID: String
+        var title: String
+        var artist: String
+        var album: String
+        var albumID: String?
+        var artistID: String?
+        var coverArt: String?
+        var duration: Int
+        var genres: [String]
+    }
+
+    struct ServerPlays: Decodable, Sendable {
+        var plays: [ServerPlay]
+        /// The cursor for the next page: a row of the log, not a time.
+        var after: Int
+        var more: Bool
+    }
+
+    /// `user`'s plays in the server's log after row `after`, oldest row first. Nil from a
+    /// service too old to have the log.
+    func serverPlays(after: Int, user: String) async throws -> ServerPlays? {
+        try await getIfPresent("v1/history/plays", ["after": String(after), "user": user], as: ServerPlays.self)
+    }
+
     /// Hands a Send Logs report to the service, which keeps it as a file in its `data/logs`
     /// on the server. Returns the file's name. A service too old to take one answers 404.
     func sendLogs(_ text: String, source: String) async throws -> String {

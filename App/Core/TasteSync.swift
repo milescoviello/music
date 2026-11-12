@@ -21,6 +21,8 @@ final class TasteSync {
         static let pushed = "taste.pushedThrough"
         /// Ids the server has, sent or taken in, to when each happened (seconds since 1970).
         static let known = "taste.knownIDs"
+        /// How far into the music server's own play log this install has read.
+        static let serverRow = "taste.serverLogRow"
     }
 
     /// This install's own name on the server.
@@ -104,16 +106,41 @@ final class TasteSync {
         }
         let addedPlays = appState.history.merge(newPlays)
         let addedSkips = appState.skips.merge(newSkips)
+        let fromServer = await takeInServerLog(client, user: appState.credentials?.username ?? "", into: appState.history)
         defaults.set(seq, forKey: Key.seq)
         // Only as far back as the next send can look: a day before this one, and a day of
         // slack for a clock that moved.
         let horizon = started.addingTimeInterval(-2 * 86_400).timeIntervalSince1970
         defaults.set(known.filter { $0.value >= horizon }, forKey: Key.known)
-        if !outgoing.isEmpty || addedPlays + addedSkips > 0 {
+        if !outgoing.isEmpty || addedPlays + addedSkips + fromServer > 0 {
             await Diagnostics.shared.record(
                 "taste", "sent \(plays.count) plays and \(skips.count) skips; took in \(addedPlays) plays and \(addedSkips) skips from other devices"
+                    + (fromServer > 0 ? ", and \(fromServer) plays from the server's own log" : "")
             )
         }
+    }
+
+    /// The music server's own play log, read through sonic: what other players (desktop
+    /// Feishin, the web page) and the Plex import recorded, back to the first play. A play
+    /// this app recorded is in it too, scrobbled with the same start time; `merge` keeps
+    /// that one once.
+    private func takeInServerLog(_ client: SonicClient, user: String, into history: ListeningHistory) async -> Int {
+        let defaults = UserDefaults.standard
+        var after = defaults.integer(forKey: Key.serverRow)
+        var incoming: [ListeningHistory.Play] = []
+        do {
+            while let page = try await client.serverPlays(after: after, user: user) {
+                incoming += page.plays.compactMap(Self.play)
+                guard page.after > after else { break }
+                after = page.after
+                if !page.more { break }
+            }
+        } catch {
+            await Diagnostics.shared.record("taste", "could not read the server's play log: \(Diagnostics.describe(error))")
+        }
+        let added = history.merge(incoming)
+        defaults.set(after, forKey: Key.serverRow)
+        return added
     }
 
     // MARK: - Records to events and back
@@ -141,6 +168,18 @@ final class TasteSync {
             album: event.album ?? "Unknown Album", genre: event.genre, duration: event.duration ?? 0,
             at: Date(timeIntervalSince1970: event.at),
             albumID: event.albumID, artistID: event.artistID, coverArt: event.coverArt
+        )
+        play.id = id
+        return play
+    }
+
+    private static func play(_ entry: SonicClient.ServerPlay) -> ListeningHistory.Play? {
+        guard let id = UUID(uuidString: entry.id) else { return nil }
+        var play = ListeningHistory.Play(
+            songID: entry.songID, title: entry.title, artist: entry.artist, album: entry.album,
+            genre: MainGenre.pick(entry.genres), duration: entry.duration,
+            at: Date(timeIntervalSince1970: entry.at),
+            albumID: entry.albumID, artistID: entry.artistID, coverArt: entry.coverArt
         )
         play.id = id
         return play

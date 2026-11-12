@@ -103,10 +103,10 @@ struct StatsView: View {
                     confirmsClearHistory = true
                 }
             } footer: {
-                Text("\(history.plays.count) plays recorded on this phone. Clearing does not touch the server's own play counts.")
+                Text("\(history.plays.count) plays in this phone's history. Clearing does not touch the server's own play counts or its play log.")
             }
             .confirmationDialog(
-                "Delete \(history.plays.count) plays recorded on this phone?",
+                "Delete \(history.plays.count) plays from this phone's history?",
                 isPresented: $confirmsClearHistory,
                 titleVisibility: .visible
             ) {

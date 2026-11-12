@@ -4,6 +4,7 @@ keeps the in-memory index current for the HTTP layer."""
 from __future__ import annotations
 
 import logging
+import sqlite3
 import threading
 import time
 import urllib.request
@@ -12,7 +13,7 @@ from concurrent.futures.process import BrokenProcessPool
 
 import numpy as np
 
-from . import duplicates, library, lrclib, lyricsfile
+from . import duplicates, library, lrclib, lyricsfile, serverplays
 from . import lyrics as lyric_files
 from .analyse import analyse, init_worker
 from .config import ANALYSIS_VERSION, MODEL_NAME, MODEL_URL, Config
@@ -139,6 +140,15 @@ class Service:
             "synced": found.synced,
             "lines": [{"start": start, "value": value} if found.synced else {"value": value} for start, value in lines],
         }
+
+    def server_plays(self, after: int, user: str, limit: int) -> dict:
+        """Navidrome's own play log, a page at a time (`serverplays`). Read straight from the
+        live database, read-only: a page is one indexed query, not worth a 170 MB copy."""
+        connection = sqlite3.connect(f"file:{self.config.navidrome_db}?mode=ro", uri=True)
+        try:
+            return serverplays.page(connection, after, user, limit)
+        finally:
+            connection.close()
 
     def duplicate_albums(self) -> dict:
         """Albums in both libraries, side by side (`duplicates`); worked out at most every

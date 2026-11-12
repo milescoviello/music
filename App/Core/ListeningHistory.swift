@@ -14,7 +14,7 @@ import Observation
 @MainActor
 @Observable
 final class ListeningHistory {
-    struct Play: Codable, Sendable, Identifiable {
+    struct Play: Codable, Sendable, Identifiable, TimedPlay {
         var id = UUID()
         /// `var` for `relink`: the server gives a song a new id when its file moves.
         var songID: String
@@ -118,12 +118,11 @@ final class ListeningHistory {
         scheduleSave()
     }
 
-    /// Plays another device recorded, from `TasteSync`: each once, by its id, in time
-    /// order with the rest. Returns how many were new.
+    /// Plays from elsewhere, from `TasteSync`: another device's, or the server's own log.
+    /// Each once, in time order with the rest. Returns how many were new.
     @discardableResult
     func merge(_ incoming: [Play]) -> Int {
-        let known = Set(plays.map(\.id))
-        let fresh = incoming.filter { !known.contains($0.id) }
+        let fresh = PlayMerge.unseen(incoming, among: plays)
         guard !fresh.isEmpty else { return 0 }
         plays = (plays + fresh).sorted { $0.at < $1.at }
         if plays.count > limit {
