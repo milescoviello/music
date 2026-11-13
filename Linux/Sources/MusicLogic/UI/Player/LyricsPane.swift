@@ -154,10 +154,13 @@ final class LyricsPane {
         translating?.cancel()
         translationNote.isVisible = false
 
+        // A downloaded song's own copy, checked against the server once it is on screen.
+        var kept: [StructuredLyrics] = []
         if let saved {
             lyrics = saved
         } else {
             var sets = await LyricsStore.shared.load(songID: song.id) ?? []
+            kept = sets
             if sets.isEmpty {
                 sets = (try? await env.app.client.lyrics(songID: song.id)) ?? []
             }
@@ -191,6 +194,19 @@ final class LyricsPane {
         // stayed at the top with the line out of sight.
         if let active { scrollOnceLaidOut(to: active) }
         if lyrics.synced { loadWords(for: song.id, lyrics: lyrics) }
+        if !kept.isEmpty { await refreshKept(kept, songID: song.id, stack: stack) }
+    }
+
+    /// A downloaded song's lyrics come from the copy saved with it, at once and offline
+    /// too; online, the server is asked as well. Lyrics fixed or retimed since the download
+    /// take the saved copy's place and come on screen (the phone's `refreshKept`).
+    private func refreshKept(_ kept: [StructuredLyrics], songID id: String, stack: Stack) async {
+        let server = try? await env.app.client.lyrics(songID: id)
+        guard let fresh = LyricsStore.update(kept: kept, server: server) else { return }
+        await LyricsStore.shared.save(fresh, for: id)
+        // Not over a song moved on from, or one being timed by hand.
+        guard loadedID == id, songID == id, timing == nil else { return }
+        await load(stack: stack)
     }
 
     // MARK: - Word by word

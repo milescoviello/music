@@ -28,6 +28,15 @@ actor LyricsStore {
         save(sets, for: songID)
     }
 
+    /// What the server answered for a song whose lyrics are kept, when it should take the
+    /// kept copy's place: it has lyrics and they differ -- fixed or retimed since the
+    /// download. Nil keeps the kept copy: offline, an error, or a server with none, which
+    /// is no reason to lose lyrics that work.
+    static func update(kept: [StructuredLyrics], server: [StructuredLyrics]?) -> [StructuredLyrics]? {
+        guard let server, !server.isEmpty, server != kept else { return nil }
+        return server
+    }
+
     func load(songID: String) -> [StructuredLyrics]? {
         guard let data = try? Data(contentsOf: Paths.lyricsFile(songID: songID)),
               let sets = try? JSONDecoder().decode([StructuredLyrics].self, from: data)

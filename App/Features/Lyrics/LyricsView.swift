@@ -548,12 +548,15 @@ struct LyricsView: View {
         activeIndex = nil
         resumeAutoScrollAt = nil
 
+        // A downloaded song's own copy, checked against the server once it is on screen.
+        var kept: [StructuredLyrics] = []
         if let saved {
             lyrics = saved
         } else {
             // Disk first: for a downloaded track it is already there, and it removes a
             // request plus a visible delay on every track change.
             var sets = await LyricsStore.shared.load(songID: song.id) ?? []
+            kept = sets
 
             if sets.isEmpty {
                 sets = (try? await appState.client.lyrics(songID: song.id)) ?? []
@@ -588,6 +591,20 @@ struct LyricsView: View {
 
         state = .loaded
         loadedSongID = song.id
+        if !kept.isEmpty { await refreshKept(kept, songID: song.id) }
+    }
+
+    /// A downloaded song's lyrics come from the copy saved with it, at once and offline
+    /// too; online, the server is asked as well. Lyrics fixed or retimed since the download
+    /// take the saved copy's place and come on screen. Without this a downloaded song kept
+    /// the lyrics it was downloaded with for good, whatever was fixed on the server.
+    private func refreshKept(_ kept: [StructuredLyrics], songID: String) async {
+        let server = try? await appState.client.lyrics(songID: songID)
+        guard let fresh = LyricsStore.update(kept: kept, server: server) else { return }
+        await LyricsStore.shared.save(fresh, for: songID)
+        // Not over a song moved on from, or one being timed by hand.
+        guard !Task.isCancelled, loadedSongID == songID, timing == nil else { return }
+        await load()
     }
 }
 
