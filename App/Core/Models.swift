@@ -592,6 +592,7 @@ struct SavedQueue: Codable, PayloadKeyed, Sendable {
 enum ServerDate {
     static func parse(_ value: String?) -> Date? {
         guard let value else { return nil }
+        if let date = rfc3339(value) { return date }
 
         let plain = ISO8601DateFormatter()
         if let date = plain.date(from: value) { return date }
@@ -600,6 +601,86 @@ enum ServerDate {
         let fractional = ISO8601DateFormatter()
         fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return fractional.date(from: milliseconds(value))
+    }
+
+    /// Navidrome's dates read without a formatter: `2026-10-31T19:02:17.123456789-07:00`,
+    /// any length of fraction (kept to the millisecond, as the formatter would), `Z` or an
+    /// offset. Nil for anything else, which the formatters then try.
+    ///
+    /// The formatters were made afresh for every date, and a song's dates are read each
+    /// time a list is sorted or filtered by them: thousands a launch, a measurable part of
+    /// one on a slow machine.
+    static func rfc3339(_ value: String) -> Date? {
+        value.utf8.withContiguousStorageIfAvailable { rfc3339($0) }
+            ?? Array(value.utf8).withUnsafeBufferPointer { rfc3339($0) }
+    }
+
+    private static func rfc3339(_ text: UnsafeBufferPointer<UInt8>) -> Date? {
+        let count = text.count
+        guard count >= 20 else { return nil }
+        func number(_ start: Int, _ length: Int) -> Int? {
+            var result = 0
+            for index in start..<(start + length) {
+                let byte = text[index]
+                guard byte >= 0x30, byte <= 0x39 else { return nil }
+                result = result * 10 + Int(byte - 0x30)
+            }
+            return result
+        }
+        guard text[4] == 0x2D, text[7] == 0x2D, text[10] == 0x54 || text[10] == 0x74,
+              text[13] == 0x3A, text[16] == 0x3A,
+              let year = number(0, 4), let month = number(5, 2), let day = number(8, 2),
+              let hour = number(11, 2), let minute = number(14, 2), let second = number(17, 2),
+              (1...12).contains(month), day >= 1, day <= daysIn(month, of: year),
+              hour < 24, minute < 60, second < 60
+        else { return nil }
+
+        var index = 19
+        var milliseconds = 0
+        if text[index] == 0x2E {
+            index += 1
+            let start = index
+            while index < count, text[index] >= 0x30, text[index] <= 0x39 {
+                if index - start < 3 { milliseconds = milliseconds * 10 + Int(text[index] - 0x30) }
+                index += 1
+            }
+            guard index > start else { return nil }
+            for _ in min(index - start, 3)..<3 { milliseconds *= 10 }
+        }
+
+        var offset = 0
+        guard index < count else { return nil }
+        switch text[index] {
+        case 0x5A, 0x7A:
+            index += 1
+        case 0x2B, 0x2D:
+            guard index + 6 == count, text[index + 3] == 0x3A,
+                  let hours = number(index + 1, 2), let minutes = number(index + 4, 2), hours < 24, minutes < 60
+            else { return nil }
+            offset = (hours * 3_600 + minutes * 60) * (text[index] == 0x2D ? -1 : 1)
+            index += 6
+        default:
+            return nil
+        }
+        guard index == count else { return nil }
+
+        // Days since 1970 from the civil date (Howard Hinnant's algorithm).
+        let y = month <= 2 ? year - 1 : year
+        let era = (y >= 0 ? y : y - 399) / 400
+        let yearOfEra = y - era * 400
+        let dayOfYear = (153 * ((month + 9) % 12) + 2) / 5 + day - 1
+        let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+        let days = era * 146_097 + dayOfEra - 719_468
+        let seconds = days * 86_400 + hour * 3_600 + minute * 60 + second - offset
+        return Date(timeIntervalSince1970: Double(seconds) + Double(milliseconds) / 1_000)
+    }
+
+    private static func daysIn(_ month: Int, of year: Int) -> Int {
+        switch month {
+        case 2: return year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) ? 29 : 28
+        case 4, 6, 9, 11: return 30
+        default: return 31
+        }
     }
 
     /// `value` with its fractional seconds cut or padded to three digits.

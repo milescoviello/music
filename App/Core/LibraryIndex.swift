@@ -46,9 +46,17 @@ final class LibraryIndex {
         }
 
         // Last launch's copy first, so the screen is never empty while the fresh one loads.
+        // Fetched within `freshFor`, even by an earlier launch, it is the index: every
+        // launch fetched the whole library again, and then checked every cover on disk.
+        let fetchedKey = "libraryIndex.fetchedAt.\(key)"
         if loadedScope != key, let stored = await appState.cache.load([Album].self, for: key) {
             albums = SearchRanking.oneOfEach(stored)
             loadedScope = key
+            let fetchedAt = Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: fetchedKey))
+            if Date.now.timeIntervalSince(fetchedAt) < freshFor {
+                loadedAt = fetchedAt
+                return
+            }
         }
 
         var fetched: [Album] = []
@@ -70,6 +78,7 @@ final class LibraryIndex {
         loadedScope = key
         loadedAt = .now
         await appState.cache.store(fetched, for: key)
+        UserDefaults.standard.set(Date.now.timeIntervalSince1970, forKey: fetchedKey)
 
         // Every album's cover to disk, at the sizes grids and rows draw, so no cover is
         // ever first seen from the network. Wi-Fi only: a few thousand covers is a couple

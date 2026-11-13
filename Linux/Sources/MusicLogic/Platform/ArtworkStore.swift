@@ -47,7 +47,17 @@ final class ArtworkStore {
         bulk = URLSession(configuration: behind)
 
         try? FileManager.default.createDirectory(at: Self.cacheDirectory, withIntermediateDirectories: true)
-        Task.detached(priority: .background) { Self.trimCache() }
+        // Once a day, and not during the launch: listing every cover kept was a part of a
+        // slow machine's start.
+        let trimmedKey = "artwork.trimmedAt"
+        let last = UserDefaults.standard.double(forKey: trimmedKey)
+        if Date.now.timeIntervalSince1970 - last > 86_400 {
+            UserDefaults.standard.set(Date.now.timeIntervalSince1970, forKey: trimmedKey)
+            Task.detached(priority: .background) {
+                try? await Task.sleep(for: .seconds(120))
+                Self.trimCache()
+            }
+        }
         // Once: Navidrome's placeholder record, kept as covers until it was recognised.
         if !UserDefaults.standard.bool(forKey: "artwork.placeholderPurged") {
             UserDefaults.standard.set(true, forKey: "artwork.placeholderPurged")
