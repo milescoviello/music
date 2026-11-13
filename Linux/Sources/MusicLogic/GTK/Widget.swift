@@ -180,6 +180,13 @@ class Widget {
         keep(Observer(body))
     }
 
+    /// As `observe`, but a change waits `delay` before the re-run, so the burst of
+    /// changes a page's loads make costs one re-run rather than one each.
+    @discardableResult
+    func observe(after delay: Duration, _ body: @escaping @MainActor () -> Void) -> Self {
+        keep(Observer(after: delay, body))
+    }
+
     // MARK: Events
 
     /// A primary click or tap anywhere in the widget.

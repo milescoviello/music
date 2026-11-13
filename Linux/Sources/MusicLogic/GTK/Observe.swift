@@ -13,6 +13,8 @@ import Observation
 @MainActor
 final class Observer {
     private var body: (@MainActor () -> Void)?
+    /// How long a change waits before the re-run, so a burst of changes costs one.
+    private let delay: Duration?
 
     /// How many observers are running their body right now, one inside another.
     private static var depth = 0
@@ -23,8 +25,9 @@ final class Observer {
     /// bound while a page built itself made the page watch the player, the downloads and
     /// the stars: every song change, star and finished download rebuilt the whole page
     /// (a scrolled shelf jumped back to its start; an open mix grew by 50 songs a track).
-    init(_ body: @escaping @MainActor () -> Void) {
+    init(after delay: Duration? = nil, _ body: @escaping @MainActor () -> Void) {
         self.body = body
+        self.delay = delay
         if Self.depth > 0 {
             let reference = WeakReference(self)
             Task { @MainActor in reference.value?.run() }
@@ -44,8 +47,11 @@ final class Observer {
         defer { Self.depth -= 1 }
         withObservationTracking {
             body()
-        } onChange: {
-            Task { @MainActor in reference.value?.run() }
+        } onChange: { [delay] in
+            Task { @MainActor in
+                if let delay { try? await Task.sleep(for: delay) }
+                reference.value?.run()
+            }
         }
     }
 }

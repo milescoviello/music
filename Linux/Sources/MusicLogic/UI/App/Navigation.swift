@@ -34,8 +34,9 @@ final class Navigation {
     private(set) var coverChanges = 0
     @ObservationIgnored private var roots: [Shell.Section: Entry] = [:]
     @ObservationIgnored private var opened = 0
-    /// Enough to go back through a long evening's browsing; each page kept costs memory.
-    private static let limit = 60
+    /// Enough to go back through an evening's browsing; each page kept holds its covers
+    /// and watches what it shows, so not without end.
+    private static let limit = 30
 
     init(app: AppState, shell: Shell?) {
         self.app = app

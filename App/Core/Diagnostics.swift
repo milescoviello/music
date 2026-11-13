@@ -40,6 +40,10 @@ actor Diagnostics {
     /// The log before it was JSON Lines: one array, newest first. Read once, then removed.
     private let legacyURL: URL
     private var didLoad = false
+    /// Kept open: a launch logs dozens of lines, and opening the file for each was a
+    /// measurable part of a slow machine's start.
+    private var handle: FileHandle?
+    private let encoder = JSONEncoder()
 
     init(directory: URL = Paths.root, limit: Int = 1_000, slack: Int = 250) {
         url = directory.appendingPathComponent("diagnostics.jsonl")
@@ -66,6 +70,8 @@ actor Diagnostics {
         load()
         lines = []
         onDisk = 0
+        try? handle?.close()
+        handle = nil
         try? FileManager.default.removeItem(at: url)
     }
 
@@ -132,17 +138,17 @@ actor Diagnostics {
     }
 
     private func append(_ line: Line) {
-        guard onDisk < limit + slack, var data = try? JSONEncoder().encode(line) else {
+        guard onDisk < limit + slack, var data = try? encoder.encode(line) else {
             rewrite()
             return
         }
         data.append(0x0A)
-        guard let handle = try? FileHandle(forWritingTo: url) else {
+        if handle == nil { handle = try? FileHandle(forWritingTo: url) }
+        guard let handle else {
             // No file yet, or it went: what is in memory is the log.
             rewrite()
             return
         }
-        defer { try? handle.close() }
         do {
             try handle.seekToEnd()
             try handle.write(contentsOf: data)
@@ -154,7 +160,9 @@ actor Diagnostics {
 
     /// The log as it is in memory, in place of the file.
     private func rewrite() {
-        let encoder = JSONEncoder()
+        // The open handle would go on writing to the file this replaces.
+        try? handle?.close()
+        handle = nil
         var data = Data()
         for line in lines.reversed() {
             guard let encoded = try? encoder.encode(line) else { continue }

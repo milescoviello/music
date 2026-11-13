@@ -13,8 +13,11 @@ import Foundation
 /// The pools drift on slow, unequal orbits, so the blend never quite repeats; nothing else
 /// in the window moves. A step a second, each too small to see: every step repaints the
 /// whole window, which eight a second made the app slow. Drawn small and stretched to
-/// fill, as the player's backdrop is: it is all gradient. It stops while the window is
-/// hidden.
+/// fill, as the player's backdrop is: it is all gradient.
+///
+/// It drifts only while the window is the one in use, and not at all on a machine of two
+/// cores or fewer (the 2009 MacBook): there the steps were most of what the app did while
+/// it sat idle. Still, it is the same blend, only not moving.
 @MainActor
 final class WindowBackdrop {
     let root: Overlay
@@ -26,6 +29,12 @@ final class WindowBackdrop {
     private var drift: Task<Void, Never>?
     private var cover: String?
     private var generation = 0
+    private var isMapped = false
+    /// Whether the window is the one in use (`Shell`).
+    var isActive = true {
+        didSet { if isActive != oldValue { update() } }
+    }
+    private static let drifts = ProcessInfo.processInfo.activeProcessorCount > 2
 
     /// Before there is a cover: the app's accent, a deep blue and a violet, quietly.
     private static let resting = [
@@ -47,8 +56,14 @@ final class WindowBackdrop {
             backdrop.aspect = Double(width) / Double(height)
             backdrop.draw()
         }
-        root.onMap { reference.value?.start() }
-        root.onUnmap { reference.value?.stop() }
+        root.onMap {
+            reference.value?.isMapped = true
+            reference.value?.update()
+        }
+        root.onUnmap {
+            reference.value?.isMapped = false
+            reference.value?.update()
+        }
         draw()
     }
 
@@ -72,6 +87,10 @@ final class WindowBackdrop {
             Style.setAccent(self.pools.max { Style.hsl($0).s < Style.hsl($1).s })
             self.draw()
         }
+    }
+
+    private func update() {
+        if Self.drifts, isMapped, isActive { start() } else { stop() }
     }
 
     private func start() {

@@ -73,7 +73,9 @@ final class Shell {
             Task { @MainActor in reference.value?.show(phase) }
         }
         Signal.connect(window.widget, "notify::is-active", pointer: { _ in
-            guard gtk_window_is_active(window.widget.cast()) != 0 else { return }
+            let active = gtk_window_is_active(window.widget.cast()) != 0
+            reference.value?.backdrop.isActive = active
+            guard active else { return }
             reference.value?.becameActive()
         })
         Signal.connectHandled(window.widget, "close-request") {

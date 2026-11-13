@@ -16,7 +16,9 @@ enum HomePage {
         let body = Box.vertical(spacing: 0) { shelves }.margin(horizontal: 12, vertical: 18)
         body.keep(model)
 
-        body.observe {
+        // Rebuilt at most once a fifth of a second: on a launch Home's data lands in a dozen
+        // pieces, and each rebuilt every shelf, which a slow machine felt.
+        body.observe(after: .milliseconds(200)) {
             _ = layoutVersion.value
             _ = model.hasLoaded
             _ = model.recentlyPlayed
