@@ -277,9 +277,35 @@ enum Shelf {
         for card in cards { row.append(card) }
         let scroller = ScrolledWindow(row, horizontal: GTK_POLICY_AUTOMATIC, vertical: GTK_POLICY_NEVER)
             .propagatesNaturalHeight()
+        passesWheelToPage(scroller)
         return Box.vertical(spacing: 8) {
             header
             scroller
         }
+    }
+
+    /// A mouse wheel over a shelf scrolls the page, not the shelf. GTK turns an up-and-down
+    /// wheel into sideways scrolling for a row that only scrolls sideways, so scrolling down
+    /// Home stopped on every shelf the pointer crossed and sent it sideways instead.
+    /// Sideways, a touchpad's two-finger swipe or a tilting wheel, still moves the shelf.
+    static func passesWheelToPage(_ shelf: ScrolledWindow) {
+        let controller = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_BOTH_AXES)!
+        gtk_event_controller_set_propagation_phase(controller, GTK_PHASE_CAPTURE)
+        Signal.connect(controller, "scroll", scroll: { dx, dy in
+            guard dx == 0, dy != 0,
+                  let parent = gtk_widget_get_parent(shelf.widget),
+                  let page = gtk_widget_get_ancestor(parent, gtk_scrolled_window_get_type())
+            else { return false }
+            let adjustment = gtk_scrolled_window_get_vadjustment(page.cast())!
+            let pageSize = gtk_adjustment_get_page_size(adjustment)
+            // A wheel's notch is GTK's own step; a touchpad's delta is already in pixels.
+            let unit = gtk_event_controller_scroll_get_unit(controller.cast())
+            let step = unit == GDK_SCROLL_UNIT_WHEEL ? pow(pageSize, 2.0 / 3.0) : 1
+            let upper = gtk_adjustment_get_upper(adjustment) - pageSize
+            let value = min(max(gtk_adjustment_get_value(adjustment) + dy * step, 0), max(upper, 0))
+            gtk_adjustment_set_value(adjustment, value)
+            return true
+        })
+        gtk_widget_add_controller(shelf.widget, controller)
     }
 }

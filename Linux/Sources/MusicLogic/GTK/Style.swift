@@ -17,13 +17,24 @@ enum Style {
 
         installFonts()
         let provider = gtk_css_provider_new()!
-        gtk_css_provider_load_from_string(provider, css)
+        gtk_css_provider_load_from_string(provider, isSlowMachine ? css + lighter : css)
         gtk_style_context_add_provider_for_display(
             gdk_display_get_default(),
             OpaquePointer(provider),
             guint(GTK_STYLE_PROVIDER_PRIORITY_APPLICATION)
         )
     }
+
+    /// Two cores or fewer (the 2009 MacBook): the soft shadows under every cover and the
+    /// player bar are left out. Each is a blur its GPU worked out again for every frame of a
+    /// scroll, for dozens of covers at once.
+    static let isSlowMachine = ProcessInfo.processInfo.activeProcessorCount <= 2
+
+    private static let lighter = """
+    .card-button .artwork, gridview > child .artwork { box-shadow: none; }
+    .player-bar { box-shadow: inset 0 1px alpha(#ffffff, 0.14); }
+    .artwork.player { box-shadow: 0 4px 10px alpha(black, 0.4); }
+    """
 
     /// Inter, which the app ships so it looks the same on every desktop: installed beside
     /// the app's data by `install.sh`, or read from the source tree while developing.
