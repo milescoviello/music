@@ -241,6 +241,12 @@ struct AlbumDetailView: View {
 
     private func load() async {
         let id = album.id
+        // The copy saved last time at once, the server's in its place when it answers: it
+        // is asked first, as stars and play counts change on the other devices, but the
+        // screen waited on it, empty, for as long as the round trip took.
+        if detail == nil {
+            detail = await appState.cache.load(AlbumDetail.self, for: CacheKey.album(id))
+        }
         if let cached: AlbumDetail = await appState.cached(CacheKey.album(id), {
             [client = appState.client] in try await client.albumDetail(id: id)
         }) {

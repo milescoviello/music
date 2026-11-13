@@ -210,17 +210,33 @@ enum ArtistPage {
         body.append(shelves)
 
         let page = Page.make(artist.name, content: body.margin(horizontal: 12, vertical: 20), heading: false)
+        // The albums by kind, from the saved copy at once and then the server's.
+        let kindShelves = Box.vertical(spacing: 28)
+        shelves.append(kindShelves)
+        func show(_ detail: ArtistDetail) {
+            albumCount.text = detail.albumCount.map { $0 == 1 ? "1 album" : "\($0) albums" } ?? ""
+            if let cover = detail.coverArt {
+                hero.show(cover)
+                if page.coverArt == nil { page.coverArt = cover }
+            }
+            kindShelves.removeAll()
+            for group in LibraryFacets.byReleaseKind(detail.album ?? []) {
+                kindShelves.append(albumShelf(env, "\(group.kind.title)", artist: artist.name, group.albums))
+            }
+        }
         let alive = body.liveness
         Task { @MainActor in
             let client = app.client
-            let detail = try? await client.artistDetail(id: artist.id)
+            // As the album page: the saved copy while the server is asked, which it is
+            // first, for the stars; not saved at all before, so every artist waited on it.
+            let id = artist.id
+            if let saved = await app.cache.load(ArtistDetail.self, for: CacheKey.artist(id)), alive.isAlive {
+                show(saved)
+            }
+            let detail = await app.cached(CacheKey.artist(id)) { try await client.artistDetail(id: id) }
             guard alive.isAlive else { return }
             if let detail {
-                albumCount.text = detail.albumCount.map { $0 == 1 ? "1 album" : "\($0) albums" } ?? ""
-                if let cover = detail.coverArt {
-                    hero.show(cover)
-                    if page.coverArt == nil { page.coverArt = cover }
-                }
+                show(detail)
                 let starredOnServer = detail.starred != nil
                 favourite.observe {
                     let starred = app.userState.isStarred(id: artist.id, serverValue: starredOnServer)
@@ -231,14 +247,10 @@ enum ArtistPage {
                     let starred = app.userState.isStarred(id: artist.id, serverValue: starredOnServer)
                     app.userState.toggleStar(id: artist.id, kind: .artist, currentlyStarred: starred)
                 }
-                for group in LibraryFacets.byReleaseKind(detail.album ?? []) {
-                    shelves.append(albumShelf(env, "\(group.kind.title)", artist: artist.name, group.albums))
-                }
             }
 
             // The chart and the catalogue at once: the chart is one request, the catalogue
             // one per album and cached, so a second visit is instant and works offline.
-            let id = artist.id
             async let chart = try? client.topSongs(artist: artist.name, count: 50)
             async let catalogue: [Song]? = app.cached(CacheKey.artistSongs(id)) { try await client.artistSongs(id: id) }
             let popular = LibraryFacets.popular(chart: await chart ?? [], catalogue: await catalogue ?? [])

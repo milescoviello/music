@@ -316,7 +316,15 @@ struct ArtistDetailView: View {
     }
 
     private func load() async {
-        detail = try? await appState.client.artistDetail(id: artist.id)
+        // The copy saved last time at once, while the server is asked (first, for the
+        // stars); it was never saved, so every artist opened waited on the round trip.
+        let artistID = artist.id
+        if detail == nil {
+            detail = await appState.cache.load(ArtistDetail.self, for: CacheKey.artist(artistID))
+        }
+        detail = await appState.cached(CacheKey.artist(artistID)) { [client = appState.client] in
+            try await client.artistDetail(id: artistID)
+        } ?? detail
 
         isGatheringDiscography = true
         defer { isGatheringDiscography = false }

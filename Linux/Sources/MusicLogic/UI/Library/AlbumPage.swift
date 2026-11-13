@@ -32,6 +32,7 @@ enum AlbumPage {
         }
 
         page.coverArt = album.coverArt
+        var answered = false
 
         loader.run({ () -> AlbumDetail? in
             let id = album.id
@@ -40,6 +41,7 @@ enum AlbumPage {
         }, failure: {
             Loader.empty("Couldn't Load This Album", icon: "network-offline-symbolic", description: "It could not be loaded, and there is no saved copy.")
         }) { detail in
+            answered = true
             songs = detail.songs
             download.songsChanged()
             if page.coverArt == nil { page.coverArt = detail.coverArt }
@@ -54,10 +56,24 @@ enum AlbumPage {
             }
             return content(env, album: album, detail: detail, selection: selection)
         }
+        // The copy saved last time at once, the server's in its place when it answers: the
+        // server is asked first, as stars and play counts change on the other devices, but
+        // waiting on it put a spinner on every album opened, for as long as the round trip
+        // over the tailnet took. The saved copy shows the tracks, without the extras.
+        Task { @MainActor in
+            guard let saved = await app.cache.load(AlbumDetail.self, for: CacheKey.album(album.id)), !answered
+            else { return }
+            songs = saved.songs
+            download.songsChanged()
+            if page.coverArt == nil { page.coverArt = saved.coverArt }
+            loader.bin.child = content(env, album: album, detail: saved, selection: selection, extras: false)
+        }
         return page
     }
 
-    private static func content(_ env: Env, album: AlbumRef, detail: AlbumDetail, selection: TrackSelection) -> Widget {
+    private static func content(
+        _ env: Env, album: AlbumRef, detail: AlbumDetail, selection: TrackSelection, extras withExtras: Bool = true
+    ) -> Widget {
         let app = env.app
         let songs = detail.songs
         let artist = album.artist ?? detail.artist
@@ -146,6 +162,7 @@ enum AlbumPage {
         // after the tracks.
         let extras = Box.vertical(spacing: 24)
         body.append(extras)
+        guard withExtras else { return body.margin(horizontal: 12, vertical: 20) }
         let alive = extras.liveness
         Task { @MainActor in
             let client = app.client
