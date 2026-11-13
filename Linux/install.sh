@@ -46,7 +46,7 @@ esac
 # What the build links against, by pkg-config name, with the package that provides it
 # on Fedora / Debian and Ubuntu / Arch.
 missing=""
-for module in gtk4 libadwaita-1 epoxy libavformat libavcodec libswresample libavutil libpulse rubberband; do
+for module in gtk4 libadwaita-1 epoxy libavformat libavcodec libswresample libavutil libpulse rubberband libcurl; do
     pkg-config --exists "$module" 2>/dev/null || missing="$missing $module"
 done
 if ! command -v swift >/dev/null; then
@@ -57,9 +57,9 @@ if [ -n "$missing" ]; then
     cat >&2 <<EOF
 Missing development files for:$missing
 
-  Fedora:         sudo dnf install gtk4-devel libadwaita-devel libepoxy-devel ffmpeg-free-devel pulseaudio-libs-devel rubberband-devel
-  Debian, Ubuntu: sudo apt install libgtk-4-dev libadwaita-1-dev libepoxy-dev libavformat-dev libavcodec-dev libswresample-dev libpulse-dev librubberband-dev
-  Arch:           sudo pacman -S gtk4 libadwaita libepoxy ffmpeg libpulse rubberband
+  Fedora:         sudo dnf install gtk4-devel libadwaita-devel libepoxy-devel ffmpeg-free-devel pulseaudio-libs-devel rubberband-devel libcurl-devel
+  Debian, Ubuntu: sudo apt install libgtk-4-dev libadwaita-1-dev libepoxy-dev libavformat-dev libavcodec-dev libswresample-dev libpulse-dev librubberband-dev libcurl4-openssl-dev
+  Arch:           sudo pacman -S gtk4 libadwaita libepoxy ffmpeg libpulse rubberband curl
 EOF
     exit 1
 fi

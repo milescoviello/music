@@ -92,7 +92,7 @@ bar, in Inter, which ships with the app (SIL Open Font License,
 the sections, from the header bar, the mouse's side buttons or Alt+Left and Right.
 
 It needs Swift 6, GTK 4 with libadwaita 1.6 or newer, and the development
-files for libepoxy, FFmpeg, PulseAudio and Rubber Band. Then:
+files for libepoxy, FFmpeg, PulseAudio, Rubber Band and libcurl. Then:
 
 ```sh
 Linux/install.sh
