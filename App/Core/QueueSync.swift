@@ -62,6 +62,11 @@ final class QueueSync {
 
     // MARK: - Uploading
 
+    /// A copy run to check the app (`MUSIC_TEST_COPY=1`: the .148 sandbox, the test
+    /// laptop) never uploads its queue: each time one did, it replaced the queue the
+    /// phone was playing with whatever the test had played.
+    static let isTestCopy = ProcessInfo.processInfo.environment["MUSIC_TEST_COPY"] == "1"
+
     /// Debounced. Called on the transitions that matter — track change, pause,
     /// backgrounding — not on a timer, because the position only needs to be roughly
     /// right for another device to pick up.
@@ -69,7 +74,7 @@ final class QueueSync {
     /// Uploads only when the list or the track playing has changed since the last
     /// upload. A pause or a resume on its own is not worth re-sending the whole queue.
     func push(queue: PlaybackQueue, elapsed: Double) {
-        guard client != nil, !queue.isEmpty else { return }
+        guard client != nil, !queue.isEmpty, !Self.isTestCopy else { return }
         let upload = Upload(listID: queue.listID, currentID: queue.current?.id)
         guard upload != lastPushed else { return }
         schedule(queue, elapsed: elapsed, as: upload)
@@ -79,7 +84,7 @@ final class QueueSync {
     /// when another device is most likely to pick up — so the position goes too, if it
     /// has moved since the last upload.
     func pushNow(queue: PlaybackQueue, elapsed: Double) {
-        guard client != nil, !queue.isEmpty else { return }
+        guard client != nil, !queue.isEmpty, !Self.isTestCopy else { return }
         let upload = Upload(listID: queue.listID, currentID: queue.current?.id)
         guard upload != lastPushed || Int(elapsed) != lastPushedSeconds else { return }
         schedule(queue, elapsed: elapsed, as: upload)
