@@ -30,6 +30,25 @@ enum MainLoop {
         g_io_channel_unref(channel)
     }
 
+    /// Returns once GLib has nothing more pressing to do: input, layout, drawing. For a long
+    /// page built in pieces, so a keystroke or a click is never held up behind the rest of
+    /// it. A main-actor `Task.yield()` would not do: the main queue is drained whole, with
+    /// no input between.
+    static func idle() async {
+        final class Waiting: @unchecked Sendable {
+            let continuation: CheckedContinuation<Void, Never>
+            init(_ continuation: CheckedContinuation<Void, Never>) { self.continuation = continuation }
+        }
+        await withCheckedContinuation { continuation in
+            let waiting = Unmanaged.passRetained(Waiting(continuation)).toOpaque()
+            g_idle_add({ data in
+                guard let data else { return 0 }
+                Unmanaged<Waiting>.fromOpaque(data).takeRetainedValue().continuation.resume()
+                return 0
+            }, waiting)
+        }
+    }
+
     /// For running without a GTK application: tests, and the first build of the core.
     static func run() {
         let loop = g_main_loop_new(nil, 0)

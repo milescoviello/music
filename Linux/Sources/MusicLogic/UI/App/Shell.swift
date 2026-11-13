@@ -327,6 +327,10 @@ final class Shell {
     func select(_ section: Section) {
         navigation?.open(section)
         split?.showsContent = true
+        // Search again, from the sidebar or a key: the field takes the keyboard, as it does
+        // when the page first shows. On the page already, it did not, and typing went
+        // nowhere.
+        if section == .search { navigation?.searchEntry?.grabFocus() }
     }
 
     func showContent() {

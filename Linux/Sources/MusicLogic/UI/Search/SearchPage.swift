@@ -202,54 +202,70 @@ enum SearchPage {
             body.append(row)
         }
 
-        if !results.artists.isEmpty {
-            body.append(Shelf.make("Artists", cards: results.artists.prefix(12).map { Cards.artist(env, $0, side: 96) }))
-        }
-        if !results.albums.isEmpty {
-            body.append(Shelf.make("Albums", cards: results.albums.prefix(12).map { Cards.album(env, $0) }))
-        }
-        let wanted = query.trimmingCharacters(in: .whitespaces)
-        let playlists = app.playlistStore.playlists.filter { $0.name.localizedCaseInsensitiveContains(wanted) }
-        if !playlists.isEmpty {
-            let group = PreferencesGroup("Playlists")
-            for playlist in playlists.prefix(4) {
-                let artwork = ArtworkView(app, size: .thumb, side: 40, shape: .thumb)
-                artwork.show(playlist.coverArt, playlistID: playlist.id, fallback: playlist.name)
-                let row = ActionRow(playlist.name, subtitle: playlist.songCount.map { "\($0) songs" }) {
-                    record()
-                    env.open(.playlist(PlaylistRef(playlist)))
-                }
-                row.prefix(artwork.root)
-                group.add(row)
+        // The rest in pieces, each once GTK has nothing more pressing: built at once, the
+        // page held up the keys typed meanwhile, a second on the 2009 MacBook. A newer
+        // search's page takes this one's place, and the pieces stop.
+        Task { @MainActor in
+            // Holding the page here keeps it alive, so whether it is still shown is the test.
+            @MainActor func next() async -> Bool {
+                await MainLoop.idle()
+                return gtk_widget_get_parent(body.widget) != nil
             }
-            body.append(group)
-        }
+            guard await next() else { return }
+            if !results.artists.isEmpty {
+                body.append(Shelf.make("Artists", cards: results.artists.prefix(12).map { Cards.artist(env, $0, side: 96) }))
+            }
+            guard await next() else { return }
+            if !results.albums.isEmpty {
+                body.append(Shelf.make("Albums", cards: results.albums.prefix(12).map { Cards.album(env, $0) }))
+            }
+            guard await next() else { return }
+            let wanted = query.trimmingCharacters(in: .whitespaces)
+            let playlists = app.playlistStore.playlists.filter { $0.name.localizedCaseInsensitiveContains(wanted) }
+            if !playlists.isEmpty {
+                let group = PreferencesGroup("Playlists")
+                for playlist in playlists.prefix(4) {
+                    let artwork = ArtworkView(app, size: .thumb, side: 40, shape: .thumb)
+                    artwork.show(playlist.coverArt, playlistID: playlist.id, fallback: playlist.name)
+                    let row = ActionRow(playlist.name, subtitle: playlist.songCount.map { "\($0) songs" }) {
+                        record()
+                        env.open(.playlist(PlaylistRef(playlist)))
+                    }
+                    row.prefix(artwork.root)
+                    group.add(row)
+                }
+                body.append(group)
+            }
 
-        let rest = Array(results.songs.dropFirst(leading.count).prefix(20))
-        if !rest.isEmpty {
-            body.append(Label(leading.isEmpty ? "Songs" : "More Songs", "shelf-title").xalign(0))
-            body.append(SongList.make(env, rest, source: "Search"))
-        }
-        if !outcome.lyrics.isEmpty {
-            // The song, and the line that matched, so it is plain why it is here.
-            let group = PreferencesGroup("Lyrics")
-            for match in outcome.lyrics {
-                let artwork = ArtworkView(app, size: .thumb, side: 40, shape: .thumb)
-                artwork.show(match.song.coverArt, fallback: match.song.album ?? match.song.title)
-                let row = ActionRow(match.song.title, subtitle: "“\(match.line)” · \(match.song.artist ?? "")") {
-                    record()
-                    app.player.play(songs: [match.song], startingAt: 0, source: "Search")
-                }
-                row.prefix(artwork.root)
-                let song = match.song
-                row.contextMenu { Menus.song(env, song) }
-                group.add(row)
+            guard await next() else { return }
+            let rest = Array(results.songs.dropFirst(leading.count).prefix(20))
+            if !rest.isEmpty {
+                body.append(Label(leading.isEmpty ? "Songs" : "More Songs", "shelf-title").xalign(0))
+                body.append(SongList.make(env, rest, source: "Search"))
             }
-            body.append(group)
+            guard await next() else { return }
+            if !outcome.lyrics.isEmpty {
+                // The song, and the line that matched, so it is plain why it is here.
+                let group = PreferencesGroup("Lyrics")
+                for match in outcome.lyrics {
+                    let artwork = ArtworkView(app, size: .thumb, side: 40, shape: .thumb)
+                    artwork.show(match.song.coverArt, fallback: match.song.album ?? match.song.title)
+                    let row = ActionRow(match.song.title, subtitle: "“\(match.line)” · \(match.song.artist ?? "")") {
+                        record()
+                        app.player.play(songs: [match.song], startingAt: 0, source: "Search")
+                    }
+                    row.prefix(artwork.root)
+                    let song = match.song
+                    row.contextMenu { Menus.song(env, song) }
+                    group.add(row)
+                }
+                body.append(group)
+            }
+            guard await next() else { return }
+            body.append(Button("Search lyrics for “\(query)”", icon: "edit-find-symbolic", "flat") {
+                env.open(.lyricSearch(query))
+            }.halign(GTK_ALIGN_START))
         }
-        body.append(Button("Search lyrics for “\(query)”", icon: "edit-find-symbolic", "flat") {
-            env.open(.lyricSearch(query))
-        }.halign(GTK_ALIGN_START))
         return body
     }
 
