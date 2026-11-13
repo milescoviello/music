@@ -1,8 +1,9 @@
 import CGtk
 import Foundation
 
-/// The window: a sidebar of sections where the phone has tabs, each section its own stack
-/// of pages, and the player as a layer over it all — the mini player along the bottom, the
+/// The window: a sidebar of sections where the phone has tabs, one history of pages through
+/// all of them (`Navigation`), and the player as a layer over it all — the player bar along
+/// the bottom, the
 /// full player sliding up to fill the window, as Plexamp's does.
 ///
 /// Narrow, the sidebar folds away and the window works like the phone: one page at a time,
@@ -11,6 +12,9 @@ import Foundation
 final class Shell {
     enum Section: String, CaseIterable {
         case home, library, search, downloads, settings
+
+        /// The sidebar's sections, in its order; Settings sits apart at the bottom.
+        static let listed: [Section] = [.home, .search, .library, .downloads]
 
         var title: String {
             switch self {
@@ -38,14 +42,13 @@ final class Shell {
     /// Whether the window still exists: quitting after it has closed must not touch it.
     private let windowAlive: WeakObject
     private let toasts: ToastOverlay
+    private let backdrop: WindowBackdrop
     private let root = Bin()
-    private var navigations: [Section: Navigation] = [:]
-    private var content = Stack(transition: GTK_STACK_TRANSITION_TYPE_NONE)
-    private var sidebar: ListBox?
+    private(set) var navigation: Navigation?
     private var split: NavigationSplitView?
     private var sheet: PlayerLayer?
     private var builtFor: AppState.Phase?
-    private(set) var section: Section = .home
+    var section: Section { navigation?.section ?? .home }
 
     init(application: OpaquePointer, app: AppState) {
         self.app = app
@@ -56,7 +59,11 @@ final class Shell {
         gtk_window_set_title(window.widget.cast(), "Music")
 
         toasts = ToastOverlay(root)
-        adw_application_window_set_content(window.widget.cast(), toasts.widget)
+        // Everything over the cover's colours, the toasts' overlay sizing the window.
+        backdrop = WindowBackdrop(app: app)
+        backdrop.root.add(toasts)
+        gtk_overlay_set_measure_overlay(backdrop.root.widget.cast(), toasts.widget, 1)
+        adw_application_window_set_content(window.widget.cast(), backdrop.root.widget)
         restoreSize()
         window.keep(self)
 
@@ -143,7 +150,7 @@ final class Shell {
         case .loading:
             root.child = Spinner().size(48).halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_CENTER)
         case .needsSetup:
-            navigations = [:]
+            navigation = nil
             root.child = SetupPage.make(app)
         case .ready:
             root.child = makeMain()
@@ -153,29 +160,31 @@ final class Shell {
     // MARK: - The main layout
 
     private func makeMain() -> Widget {
-        content = Stack(transition: GTK_STACK_TRANSITION_TYPE_CROSSFADE)
-        navigations = [:]
+        let navigation = Navigation(app: app, shell: self)
+        self.navigation = navigation
+        NavigationPage.coverChanged = { [weak navigation] in navigation?.coverChanged() }
         for section in Section.allCases {
-            let navigation = Navigation(app: app, shell: self)
-            navigation.setRoot(Pages.root(section, env: navigation.env))
-            navigations[section] = navigation
-            content.add(navigation.view, name: section.rawValue)
+            navigation.addRoot(section, Pages.root(section, env: navigation.env))
         }
 
         let sidebarPage = makeSidebar()
-        let contentPage = NavigationPage(content, title: "Music", tag: "content")
+        let contentPage = NavigationPage(navigation.view, title: "Music", tag: "content")
         let split = NavigationSplitView(sidebar: sidebarPage, content: contentPage)
-            .sidebarWidth(min: 180, max: 260, fraction: 0.22)
+            .sidebarWidth(min: 200, max: 280, fraction: 0.22)
         self.split = split
         addCollapseBreakpoint(split)
+        Signal.connect(split.widget, "notify::collapsed", pointer: { [weak navigation] _ in
+            navigation?.isCollapsed = split.isCollapsed
+        })
+        installHistoryButtons()
 
         let main = ToolbarView(content: split)
         main.top(RemoteQueueBar.make(app))
         main.top(offlineBanner())
 
         let player = NowPlaying(app: app, shell: self)
-        let mini = MiniPlayer(app: app)
-        let sheet = PlayerLayer(content: main, player: player.root, bar: mini.root)
+        let bar = PlayerBar(env: navigation.env, player: player)
+        let sheet = PlayerLayer(content: main, player: player.root, bar: bar.root)
         self.sheet = sheet
         sheet.onOpenChanged { [app] open in
             if app.navigator.showsPlayer != open { app.navigator.showsPlayer = open }
@@ -189,6 +198,16 @@ final class Shell {
             sheet.revealsBar = hasQueue
             sheet.canOpen = hasQueue
             sheet.isOpen = shows && hasQueue
+        }
+        // The backdrop's colours: the page's own cover where it has one (an album, an
+        // artist), else the playing song's; the player always the playing song's.
+        sheet.root.observe { [app] in
+            let playing = app.player.currentSong?.coverArt
+            let open = app.navigator.showsPlayer && app.player.hasQueue
+            let page = navigation.current?.page
+            _ = navigation.coverChanges
+            guard let shell = reference.value else { return }
+            shell.backdrop.show(cover: open ? playing : page?.coverArt ?? playing)
         }
         // Jumps out of the player, and from anywhere else that asks.
         sheet.root.observe { [app] in
@@ -209,27 +228,21 @@ final class Shell {
 
     private func makeSidebar() -> NavigationPage {
         let list = ListBox(boxed: false)
-        gtk_list_box_set_selection_mode(list.widget.cast(), GTK_SELECTION_BROWSE)
+        gtk_list_box_set_selection_mode(list.widget.cast(), GTK_SELECTION_SINGLE)
         list.css("navigation-sidebar")
-        for section in Section.allCases {
-            let label = Label(section.title).hexpand()
-            let row = Box.horizontal(spacing: 12) {
-                Icon(section.icon)
-                label
-            }.margin(horizontal: 6, vertical: 6)
-            if section == .downloads {
-                let badge = Label("", "badge").valign(GTK_ALIGN_CENTER)
-                row.append(badge)
-                badge.observe { [app] in
-                    let count = app.downloads.activeCount
-                    badge.text = String(count)
-                    badge.isVisible = count > 0
-                }
-            }
-            list.append(row) { [weak self] in self?.select(section) }
+        for section in Section.listed {
+            list.append(sidebarRow(section)) { [weak self] in self?.select(section) }
         }
-        sidebar = list
 
+        let settings = ListBox(boxed: false)
+        gtk_list_box_set_selection_mode(settings.widget.cast(), GTK_SELECTION_SINGLE)
+        settings.css("navigation-sidebar")
+        settings.append(sidebarRow(.settings)) { [weak self] in self?.select(.settings) }
+
+        let body = Box.vertical(spacing: 0) {
+            list
+            pinnedList()
+        }
         let header = HeaderBar().title(WindowTitle("Music"))
         header.end(MenuButton(icon: "open-menu-symbolic", "flat") { [app] in
             Menu([
@@ -238,33 +251,111 @@ final class Shell {
                 [.action("Quit") { if let application = Desktop.application { g_application_quit(application.cast()) } }],
             ])
         })
-        let page = ToolbarView(content: ScrolledWindow(list).vexpand()).top(header)
+        let page = ToolbarView(content: Box.vertical(spacing: 0) {
+            ScrolledWindow(body).vexpand()
+            settings.margins(top: 0, bottom: 6, start: 0, end: 0)
+        }).top(header)
+        page.css("sidebar-pane")
+
+        // The row of the section showing, whichever way it was reached.
+        page.observe { [weak self] in
+            guard let self, let navigation else { return }
+            let section = navigation.section
+            gtk_list_box_unselect_all(list.widget.cast())
+            gtk_list_box_unselect_all(settings.widget.cast())
+            if let index = Section.listed.firstIndex(of: section),
+               let row = gtk_list_box_get_row_at_index(list.widget.cast(), Int32(index)) {
+                gtk_list_box_select_row(list.widget.cast(), row)
+            } else if section == .settings, let row = gtk_list_box_get_row_at_index(settings.widget.cast(), 0) {
+                gtk_list_box_select_row(settings.widget.cast(), row)
+            }
+        }
         return NavigationPage(page, title: "Music", tag: "sidebar")
     }
 
-    /// Selects a section, showing its page stack where it was left.
-    func select(_ section: Section) {
-        self.section = section
-        content.visibleName = section.rawValue
-        if let sidebar, let index = Section.allCases.firstIndex(of: section),
-           let row = gtk_list_box_get_row_at_index(sidebar.widget.cast(), Int32(index)) {
-            gtk_list_box_select_row(sidebar.widget.cast(), row)
+    private func sidebarRow(_ section: Section) -> Widget {
+        let row = Box.horizontal(spacing: 12) {
+            Icon(section.icon)
+            Label(section.title).hexpand().xalign(0)
+        }.margin(horizontal: 6, vertical: 6)
+        if section == .downloads {
+            let badge = Label("", "badge").valign(GTK_ALIGN_CENTER)
+            row.append(badge)
+            badge.observe { [app] in
+                let count = app.downloads.activeCount
+                badge.text = String(count)
+                badge.isVisible = count > 0
+            }
         }
+        return row
+    }
+
+    /// The playlists pinned in Library, under the sections: the phone's "my main 4".
+    private func pinnedList() -> Widget {
+        let heading = Label("Pinned", "sidebar-heading").xalign(0).margins(top: 18, bottom: 4, start: 18, end: 12)
+        let list = ListBox(boxed: false)
+        list.css("navigation-sidebar", "pinned-list")
+        let box = Box.vertical(spacing: 0) {
+            heading
+            list
+        }
+        box.observe { [app, weak self] in
+            let pinned = app.playlistArrangement.pinned
+            let playlists = app.playlistStore.playlists
+            let shown = pinned.compactMap { id in playlists.first { $0.id == id } }
+            list.removeAll()
+            box.isVisible = !shown.isEmpty
+            for playlist in shown {
+                let artwork = ArtworkView(app, size: .thumb, side: 32, shape: .thumb)
+                artwork.show(playlist.coverArt, playlistID: playlist.id, fallback: playlist.name)
+                let row = Box.horizontal(spacing: 10) {
+                    artwork.root
+                    Label(playlist.name).hexpand().xalign(0).ellipsize()
+                }.margin(horizontal: 6, vertical: 2)
+                let ref = PlaylistRef(id: playlist.id, name: playlist.name, coverArt: playlist.coverArt)
+                list.append(row) { self?.navigation?.push(.playlist(ref)) }
+            }
+        }
+        return box
+    }
+
+    /// Selects a section from the sidebar, a menu or a key: its first page, as a step in
+    /// the history; on it already, the top of it.
+    func select(_ section: Section) {
+        navigation?.open(section)
         split?.showsContent = true
     }
 
-    func navigation(_ section: Section) -> Navigation? {
-        navigations[section]
+    func showContent() {
+        split?.showsContent = true
+    }
+
+    func showSidebar() {
+        split?.showsContent = false
     }
 
     private func takeNavigationRequests() {
         let requests = app.navigator.takeRequests()
-        guard !requests.isEmpty, let library = navigations[.library] else { return }
-        if app.navigator.wantsLibraryTab {
-            select(.library)
-            app.navigator.didSelectLibraryTab()
-        }
-        for destination in requests { library.push(destination) }
+        guard !requests.isEmpty, let navigation else { return }
+        if app.navigator.wantsLibraryTab { app.navigator.didSelectLibraryTab() }
+        for destination in requests { navigation.push(destination) }
+    }
+
+    /// The mouse's back and forward buttons, anywhere in the window.
+    private func installHistoryButtons() {
+        let gesture = gtk_gesture_click_new()!
+        gtk_gesture_single_set_button(gesture.cast(), 0)
+        gtk_event_controller_set_propagation_phase(gesture.cast(), GTK_PHASE_CAPTURE)
+        let reference = WeakReference(self)
+        Signal.connect(gesture, "pressed", press: { _, _, _ in
+            guard let shell = reference.value, shell.sheet?.isOpen != true else { return }
+            switch gtk_gesture_single_get_current_button(gesture.cast()) {
+            case 8: shell.navigation?.goBack()
+            case 9: shell.navigation?.goForward()
+            default: return
+            }
+        })
+        gtk_widget_add_controller(window.widget, gesture.cast())
     }
 
     /// Below 640 points wide, one page at a time, as on the phone.
@@ -340,7 +431,8 @@ final class Shell {
     // MARK: - Keys
 
     /// Space plays and pauses, as in every desktop player — unless typing. Ctrl+F searches;
-    /// Ctrl+Left and Right skip; Escape closes the player.
+    /// Ctrl+Left and Right skip; Alt+Left and Right go back and forward; Escape closes the
+    /// player.
     private func installKeys() {
         let controller = gtk_event_controller_key_new()!
         gtk_event_controller_set_propagation_phase(controller, GTK_PHASE_CAPTURE)
@@ -348,6 +440,7 @@ final class Shell {
         Signal.connect(controller, "key-pressed", key: { keyval, _, state in
             guard let shell = reference.value, shell.app.phase == .ready else { return false }
             let control = state.rawValue & GDK_CONTROL_MASK.rawValue != 0
+            let alt = state.rawValue & GDK_ALT_MASK.rawValue != 0
             let typing = shell.isTyping
             switch Int32(keyval) {
             case GDK_KEY_space where !typing && !control:
@@ -356,7 +449,19 @@ final class Shell {
             case GDK_KEY_f where control:
                 shell.sheet?.isOpen = false
                 shell.select(.search)
-                SearchPage.focus(shell.navigations[.search])
+                SearchPage.focus(shell.navigation)
+                return true
+            case GDK_KEY_Left where alt && shell.sheet?.isOpen != true:
+                shell.navigation?.goBack()
+                return true
+            case GDK_KEY_Right where alt && shell.sheet?.isOpen != true:
+                shell.navigation?.goForward()
+                return true
+            case GDK_KEY_Back:
+                shell.navigation?.goBack()
+                return true
+            case GDK_KEY_Forward:
+                shell.navigation?.goForward()
                 return true
             case GDK_KEY_Right where control:
                 shell.app.player.next()

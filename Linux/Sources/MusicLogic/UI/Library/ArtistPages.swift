@@ -135,6 +135,38 @@ final class ArtistRowCell {
 /// An artist: Play and Shuffle over the most popular songs, then the discography split
 /// Plexamp's way — Albums, Singles & EPs, Live, Compilations — what they appear on, who
 /// sounds like them, and what the server knows about them.
+/// An artist's picture across the top of the page, cropped to fill, the name over its
+/// lower edge. No picture: the name over the window's own colours.
+@MainActor
+final class ArtistHero {
+    let root: Overlay
+    private let picture = Picture().fit(GTK_CONTENT_FIT_COVER)
+    private let app: AppState
+    private var shown: String?
+
+    init(_ app: AppState, name: String) {
+        self.app = app
+        gtk_picture_set_can_shrink(picture.widget.cast(), 1)
+        let scrim = Box.vertical {}.css("hero-scrim").hexpand().vexpand()
+        let title = Label(name, "hero-name").xalign(0).ellipsize().halign(GTK_ALIGN_FILL).valign(GTK_ALIGN_END)
+        title.margins(top: 0, bottom: 18, start: 24, end: 24)
+        root = Overlay(picture)
+        root.add(scrim).add(title)
+        root.css("artist-hero").clipped().size(width: -1, height: 280).hexpand()
+        root.keep(self)
+    }
+
+    func show(_ cover: String?) {
+        guard let cover, cover != shown else { return }
+        shown = cover
+        let alive = root.liveness
+        Task { @MainActor in
+            guard let texture = await app.artwork.image(for: cover, size: .full), alive.isAlive else { return }
+            self.picture.set(texture)
+        }
+    }
+}
+
 @MainActor
 enum ArtistPage {
     private static let popularStep = 5
@@ -151,23 +183,24 @@ enum ArtistPage {
         radio.tooltip("Start Artist Radio")
 
         let body = Box.vertical(spacing: 28)
-        let artwork = ArtworkView(app, size: .card, side: 140, shape: .round)
-        artwork.show(artist.coverArt, fallback: artist.name)
-        let albumCount = Label("", "dim")
+        let albumCount = Label("", "hero-meta").xalign(0)
         let play = Button("Play", icon: "media-playback-start-symbolic", "suggested-action", "pill")
-        let shuffle = Button("Shuffle", icon: "media-playlist-shuffle-symbolic", "pill")
+        let shuffle = Button("Shuffle", icon: "media-playlist-shuffle-symbolic", "pill", "glass-pill")
+        let radioPill = Button("Radio", icon: "network-wireless-symbolic", "pill", "glass-pill") { gtk_widget_activate(radio.widget) }
+        favourite.css("circular", "glass-pill")
         play.isSensitive = false
         shuffle.isSensitive = false
-        body.append(Box.horizontal(spacing: 24) {
-            artwork.root
-            Box.vertical(spacing: 6) {
-                Label(artist.name, "page-title").wrap()
-                albumCount
-                Box.horizontal(spacing: 8) {
-                    play
-                    shuffle
-                }.margins(top: 12)
-            }.valign(GTK_ALIGN_CENTER).hexpand()
+        let hero = ArtistHero(app, name: artist.name)
+        hero.show(artist.coverArt)
+        body.append(Box.vertical(spacing: 16) {
+            hero.root
+            Box.horizontal(spacing: 10) {
+                play
+                shuffle
+                radioPill
+                favourite.valign(GTK_ALIGN_CENTER)
+                albumCount.hexpand().margins(top: 0, bottom: 0, start: 8, end: 0)
+            }
         })
         body.append(HermesNoteView.make(env, subject: .artist(id: artist.id, name: artist.name), compact: true))
 
@@ -176,6 +209,7 @@ enum ArtistPage {
         body.append(popularBox)
         body.append(shelves)
 
+        let page = Page.make(artist.name, content: body.margin(horizontal: 12, vertical: 20), heading: false)
         let alive = body.liveness
         Task { @MainActor in
             let client = app.client
@@ -183,7 +217,10 @@ enum ArtistPage {
             guard alive.isAlive else { return }
             if let detail {
                 albumCount.text = detail.albumCount.map { $0 == 1 ? "1 album" : "\($0) albums" } ?? ""
-                if let cover = detail.coverArt { artwork.show(cover, fallback: artist.name) }
+                if let cover = detail.coverArt {
+                    hero.show(cover)
+                    if page.coverArt == nil { page.coverArt = cover }
+                }
                 let starredOnServer = detail.starred != nil
                 favourite.observe {
                     let starred = app.userState.isStarred(id: artist.id, serverValue: starredOnServer)
@@ -234,17 +271,16 @@ enum ArtistPage {
             }
         }
 
-        return Page.make(artist.name, content: body.margin(horizontal: 12, vertical: 24)) { bar in
-            bar.end(radio)
-            bar.end(favourite)
-        }
+        page.coverArt = artist.coverArt
+        return page
     }
 
     /// Popular songs, five at a time; a row plays the whole list from there.
     private static func showPopular(_ env: Env, _ songs: [Song], artist: ArtistRef, in box: Box, visible: Int) {
         box.removeAll()
-        box.append(Label("Popular", "shelf-title"))
-        let list = ListBox()
+        box.append(Label("Top Songs", "shelf-title").xalign(0))
+        let list = ListBox(boxed: false)
+        list.css("track-list")
         for (index, song) in songs.prefix(visible).enumerated() {
             let row = SongRowView(env, style: .artwork, showsNavigation: false)
             row.bind(song)

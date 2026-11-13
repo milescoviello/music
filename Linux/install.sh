@@ -22,6 +22,7 @@ CONFIG="$PREFIX/share/$ID/install.conf"
 
 uninstall() {
     rm -f "$PREFIX/bin/music" "$PREFIX/bin/music-update" "$PREFIX/share/applications/$ID.desktop" "$CONFIG"
+    rm -rf "$PREFIX/share/$ID/fonts"
     for size in $SIZES; do rm -f "$PREFIX/share/icons/hicolor/${size}x$size/apps/$ID.png"; done
     refresh
     echo "Removed. Settings are in ~/.config/music.plist, the library cache and downloads in ~/.local/share/$ID."
@@ -110,6 +111,11 @@ mkdir -p "$PREFIX/share/applications"
 sed "s|^Exec=music|Exec=$PREFIX/bin/music|" "Linux/Resources/$ID.desktop" > "$PREFIX/share/applications/$ID.desktop"
 for size in $SIZES; do
     install -Dm644 "Linux/Resources/icons/hicolor/${size}x$size/apps/$ID.png" "$PREFIX/share/icons/hicolor/${size}x$size/apps/$ID.png"
+done
+# Inter, the app's typeface, which the app loads itself rather than installing it for
+# every program.
+for font in InterVariable.ttf InterVariable-Italic.ttf Inter-LICENSE.txt; do
+    install -Dm644 "Linux/Resources/fonts/$font" "$PREFIX/share/$ID/fonts/$font"
 done
 refresh
 

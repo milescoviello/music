@@ -1,11 +1,62 @@
 import CGtk
 import Foundation
 
-/// The Library section's first page: every way into the library as a list, Plexamp's
-/// categories after Navidrome's own, and the most recently added albums beneath.
+/// The Library section's first page: tabs across the header bar for Playlists, Artists,
+/// Albums, Tracks and Genres, each list right there with its own sorting and filters,
+/// and More for every other way in — Plexamp's categories, the folders, the tools — with
+/// the most recently added albums beneath.
+///
+/// Each tab is its own whole page, kept, so it is found scrolled where it was left;
+/// switching tabs is not a step in the history. The tab last chosen is remembered.
 @MainActor
 enum LibraryHub {
+    private static let tabKey = "library.tab"
+
     static func make(_ env: Env) -> NavigationPage {
+        let tabs: [(name: String, title: String, page: @MainActor () -> NavigationPage)] = [
+            ("playlists", "Playlists", { PlaylistList.make(env) }),
+            ("artists", "Artists", { ArtistList.make(env) }),
+            ("albums", "Albums", { AlbumList.make(env, sort: .alphabeticalByName) }),
+            ("tracks", "Tracks", { TracksPage.make(env) }),
+            ("genres", "Genres", { GenreList.make(env) }),
+            ("more", "More", { more(env) }),
+        ]
+        let stack = Stack(transition: GTK_STACK_TRANSITION_TYPE_NONE)
+        gtk_stack_set_hhomogeneous(stack.widget.cast(), 0)
+        gtk_stack_set_vhomogeneous(stack.widget.cast(), 0)
+        var built: Set<String> = []
+        var switchers: [[ToggleButton]] = []
+
+        func choose(_ name: String) {
+            // Built on first showing: the tracks list alone is the whole library.
+            if !built.contains(name), let tab = tabs.first(where: { $0.name == name }) {
+                built.insert(name)
+                let page = tab.page()
+                if let header = page.header {
+                    let toggles = tabs.map { other in
+                        ToggleButton(other.title, "flat", "library-tab") { on in if on { choose(other.name) } }
+                    }
+                    for toggle in toggles.dropFirst() { toggle.group(with: toggles[0]) }
+                    header.title(Box.horizontal(spacing: 2) { toggles }.css("library-tabs"))
+                    switchers.append(toggles)
+                    env.navigation.addButtons(to: page)
+                }
+                stack.add(page, name: name)
+            }
+            for toggles in switchers {
+                for (toggle, tab) in zip(toggles, tabs) { toggle.isActive = tab.name == name }
+            }
+            stack.visibleName = name
+            UserDefaults.standard.set(name, forKey: tabKey)
+        }
+
+        let remembered = UserDefaults.standard.string(forKey: tabKey)
+        choose(tabs.contains { $0.name == remembered } ? remembered! : "albums")
+        return NavigationPage(stack, title: "Library")
+    }
+
+    /// Every other way into the library.
+    private static func more(_ env: Env) -> NavigationPage {
         let app = env.app
         func row(_ title: String, _ icon: String, _ destination: Destination) -> ActionRow {
             let row = ActionRow(title, icon: icon) { env.open(destination) }
@@ -14,13 +65,8 @@ enum LibraryHub {
         }
 
         let main = PreferencesGroup {
-            row("Playlists", "view-list-symbolic", .playlists)
-            row("Artists", "avatar-default-symbolic", .artists)
-            row("Albums", "media-optical-symbolic", .albums(.alphabeticalByName))
-            row("Tracks", "audio-x-generic-symbolic", .tracks)
             row("Recently Played", "document-open-recent-symbolic", .albums(.recent))
             row("Most Played", "view-continuous-symbolic", .albums(.frequent))
-            row("Genres", "applications-multimedia-symbolic", .genres)
             row("Stations", "network-wireless-symbolic", .stations)
             row("Charts", "power-profile-performance-symbolic", .charts)
         }
@@ -72,7 +118,7 @@ enum LibraryHub {
                 recentGroup.isVisible = !albums.isEmpty
             }
         }
-        return Page.make("Library", content: content) { bar in
+        return Page.make("More", content: content) { bar in
             bar.end(ScopeMenu.make(app))
         }
     }

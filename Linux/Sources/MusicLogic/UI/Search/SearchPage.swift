@@ -90,7 +90,7 @@ enum SearchPage {
     /// Ctrl+F: the field takes the keyboard.
     static func focus(_ navigation: Navigation?) {
         guard let navigation, let entry = navigation.searchEntry else { return }
-        navigation.view.popToRoot()
+        navigation.open(.search)
         entry.grabFocus()
     }
 
@@ -133,7 +133,7 @@ enum SearchPage {
     private static func resultsView(_ env: Env, query: String, outcome: SearchService.Outcome?) -> Widget {
         let app = env.app
         let body = Box.vertical(spacing: 18)
-        let record = { app.recentSearches.record(query) }
+        let record: @MainActor () -> Void = { app.recentSearches.record(query) }
 
         guard let outcome else {
             return StatusPage(
@@ -178,37 +178,30 @@ enum SearchPage {
             body.append(Button("Ask Hermes to Find “\(query)”", "pill") { env.open(.requestMusic(query)) }.halign(GTK_ALIGN_START))
         }
 
-        if let top = SearchRanking.topResult(for: outcome.rankedFor, in: results) {
-            let group = PreferencesGroup("Top Result")
-            switch top {
-            case let .artist(artist):
-                let artwork = ArtworkView(app, size: .thumb, side: 64, shape: .round)
-                artwork.show(artist.coverArt, fallback: artist.name)
-                let row = ActionRow(artist.name, subtitle: "Artist") {
-                    record()
-                    env.open(.artist(ArtistRef(artist)))
-                }
-                row.prefix(artwork.root)
-                row.suffix(Button(icon: "network-wireless-symbolic", "flat", "circular") {
-                    app.stations.play(.artistMix(ids: [artist.id], names: [artist.name]))
-                }.tooltip("Play \(artist.name) Radio").valign(GTK_ALIGN_CENTER))
-                group.add(row)
-            case let .album(album):
-                let artwork = ArtworkView(app, size: .thumb, side: 64, shape: .thumb)
-                artwork.show(album.coverArt, fallback: album.name)
-                let row = ActionRow(album.name, subtitle: ["Album", album.artist, album.year.map(String.init)].compactMap { $0 }.joined(separator: " · ")) {
-                    record()
-                    env.open(.album(AlbumRef(album)))
-                }
-                row.prefix(artwork.root)
-                row.contextMenu { Menus.album(env, album) }
-                group.add(row)
-            case let .song(song):
-                group.add(SongList.make(env, [song], source: "Search"))
+        // The top result as a card, the first songs beside it.
+        let top = SearchRanking.topResult(for: outcome.rankedFor, in: results)
+        let leading = Array(results.songs.prefix(top == nil ? 0 : 4))
+        if let top {
+            let songs = Box.vertical(spacing: 6) {
+                Label("Songs", "shelf-title").xalign(0)
+                SongList.make(env, leading, source: "Search")
             }
-            body.append(group)
+            songs.isVisible = !leading.isEmpty
+            body.append(Box.horizontal(spacing: 24) {
+                Box.vertical(spacing: 6) {
+                    Label("Top Result", "shelf-title").xalign(0)
+                    topCard(env, top, record: record)
+                }
+                songs.hexpand()
+            })
         }
 
+        if !results.artists.isEmpty {
+            body.append(Shelf.make("Artists", cards: results.artists.prefix(12).map { Cards.artist(env, $0, side: 96) }))
+        }
+        if !results.albums.isEmpty {
+            body.append(Shelf.make("Albums", cards: results.albums.prefix(12).map { Cards.album(env, $0) }))
+        }
         let wanted = query.trimmingCharacters(in: .whitespaces)
         let playlists = app.playlistStore.playlists.filter { $0.name.localizedCaseInsensitiveContains(wanted) }
         if !playlists.isEmpty {
@@ -226,15 +219,10 @@ enum SearchPage {
             body.append(group)
         }
 
-        if !results.artists.isEmpty {
-            body.append(Shelf.make("Artists", cards: results.artists.prefix(12).map { Cards.artist(env, $0, side: 96) }))
-        }
-        if !results.albums.isEmpty {
-            body.append(Shelf.make("Albums", cards: results.albums.prefix(12).map { Cards.album(env, $0) }))
-        }
-        if !results.songs.isEmpty {
-            body.append(Label("Songs", "shelf-title"))
-            body.append(SongList.make(env, Array(results.songs.prefix(20)), source: "Search"))
+        let rest = Array(results.songs.dropFirst(leading.count).prefix(20))
+        if !rest.isEmpty {
+            body.append(Label(leading.isEmpty ? "Songs" : "More Songs", "shelf-title").xalign(0))
+            body.append(SongList.make(env, rest, source: "Search"))
         }
         if !outcome.lyrics.isEmpty {
             // The song, and the line that matched, so it is plain why it is here.
@@ -258,4 +246,63 @@ enum SearchPage {
         }.halign(GTK_ALIGN_START))
         return body
     }
+
+    /// The top result, large: a click opens it (a song plays), the round button plays it.
+    private static func topCard(_ env: Env, _ top: SearchRanking.TopResult, record: @escaping @MainActor () -> Void) -> Widget {
+        let app = env.app
+        let name: String
+        let kind: String
+        let artwork: ArtworkView
+        let open: @MainActor () -> Void
+        let play: @MainActor () -> Void
+        switch top {
+        case let .artist(artist):
+            artwork = ArtworkView(app, size: .card, side: 112, shape: .round)
+            artwork.show(artist.coverArt, fallback: artist.name)
+            name = artist.name
+            kind = "Artist"
+            open = { env.open(.artist(ArtistRef(artist))) }
+            play = { app.stations.play(.artistMix(ids: [artist.id], names: [artist.name])) }
+        case let .album(album):
+            artwork = ArtworkView(app, size: .card, side: 112, shape: .card)
+            artwork.show(album.coverArt, fallback: album.name)
+            name = album.name
+            kind = ["Album", album.artist].compactMap { $0 }.joined(separator: " · ")
+            open = { env.open(.album(AlbumRef(album))) }
+            play = {
+                Task {
+                    guard let detail = try? await app.client.albumDetail(id: album.id), !detail.songs.isEmpty else { return }
+                    env.play(detail.songs, source: album.name)
+                }
+            }
+        case let .song(song):
+            artwork = ArtworkView(app, size: .card, side: 112, shape: .card)
+            artwork.show(song.coverArt, fallback: song.album ?? song.title)
+            name = song.title
+            kind = ["Song", song.artist].compactMap { $0 }.joined(separator: " · ")
+            open = { env.play([song], source: "Search") }
+            play = open
+        }
+        let content = Box.vertical(spacing: 4) {
+            artwork.root.halign(GTK_ALIGN_START).margins(top: 0, bottom: 10, start: 0, end: 0)
+            Label(name, "top-name").xalign(0).ellipsize().maxWidthChars(1)
+            Label(kind, "top-kind").xalign(0).ellipsize().maxWidthChars(1)
+        }
+        let card = Button(child: content, "glass", "top-result") {
+            record()
+            open()
+        }
+        let playButton = Button(icon: "media-playback-start-symbolic", "circular", "tile-play", "top-play") {
+            record()
+            play()
+        }
+        playButton.tooltip("Play").halign(GTK_ALIGN_END).valign(GTK_ALIGN_END).margin(16)
+        switch top {
+        case let .album(album): card.contextMenu { Menus.album(env, album) }
+        case let .song(song): card.contextMenu { Menus.song(env, song) }
+        case .artist: break
+        }
+        return Overlay(card).add(playButton).size(width: 340, height: -1)
+    }
+
 }

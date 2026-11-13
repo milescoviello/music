@@ -98,7 +98,12 @@ enum HomePage {
             ))
             return
         }
-        for hub in layout.visible {
+        // Jump Back In leads Home wherever the layout has Recent Plays.
+        let hubs = layout.visible
+        if hubs.contains(.recentPlays), let tiles = HomeTiles.jumpBackIn(env, env.app.recentPlays.recent.origins) {
+            shelves.append(tiles)
+        }
+        for hub in hubs where hub != .recentPlays {
             if let shelf = shelf(env, hub, model: model) { shelves.append(shelf) }
         }
     }
@@ -113,7 +118,7 @@ enum HomePage {
             guard !origins.isEmpty else { return nil }
             return Shelf.make("Recent Plays", cards: origins.map { origin in recentPlay(env, origin) })
         case .stations:
-            return MixPages.stationsShelf(env)
+            return HomeTiles.stations(env)
         case .recentlyPlayed:
             return albums(env, "Recently Played", model.recentlyPlayed, more: .albums(.recent))
         case .recentlyAdded:
@@ -157,7 +162,8 @@ enum HomePage {
             return Shelf.make("On This Day", cards: model.onThisDay.map { entry in
                 let card = Box.vertical(spacing: 2) {
                     Cards.album(env, entry.album)
-                    Label(entry.years == 1 ? "1 year ago today" : "\(entry.years) years ago today", "caption", "accent").margin(horizontal: 6, vertical: 0)
+                    Label(entry.years == 1 ? "1 year ago today" : "\(entry.years) years ago today", "caption", "accent")
+                        .margin(horizontal: 6, vertical: 0).ellipsize().maxWidthChars(1)
                 }
                 return card
             })

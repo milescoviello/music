@@ -85,6 +85,12 @@ Plexamp's visualisers are its shaders in OpenGL. The desktop's media keys and
 panel controls work through MPRIS. The sign-in is kept in the app's own folder,
 in a file only you can read, not in KWallet or GNOME Keyring.
 
+Its look is its own. The colours of the song playing, or of the album or artist
+open, drift slowly behind the whole window, under a frosted sidebar and player
+bar, in Inter, which ships with the app (SIL Open Font License,
+`Linux/Resources/fonts`). Back and Forward go through every page opened, across
+the sections, from the header bar, the mouse's side buttons or Alt+Left and Right.
+
 It needs Swift 6, GTK 4 with libadwaita 1.6 or newer, and the development
 files for libepoxy, FFmpeg, PulseAudio and Rubber Band. Then:
 

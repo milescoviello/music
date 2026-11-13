@@ -259,6 +259,19 @@ final class NowPlaying {
         let layout: Layout = w > 500 && w / h > 1 ? (h > 680 ? .sideBySide : .landscape) : .portrait
         let changed = layout != self.layout
         self.layout = layout
+        if opensLyrics {
+            opensLyrics = false
+            if layout == .sideBySide {
+                if !showsQueueColumn {
+                    showsQueueColumn = true
+                    UserDefaults.standard.set(true, forKey: Self.showsQueueKey)
+                }
+                queuePane.select(.lyrics)
+                if mode == .lyrics { mode = .artwork }
+            } else {
+                mode = .lyrics
+            }
+        }
 
         for piece in [seek, titleBlock, codec, transportRow, toolbar, sideToolbar, posterCell] { piece.isVisible = true }
         var posterSize: Double
@@ -521,10 +534,37 @@ final class NowPlaying {
     // MARK: - Modes
 
     private func select(_ target: Mode) {
+        // Side by side, the lyrics are a tab beside the cover, which stays.
+        if target == .lyrics, layout == .sideBySide {
+            if !showsQueueColumn { toggleQueueColumn() }
+            queuePane.select(.lyrics)
+            if mode == .lyrics { mode = .artwork }
+            arrange()
+            return
+        }
         mode = target
         // Lyrics are for the track at hand; only the visualiser is remembered.
         if target != .lyrics { UserDefaults.standard.set(target == .visualizer, forKey: Self.visualizerKey) }
         arrange()
+    }
+
+    /// From the player bar: the player, showing `target`. The lyrics wait for the layout,
+    /// which says whether they go beside the cover or in its place.
+    func open(_ target: Mode) {
+        if target == .lyrics, layout == nil {
+            opensLyrics = true
+        } else {
+            select(target)
+        }
+        app.navigator.showsPlayer = true
+    }
+
+    private var opensLyrics = false
+
+    /// From the player bar: the player, with Up Next beside it.
+    func openQueue() {
+        if !showsQueueColumn { toggleQueueColumn() }
+        app.navigator.showsPlayer = true
     }
 
     private func toggleQueueColumn() {
@@ -981,7 +1021,7 @@ final class NowPlaying {
         return (row, shuffle, repeatButton)
     }
 
-    private static func shuffleButton(_ app: AppState) -> Button {
+    static func shuffleButton(_ app: AppState) -> Button {
         let player = app.player
         let button = Button(icon: "media-playlist-shuffle-symbolic", "flat", "np-small") { player.toggleShuffle() }
         button.observe {
@@ -991,7 +1031,7 @@ final class NowPlaying {
         return button
     }
 
-    private static func repeatButton(_ app: AppState) -> Button {
+    static func repeatButton(_ app: AppState) -> Button {
         let player = app.player
         let button = Button(icon: "media-playlist-repeat-symbolic", "flat", "np-small") { player.cycleRepeat() }
         button.observe {
@@ -1023,7 +1063,7 @@ final class NowPlaying {
     }
 
     /// The stream's own volume, the same one the desktop's mixer shows for the app.
-    private static func volumeRow() -> Widget {
+    static func volumeRow() -> Widget {
         let volume = OutputVolume.shared
         let scale = Scale(min: 0, max: 1, step: 0.01, value: volume.level)
         // Playing on another computer, that computer's volume for the app, as on the phone.
@@ -1103,7 +1143,9 @@ final class NowPlaying {
     private var sideModeButtons: [Mode: Button] = [:]
 }
 
-/// The cover's colours behind the player, drawn as Plexamp's desktop draws them.
+/// The cover's colours behind the player, drawn as Plexamp's desktop draws them. Except
+/// Ultrablur, which is now the window's drifting backdrop (`WindowBackdrop`) showing
+/// through, so the player and the pages under it are one surface.
 ///
 /// Ultrablur, the default, is four radial gradients over black, one out of each corner in
 /// that corner's colour at 80 %, fading out by 80 % of the way across — Plexamp's CSS,
@@ -1151,7 +1193,9 @@ final class Backdrop {
         }
         root.observe {
             let cover = app.player.currentSong?.coverArt
-            _ = app.playerSettings.background
+            // Ultrablur, the default, is the window's own drifting backdrop, which shows
+            // through; Smooth and Flat are drawn here, over it.
+            reference.value?.picture.opacity(app.playerSettings.background == .ultrablur ? 0 : 1)
             Task { @MainActor in
                 guard let corners = await VisualizerArtworkPalette.corners(for: cover, artwork: app.artwork),
                       let backdrop = reference.value, app.player.currentSong?.coverArt == cover

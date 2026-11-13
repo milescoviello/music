@@ -9,6 +9,11 @@ final class HeaderBar: Widget {
         super.init(adw_header_bar_new()!)
     }
 
+    /// A handle on a header bar that already exists.
+    init(existing pointer: GPointer) {
+        super.init(pointer)
+    }
+
     @discardableResult
     func start(_ child: Widget) -> Self {
         adw_header_bar_pack_start(widget.cast(), child.widget)
@@ -113,6 +118,17 @@ final class ToolbarView: Widget {
 }
 
 final class NavigationPage: Widget {
+    /// Set by `Page.make`: where the history puts Back and Forward, and what a second
+    /// click on the section scrolls to the top.
+    var header: HeaderBar?
+    var scroller: ScrolledWindow?
+    /// The cover whose colours the window's backdrop takes while this page shows: an
+    /// album's, an artist's. Nil takes the playing song's.
+    var coverArt: String? {
+        didSet { if coverArt != oldValue { Self.coverChanged?() } }
+    }
+    static var coverChanged: (@MainActor () -> Void)?
+
     init(_ child: Widget, title: String, tag: String? = nil) {
         super.init(adw_navigation_page_new(child.widget, title)!)
         if let tag { adw_navigation_page_set_tag(widget.cast(), tag) }

@@ -30,6 +30,7 @@ final class SongRowView {
     var ownItems: (@MainActor (Song) -> [Menu.Item])?
 
     init(_ env: Env, style: Style, showsNavigation: Bool = true) {
+        var hoverChanged: (@MainActor (Bool) -> Void)?
         self.env = env
         self.style = style
         artwork = style == .artwork ? ArtworkView(env.app, size: .thumb, side: 40, shape: .thumb) : nil
@@ -38,7 +39,16 @@ final class SongRowView {
         if let artwork {
             leading = artwork.root
         } else {
-            leading = Overlay(number).add(playing.halign(GTK_ALIGN_END)).size(width: 28)
+            // Play in the number's place under the pointer, as a click there plays.
+            let hoverPlay = Icon("media-playback-start-symbolic", size: 14).halign(GTK_ALIGN_END).opacity(0)
+            let number = self.number
+            let playing = self.playing
+            leading = Overlay(number).add(playing.halign(GTK_ALIGN_END)).add(hoverPlay).size(width: 28)
+            hoverChanged = { inside in
+                let shows = inside && !playing.isVisible
+                hoverPlay.opacity(shows ? 1 : 0)
+                number.opacity(shows ? 0 : 1)
+            }
         }
         let (title, subtitle, downloaded, heart, trailing) = (self.title, self.subtitle, self.downloaded, self.heart, self.trailing)
         root = Box.horizontal(spacing: 12) {
@@ -52,6 +62,7 @@ final class SongRowView {
             trailing
         }
         root.css("song-row").margin(horizontal: 0, vertical: 2)
+        if let hover = hoverChanged { root.onHover(hover) }
 
         let reference = WeakReference(self)
         root.contextMenu {
@@ -65,12 +76,13 @@ final class SongRowView {
 
     /// Fills the row. `trailing` replaces the duration when set — a last-played date in a
     /// list where that is the figure worth the space.
-    func bind(_ song: Song, number position: Int? = nil, trailing text: String? = nil) {
+    /// `albumArtist`: an album's own artist, which its tracks then don't repeat.
+    func bind(_ song: Song, number position: Int? = nil, trailing text: String? = nil, albumArtist: String? = nil) {
         self.song = song
         title.text = song.title
         switch style {
         case .numbered:
-            subtitle.text = song.artist ?? ""
+            subtitle.text = song.artist == albumArtist ? "" : song.artist ?? ""
             number.text = position.map(String.init) ?? song.track.map(String.init) ?? ""
         case .artwork:
             subtitle.text = [song.artist, song.album].compactMap { $0 }.joined(separator: " — ")
@@ -156,7 +168,8 @@ final class AlbumCardView {
     /// Set by `bind(_ album:)`, for a menu that follows whichever album the card shows.
     private(set) var album: Album?
 
-    static let side: Int32 = 160
+    /// Five to a row of a wide window.
+    static let side: Int32 = 196
 
     init(_ env: Env, side: Int32 = AlbumCardView.side) {
         let artwork = ArtworkView(env.app, size: .card, side: side, shape: .card)

@@ -8,10 +8,15 @@ import Foundation
 @MainActor
 final class QueuePane {
     enum Tab: Int, CaseIterable {
-        case backTo, upNext, related
+        // Remembered by number, so Lyrics, which came later, comes last here.
+        case backTo, upNext, related, lyrics
+
+        /// In the order the tabs show.
+        static let shown: [Tab] = [.lyrics, .backTo, .upNext, .related]
 
         var title: String {
             switch self {
+            case .lyrics: return "LYRICS"
             case .backTo: return "BACK TO"
             case .upNext: return "UP NEXT"
             case .related: return "RELATED"
@@ -21,7 +26,7 @@ final class QueuePane {
 
     let root: Box
     private let env: Env
-    private let pages = Stack(transition: GTK_STACK_TRANSITION_TYPE_SLIDE_LEFT_RIGHT)
+    private let pages = Stack(transition: GTK_STACK_TRANSITION_TYPE_NONE)
     private var tabButtons: [Tab: ToggleButton] = [:]
     private var tab: Tab
     private let backList = ListBox(boxed: false)
@@ -46,7 +51,7 @@ final class QueuePane {
 
         let bar = Box.horizontal(spacing: 0).homogeneous().css("queue-tabs")
         var first: ToggleButton?
-        for candidate in Tab.allCases {
+        for candidate in Tab.shown {
             let button = ToggleButton(candidate.title, "flat", "queue-tab")
             if let first { button.group(with: first) }
             first = first ?? button
@@ -66,6 +71,8 @@ final class QueuePane {
             autoplay
         }), name: "\(Tab.upNext.rawValue)")
         pages.add(Self.scroller(relatedBox), name: "\(Tab.related.rawValue)")
+        // The lyrics beside the cover, rather than in its place.
+        pages.add(LyricsPane(env: env).root, name: "\(Tab.lyrics.rawValue)")
         pages.vexpand()
 
         let pages = self.pages
@@ -111,6 +118,14 @@ final class QueuePane {
     private static func scroller(_ content: Widget) -> Widget {
         ScrolledWindow(content.margin(horizontal: 6, vertical: 0)).vexpand()
     }
+
+    /// Chooses a tab from outside: the player's Lyrics button, with the queue beside it.
+    func select(_ target: Tab) {
+        tabButtons[target]?.isActive = true
+        show(target)
+    }
+
+    var showsLyrics: Bool { tab == .lyrics }
 
     private func show(_ target: Tab) {
         tab = target
