@@ -20,7 +20,7 @@ final class LyricsPane {
     private let lines = Box.vertical(spacing: 0)
     private let scroller: ScrolledWindow
     private let status = Bin()
-    private var labels: [(line: Label, romanized: Label, translated: Label, time: Label)] = []
+    private var labels: [(line: Label, romanized: Label, translated: Label, note: Label, time: Label)] = []
     private let stack: Stack
     /// What the translation is doing, under the lines' options.
     private let translationNote = Label("", "caption", "dim").wrap().visible(false)
@@ -304,11 +304,13 @@ final class LyricsPane {
             let label = Label(line.value.isEmpty ? "♪" : line.value, "lyric-line").wrap()
             let romanized = Label("", "dim").wrap().visible(false)
             let translated = Label("", "lyric-translation").wrap().visible(false)
+            let note = Label("", "lyric-note").wrap().visible(false)
             let time = Label("", "caption", "dim", "numeric").visible(false)
             let box = Box.vertical(spacing: 2) {
                 label
                 romanized
                 translated
+                note
                 time
             }.margin(horizontal: 0, vertical: 8)
             if clickable {
@@ -318,7 +320,7 @@ final class LyricsPane {
             // While fixing them: a line's words, or the line itself.
             box.contextMenu { reference.value?.lineMenu(index) }
             lines.append(box)
-            labels.append((label, romanized, translated, time))
+            labels.append((label, romanized, translated, note, time))
         }
     }
 
@@ -372,12 +374,14 @@ final class LyricsPane {
     }
 
     /// Each line's English beneath it, from the sonic service, kept on this computer once
-    /// made. Only lyrics not in English, and only the lines that need it.
+    /// made. Only lyrics not in English, and only the lines that need it. A whole-song
+    /// translation made ahead of time on the server (Flash-Next, with notes under the lines
+    /// that need them) replaces any other kept here.
     private func applyTranslation() {
         translating?.cancel()
         guard timing == nil, let lyrics, let id = songID else { return }
         guard env.app.playerSettings.translatesLyrics else {
-            for pair in labels { pair.translated.isVisible = false }
+            for pair in labels { pair.translated.isVisible = false; pair.note.isVisible = false }
             translationNote.isVisible = false
             return
         }
@@ -385,18 +389,21 @@ final class LyricsPane {
         let language = language(of: lyrics)
         let wanted = LyricsLanguage.linesToTranslate(text)
         guard !LyricsLanguage.isEnglish(language), !wanted.isEmpty else {
-            for pair in labels { pair.translated.isVisible = false }
+            for pair in labels { pair.translated.isVisible = false; pair.note.isVisible = false }
             translationNote.isVisible = false
             return
         }
         let sonic = SonicClient(configuration: env.app.sonic.configuration)
         let reference = WeakReference(self)
         translating = Task { @MainActor in
-            @MainActor func show(_ translations: [String?]) {
+            @MainActor func show(_ translations: [String?], _ notes: [String?]) {
                 guard let pane = reference.value, pane.songID == id, pane.labels.count == translations.count else { return }
-                for (pair, english) in zip(pane.labels, translations) {
+                for (index, (pair, english)) in zip(pane.labels, translations).enumerated() {
                     pair.translated.text = english ?? ""
                     pair.translated.isVisible = english != nil
+                    let note = english == nil ? nil : (notes.indices.contains(index) ? notes[index] : nil)
+                    pair.note.text = note ?? ""
+                    pair.note.isVisible = note != nil
                 }
                 pane.translationNote.isVisible = false
             }
@@ -405,23 +412,42 @@ final class LyricsPane {
                 pane.translationNote.text = note
                 pane.translationNote.isVisible = true
             }
-            if let kept = await LyricTranslationStore.shared.translations(songID: id, lines: text) {
-                return show(kept)
+            /// Placed by line: each answer is for `wanted`, the lines asked about.
+            func placed(_ answer: SonicClient.Translated) -> (lines: [String?], notes: [String?]) {
+                var translations = [String?](repeating: nil, count: text.count)
+                var notes = [String?](repeating: nil, count: text.count)
+                for (k, index) in wanted.enumerated() where k < answer.lines.count {
+                    guard answer.lines[k] != text[index] else { continue }
+                    translations[index] = answer.lines[k]
+                    notes[index] = answer.notes.indices.contains(k) ? answer.notes[k] : nil
+                }
+                return (translations, notes)
             }
             let source = wanted.map { text[$0] }
+            if let kept = await LyricTranslationStore.shared.kept(songID: id, lines: text) {
+                show(kept.translations, kept.notes)
+                guard !kept.isFinal else { return }
+                // Kept from before the whole-song translations: one quiet ask for a better one.
+                if case let .done(answer)? = try? await sonic.translate(source, language: language ?? "", songID: id),
+                   answer.isWholeSong, !Task.isCancelled {
+                    let made = placed(answer)
+                    show(made.lines, made.notes)
+                    await LyricTranslationStore.shared.save(made.lines, notes: made.notes, engine: answer.engine, of: text, songID: id)
+                }
+                return
+            }
             say("Translating…")
             // Asked again every few seconds while the service works on it, for up to
             // five minutes.
             for attempt in 0..<75 {
                 guard !Task.isCancelled else { return }
                 do {
-                    switch try await sonic.translate(source, language: language ?? "") {
-                    case let .done(english, draft):
-                        var translations = [String?](repeating: nil, count: text.count)
-                        for (index, line) in zip(wanted, english) where line != text[index] { translations[index] = line }
-                        show(translations)
-                        guard draft else {
-                            await LyricTranslationStore.shared.save(translations, of: text, songID: id)
+                    switch try await sonic.translate(source, language: language ?? "", songID: id) {
+                    case let .done(answer):
+                        let made = placed(answer)
+                        show(made.lines, made.notes)
+                        guard answer.draft else {
+                            await LyricTranslationStore.shared.save(made.lines, notes: made.notes, engine: answer.engine, of: text, songID: id)
                             return
                         }
                         // A draft is shown and not kept; the better one replaces it when it

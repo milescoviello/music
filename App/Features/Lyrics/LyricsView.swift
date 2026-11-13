@@ -152,6 +152,13 @@ struct LyricsView: View {
                             Text(translated)
                                 .font(index == activeIndex ? .body : .callout)
                                 .opacity(0.6)
+                            // Wordplay or an idiom the English can't carry: small and dim,
+                            // readable at a glance without pulling the eye off the line.
+                            if let note = translatedNote(index) {
+                                Text(note)
+                                    .font(.caption)
+                                    .opacity(0.4)
+                            }
                         }
                     }
                     .foregroundStyle(lineColor(for: index))
@@ -511,6 +518,10 @@ struct LyricsView: View {
         translation.lines.indices.contains(index) ? translation.lines[index] : nil
     }
 
+    private func translatedNote(_ index: Int) -> String? {
+        translation.notes.indices.contains(index) ? translation.notes[index] : nil
+    }
+
     private func recentre() {
         guard shouldAutoScroll, let activeIndex else { return }
         withAnimation(.easeInOut(duration: 0.3)) {
@@ -581,11 +592,20 @@ struct LyricsView: View {
         // Only what is quick: a translation still to be made starts once they show.
         readAlong.show(lyrics, songID: song.id)
         await readAlong.update(romanize: settings.romanizesLyrics)
+        // The server's whole-song translation, when it has one; short wait, so the phone's
+        // own translation is not held up away from home.
+        let sonic = SonicClient(configuration: appState.sonic.configuration)
+        let songID = song.id
         await translation.prepare(
             songID: song.id,
             lines: lyrics.lines.map(\.value),
             language: readAlong.language,
-            wanted: false
+            wanted: false,
+            server: { lines, language in
+                guard case let .done(answer)? = try? await sonic.translate(lines, language: language, songID: songID, timeout: 6)
+                else { return nil }
+                return answer
+            }
         )
         guard !Task.isCancelled else { return }
 

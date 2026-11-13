@@ -146,10 +146,19 @@ class Argos:
             return False
 
 
+def _same(line: str) -> str:
+    """A lyric line made comparable: case, spacing and punctuation aside."""
+    return "".join(ch for ch in line.casefold() if ch.isalnum())
+
+
 class Translations:
     def __init__(self, data_dir: Path, ollama: str, model: str) -> None:
         self.dir = data_dir / "translations"
         self.dir.mkdir(parents=True, exist_ok=True)
+        # Whole-song translations made ahead of time on a machine with a big model (the lyrics
+        # job's Flash-Next): `<song id>.json` = {language, source, english, notes, engine}.
+        self.songs = data_dir / "song-translations"
+        self.songs.mkdir(parents=True, exist_ok=True)
         self.argos = Argos(data_dir / "argos")
         self.ollama = ollama.rstrip("/")
         self.model = model
@@ -163,11 +172,48 @@ class Translations:
     def key(language: str, lines: list[str]) -> str:
         return hashlib.sha1(json.dumps([language, lines], ensure_ascii=False).encode()).hexdigest()
 
-    def answer(self, language: str, lines: list[str]) -> tuple[int, dict]:
+    def song(self, song_id: str, lines: list[str]) -> dict | None:
+        """The song's whole-song translation for these lines, matched by their words, so the
+        app may ask for only the lines it needs, in any order, with choruses repeated. None
+        unless every line asked for is in it."""
+        if not song_id or "/" in song_id or song_id.startswith("."):
+            return None
+        path = self.songs / f"{song_id}.json"
+        if not path.is_file():
+            return None
+        try:
+            stored = json.loads(path.read_text())
+            source, english = stored["source"], stored["english"]
+            notes = stored.get("notes") or [None] * len(source)
+        except (ValueError, KeyError, TypeError):
+            return None
+        by_words = {}
+        for line, en, note in zip(source, english, notes):
+            by_words.setdefault(_same(line), (en, note))
+        out_lines, out_notes = [], []
+        for line in lines:
+            if not _same(line):
+                out_lines.append(line); out_notes.append(None)
+                continue
+            found = by_words.get(_same(line))
+            if found is None:
+                return None
+            out_lines.append(found[0] or line); out_notes.append(found[1] or None)
+        answer = {"lines": out_lines, "engine": stored.get("engine") or "song"}
+        if any(out_notes):
+            answer["notes"] = out_notes
+        return answer
+
+    def answer(self, language: str, lines: list[str], song_id: str | None = None) -> tuple[int, dict]:
         """200 with one English line per line (`"draft": true` while it is Argos's), 202
-        while a language Argos has no model for is being done, 503 when that failed."""
+        while a language Argos has no model for is being done, 503 when that failed. A song
+        with a whole-song translation (`song`) answers from it, with its notes."""
         if not lines or len(lines) > 400 or not all(isinstance(line, str) for line in lines):
             return 400, {"error": "between 1 and 400 lines of text"}
+        if song_id:
+            found = self.song(song_id, lines)
+            if found is not None:
+                return 200, found
         key = self.key(language, lines)
         final = self.dir / f"{key}.json"
         draft = self.dir / f"{key}.draft.json"

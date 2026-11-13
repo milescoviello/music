@@ -231,6 +231,8 @@ struct SonicClient: Sendable {
     private struct LyricLines: Encodable {
         var lines: [String]
         var language: String?
+        /// The song, so a whole-song translation made ahead of time can answer.
+        var id: String?
     }
 
     private struct ReadingLines: Decodable {
@@ -239,7 +241,9 @@ struct SonicClient: Sendable {
 
     private struct TranslatedLines: Decodable {
         var lines: [String]?
+        var notes: [String?]?
         var draft: Bool?
+        var engine: String?
         var error: String?
     }
 
@@ -252,24 +256,40 @@ struct SonicClient: Sendable {
         return readings
     }
 
-    enum Translation: Equatable, Sendable {
+    /// English for each line asked for, and a note under the lines that need one.
+    struct Translated: Equatable, Sendable {
+        var lines: [String]
+        /// One per line; nil for most. Wordplay or an idiom the English can't carry.
+        var notes: [String?]
         /// `draft`: the quick offline model's, which the service replaces with its local
         /// model's when the server is quiet. Shown, not kept.
-        case done([String], draft: Bool)
+        var draft: Bool
+        /// "flash-next" for a whole-song translation made ahead of time.
+        var engine: String?
+
+        var isWholeSong: Bool { engine == LyricTranslationStore.wholeSong }
+    }
+
+    enum Translation: Equatable, Sendable {
+        case done(Translated)
         /// Started, or still going: ask again in a few seconds.
         case translating
         case failed(String)
     }
 
-    /// One English line per line, from the service's local model. The first ask starts
-    /// the work; it can take a minute or two on a busy server, and is kept after.
-    func translate(_ lines: [String], language: String) async throws -> Translation {
-        let (data, status) = try await post("v1/lyrics/translate", LyricLines(lines: lines, language: language))
+    /// One English line per line: the song's whole-song translation when the server has
+    /// one (`songID`), else from the service's local model. The first ask starts the work;
+    /// it can take a minute or two on a busy server, and is kept after.
+    func translate(_ lines: [String], language: String, songID: String? = nil,
+                   timeout: TimeInterval = 20) async throws -> Translation {
+        let (data, status) = try await post("v1/lyrics/translate", LyricLines(lines: lines, language: language, id: songID),
+                                            timeout: timeout)
         let answer = try? JSONDecoder().decode(TranslatedLines.self, from: data)
         switch status {
         case 200:
             guard let english = answer?.lines, english.count == lines.count else { throw SonicError.status(status) }
-            return .done(english, draft: answer?.draft == true)
+            let notes = answer?.notes.flatMap { $0.count == lines.count ? $0 : nil } ?? Array(repeating: nil, count: lines.count)
+            return .done(Translated(lines: english, notes: notes, draft: answer?.draft == true, engine: answer?.engine))
         case 202: return .translating
         case 503: return .failed(answer?.error ?? "The translator isn't working.")
         case 404: throw SonicError.notFound

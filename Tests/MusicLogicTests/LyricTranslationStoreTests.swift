@@ -31,4 +31,23 @@ struct LyricTranslationStoreTests {
         await store.save(["The river at night"], of: ["夜の川", "罪"], songID: "a")
         #expect(await store.translations(songID: "a", lines: ["夜の川", "罪"]) == nil)
     }
+
+    @Test func aWholeSongTranslationKeepsItsNotesAndIsFinal() async {
+        let store = store()
+        let lines = ["Группа крови на рукаве", "Не остаться в этой траве"]
+        await store.save(["Blood type on my sleeve", "Not to end up in this grass"],
+                         notes: [nil, "lit. \"not to stay in this grass\": not to fall in battle"],
+                         engine: LyricTranslationStore.wholeSong, of: lines, songID: "a")
+        let kept = await store.kept(songID: "a", lines: lines)
+        #expect(kept?.notes == [nil, "lit. \"not to stay in this grass\": not to fall in battle"])
+        #expect(kept?.isFinal == true)
+    }
+
+    @Test func aTranslationKeptBeforeNotesIsNotFinal() async {
+        let store = store()
+        await store.save(["The river at night"], of: ["夜の川"], songID: "a")
+        let kept = await store.kept(songID: "a", lines: ["夜の川"])
+        #expect(kept?.notes == [nil])
+        #expect(kept?.isFinal == false)
+    }
 }

@@ -267,6 +267,7 @@ enum Style {
     .lyric-line.lyric-marked { opacity: 1; color: var(--accent-color); }
     .lyrics-timing { background-color: alpha(black, 0.4); border-radius: 14px; padding: 8px; }
     .lyric-translation { font-size: 1.05em; font-style: italic; opacity: 0.6; }
+    .lyric-note { font-size: 0.8em; opacity: 0.4; }
 
     /* Rating stars and hearts. */
     .star { color: alpha(currentColor, 0.35); padding: 2px; min-width: 0; min-height: 0; }

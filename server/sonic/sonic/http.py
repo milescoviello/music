@@ -341,7 +341,7 @@ def make_handler(service):
             return self._send(200, result)
 
         def _words(self, path: str):
-            """`{"lines": [...]}` (and `"language"` to translate): see `words`."""
+            """`{"lines": [...]}` (and `"language"`, and the song's `"id"`, to translate): see `words`."""
             try:
                 length = int(self.headers.get("Content-Length", ""))
             except ValueError:
@@ -358,7 +358,8 @@ def make_handler(service):
             try:
                 if path == "/v1/lyrics/readings":
                     return self._send(200, service.readings.tokens(lines))
-                status, answer = service.translations.answer(str(body.get("language") or ""), lines)
+                song_id = body.get("id") if isinstance(body.get("id"), str) else None
+                status, answer = service.translations.answer(str(body.get("language") or ""), lines, song_id)
                 return self._send(status, answer)
             except Exception as error:  # noqa: BLE001
                 log.exception("request failed: %s", self.path)

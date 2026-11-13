@@ -14,7 +14,26 @@ actor LyricTranslationStore {
         var source: [String]
         /// One per line; nil where there was nothing to translate.
         var translations: [String?]
+        /// One per line, where a line has wordplay or an idiom the English can't carry; nil
+        /// in entries kept before there were notes.
+        var notes: [String?]?
+        /// What made it: "flash-next" for the server's whole-song translations, which no
+        /// on-device or line-by-line one replaces. Nil for the others.
+        var engine: String?
     }
+
+    /// A kept translation and what came with it.
+    struct Kept: Equatable, Sendable {
+        var translations: [String?]
+        var notes: [String?]
+        var engine: String?
+
+        /// Made from the whole song by the big model on the server: nothing better to ask for.
+        var isFinal: Bool { engine == LyricTranslationStore.wholeSong }
+    }
+
+    /// The engine name of the server's whole-song translations.
+    static let wholeSong = "flash-next"
 
     private let directory: URL
     private var memory: [String: Entry] = [:]
@@ -25,16 +44,22 @@ actor LyricTranslationStore {
 
     /// The translation of exactly these lines, if there is one.
     func translations(songID: String, lines: [String]) -> [String?]? {
+        kept(songID: songID, lines: lines)?.translations
+    }
+
+    /// The translation of exactly these lines, with its notes, if there is one.
+    func kept(songID: String, lines: [String]) -> Kept? {
         guard let entry = memory[songID] ?? read(songID),
               entry.source == lines, entry.translations.count == lines.count
         else { return nil }
         memory[songID] = entry
-        return entry.translations
+        let notes = entry.notes.flatMap { $0.count == lines.count ? $0 : nil } ?? Array(repeating: nil, count: lines.count)
+        return Kept(translations: entry.translations, notes: notes, engine: entry.engine)
     }
 
-    func save(_ translations: [String?], of lines: [String], songID: String) {
-        guard translations.count == lines.count else { return }
-        let entry = Entry(source: lines, translations: translations)
+    func save(_ translations: [String?], notes: [String?]? = nil, engine: String? = nil, of lines: [String], songID: String) {
+        guard translations.count == lines.count, notes.map({ $0.count == lines.count }) ?? true else { return }
+        let entry = Entry(source: lines, translations: translations, notes: notes, engine: engine)
         memory[songID] = entry
         guard let data = try? JSONEncoder().encode(entry) else { return }
         try? data.write(to: file(songID), options: .atomic)

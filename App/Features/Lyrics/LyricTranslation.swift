@@ -28,11 +28,22 @@ final class LyricTranslation {
     /// The translation by line index; nil where there is nothing to show under a line.
     /// Empty until translated.
     private(set) var lines: [String?] = []
+    /// A short note under a translated line, where the words carry wordplay or an idiom
+    /// the English can't; nil for most. Only the server's whole-song translations have them.
+    private(set) var notes: [String?] = []
+
+    /// Asks the music server for the song's whole-song translation (Flash-Next, made ahead
+    /// of time), given the lines asked about and their language: one answer per line, or
+    /// nil when it has none. Set by the lyrics screen; without it, the phone translates.
+    typealias Server = @Sendable (_ lines: [String], _ language: String) async -> SonicClient.Translated?
     private(set) var status: Status = .idle
     /// Non-nil starts the translation task; a new value starts it again.
     private(set) var configuration: TranslationSession.Configuration?
 
     @ObservationIgnored private var job: Job?
+    @ObservationIgnored private var server: Server?
+    /// What made the translation on screen ("flash-next" for the server's whole-song one).
+    @ObservationIgnored private var engine: String?
     /// What the lyrics are in, as `LyricsLanguage.resolve` gave it: "ja", "zh-Hans".
     @ObservationIgnored private var language: String?
     @ObservationIgnored private var lastConfiguration: TranslationSession.Configuration?
@@ -46,20 +57,47 @@ final class LyricTranslation {
         }
     }
 
-    /// A new song's lyrics. A translation made before is shown straight away.
-    func prepare(songID: String, lines: [String], language: String?, wanted: Bool) async {
+    /// A new song's lyrics. A translation made before is shown straight away; one made on
+    /// the phone gives way to the server's whole-song translation once there is one.
+    func prepare(songID: String, lines: [String], language: String?, wanted: Bool, server: Server? = nil) async {
         let job = Job(songID: songID, lines: lines)
         self.job = job
         self.language = language
+        self.server = server
         self.lines = []
+        self.notes = []
+        self.engine = nil
         status = .idle
         configuration = nil
 
-        if let cached = await LyricTranslationStore.shared.translations(songID: songID, lines: lines),
-           self.job == job {
-            self.lines = cached
+        if let kept = await LyricTranslationStore.shared.kept(songID: songID, lines: lines), self.job == job {
+            self.lines = kept.translations
+            self.notes = kept.notes
+            self.engine = kept.engine
+            if !kept.isFinal, wanted { await upgrade(job) }
         }
         if wanted { await start() }
+    }
+
+    /// The server's whole-song translation in place of one kept from the phone, if it has one.
+    private func upgrade(_ job: Job) async {
+        guard let made = await fromServer(job), self.job == job else { return }
+        finish(job, with: made.lines, notes: made.notes, engine: LyricTranslationStore.wholeSong)
+    }
+
+    /// The server's whole-song translation of the lines worth translating, placed by line.
+    private func fromServer(_ job: Job) async -> (lines: [String?], notes: [String?])? {
+        guard let server, let language, !LyricsLanguage.isEnglish(language) else { return nil }
+        let wanted = LyricsLanguage.linesToTranslate(job.lines)
+        guard !wanted.isEmpty, let answer = await server(wanted.map { job.lines[$0] }, language),
+              answer.isWholeSong, answer.lines.count == wanted.count else { return nil }
+        var lines = [String?](repeating: nil, count: job.lines.count)
+        var notes = [String?](repeating: nil, count: job.lines.count)
+        for (k, index) in wanted.enumerated() {
+            lines[index] = Self.shown(answer.lines[k], for: job.lines[index])
+            notes[index] = lines[index] == nil ? nil : answer.notes[k]
+        }
+        return (lines, notes)
     }
 
     /// The toggle. Turning it off part-way stops the translation; one already made is
@@ -67,6 +105,7 @@ final class LyricTranslation {
     /// failure tries again.
     func setWanted(_ wanted: Bool) async {
         if wanted {
+            if let job, !lines.isEmpty, engine != LyricTranslationStore.wholeSong { await upgrade(job) }
             await start()
         } else if status != .idle {
             status = .idle
@@ -80,6 +119,14 @@ final class LyricTranslation {
               !LyricsLanguage.linesToTranslate(job.lines).isEmpty
         else { return }
         status = .translating
+
+        // The server's whole-song translation first: made with the whole song in view by a
+        // far bigger model than the phone's, and with notes. The phone's own when it has none.
+        if let made = await fromServer(job) {
+            guard self.job == job, status == .translating else { return }
+            return finish(job, with: made.lines, notes: made.notes, engine: LyricTranslationStore.wholeSong)
+        }
+        guard self.job == job, status == .translating else { return }
 
         let source = language.map { Locale.Language(identifier: $0) }
         if let source, let language, await !Self.canTranslate(from: source) {
@@ -106,10 +153,12 @@ final class LyricTranslation {
         status == .translating ? job : nil
     }
 
-    private func finish(_ job: Job, with translations: [String?]) {
-        Task { await LyricTranslationStore.shared.save(translations, of: job.lines, songID: job.songID) }
+    private func finish(_ job: Job, with translations: [String?], notes: [String?]? = nil, engine: String? = nil) {
+        Task { await LyricTranslationStore.shared.save(translations, notes: notes, engine: engine, of: job.lines, songID: job.songID) }
         guard job == self.job else { return }
         lines = translations
+        self.notes = notes ?? []
+        self.engine = engine
         status = .idle
     }
 

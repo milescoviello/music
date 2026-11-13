@@ -1,5 +1,6 @@
 """Translations for the desktop's lyrics: the queue and the cache, without a model."""
 
+import json
 import tempfile
 import time
 import unittest
@@ -75,6 +76,29 @@ class TranslationQueue(unittest.TestCase):
         self.assertEqual(numbered_lines("1. I called\n2) your name\n", 2), ["I called", "your name"])
         self.assertEqual(numbered_lines("Here you go:\n1. one\n2. two\n3. three", 3), ["one", "two", "three"])
         self.assertIsNone(numbered_lines("1. one\n3. three", 3))
+
+    def test_a_whole_song_translation_answers_by_the_lines_words(self):
+        translations = FakeTranslations(self.dir)
+        (self.dir / "song-translations" / "abc.json").write_text(json.dumps({
+            "language": "ru", "source": ["Группа крови на рукаве", "Пожелай мне удачи в бою"],
+            "english": ["Blood type on my sleeve", "Wish me luck in battle"],
+            "notes": [None, "an idiom"], "engine": "flash-next"}, ensure_ascii=False))
+        # Only some lines, another order, a chorus twice, punctuation and case changed.
+        asked = ["пожелай мне удачи в бою!", "Группа крови на рукаве", "Группа крови на рукаве", ""]
+        status, body = translations.answer("ru", asked, "abc")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["lines"], ["Wish me luck in battle", "Blood type on my sleeve", "Blood type on my sleeve", ""])
+        self.assertEqual(body["notes"], ["an idiom", None, None, None])
+        self.assertEqual(body["engine"], "flash-next")
+        self.assertEqual(translations.calls, 0)
+
+    def test_a_line_the_song_translation_lacks_goes_the_usual_way(self):
+        translations = FakeTranslations(self.dir)
+        (self.dir / "song-translations" / "abc.json").write_text(json.dumps({
+            "language": "ja", "source": ["kimi"], "english": ["you"], "engine": "flash-next"}))
+        self.assertEqual(translations.answer("ja", ["kimi", "boku"], "abc")[0], 202)
+        self.assertEqual(translations.answer("ja", ["kimi"], "abc"), (200, {"lines": ["you"], "engine": "flash-next"}))
+        self.assertEqual(translations.answer("ja", ["kimi"], "../abc")[0], 202)
 
     def test_nonsense_is_refused(self):
         translations = FakeTranslations(self.dir)
