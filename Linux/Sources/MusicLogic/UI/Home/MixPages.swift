@@ -45,7 +45,12 @@ enum MixPages {
         }
         var cards = mixes.mixes.map { card(env, $0) }
         if mixes.canLoadMore {
-            let more = Spinner().size(24).valign(GTK_ALIGN_CENTER).margin(24)
+            // Still until it is loading: a spinner here spun for as long as Home was open,
+            // which kept the whole window redrawing every frame.
+            let more: Widget = mixes.isBuilding
+                ? Spinner().size(24)
+                : Icon("view-more-horizontal-symbolic", size: 24).opacity(0.4)
+            more.valign(GTK_ALIGN_CENTER).margin(24)
             more.onScrolledIntoView { mixes.loadMore(appState: env.app, scope: MixScope.current(env.app)) }
             cards.append(more)
         }
