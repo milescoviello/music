@@ -126,12 +126,13 @@ enum AlbumPage {
             tracks.hexpand()
             side
         }
-        let sizer = DrawingArea(height: 1) { _, _, _ in }
-        sizer.hexpand().canTarget(false)
-        sizer.onResize { width, _ in
+        let sizer = Widths.watch { width in
             let narrow = width < 860
             columns.orientation(narrow ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL)
             side.size(width: narrow ? -1 : 300, height: -1)
+            // The cover over the title on a phone's width.
+            header.orientation(width < 560 ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL)
+            artwork.root.halign(width < 560 ? GTK_ALIGN_CENTER : GTK_ALIGN_FILL)
         }
 
         let body = Box.vertical(spacing: 22) {

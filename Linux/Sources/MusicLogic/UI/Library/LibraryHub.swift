@@ -37,7 +37,11 @@ enum LibraryHub {
                         ToggleButton(other.title, "flat", "library-tab") { on in if on { choose(other.name) } }
                     }
                     for toggle in toggles.dropFirst() { toggle.group(with: toggles[0]) }
-                    header.title(Box.horizontal(spacing: 2) { toggles }.css("library-tabs"))
+                    // Scrolls sideways in a narrow window rather than widening it.
+                    let strip = Box.horizontal(spacing: 2) { toggles }.css("library-tabs")
+                    let scroller = ScrolledWindow(strip, horizontal: GTK_POLICY_EXTERNAL, vertical: GTK_POLICY_NEVER)
+                        .propagatesNaturalWidth()
+                    header.title(scroller)
                     switchers.append(toggles)
                     env.navigation.addButtons(to: page)
                 }

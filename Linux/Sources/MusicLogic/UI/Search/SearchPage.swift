@@ -187,13 +187,19 @@ enum SearchPage {
                 SongList.make(env, leading, source: "Search")
             }
             songs.isVisible = !leading.isEmpty
-            body.append(Box.horizontal(spacing: 24) {
-                Box.vertical(spacing: 6) {
-                    Label("Top Result", "shelf-title").xalign(0)
-                    topCard(env, top, record: record)
-                }
+            let card = Box.vertical(spacing: 6) {
+                Label("Top Result", "shelf-title").xalign(0)
+                topCard(env, top, record: record)
+            }
+            // Side by side when there is room, the songs under the card when there isn't.
+            let row = Box.horizontal(spacing: 24) {
+                card
                 songs.hexpand()
+            }
+            body.append(Widths.watch { width in
+                row.orientation(width < 760 ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL)
             })
+            body.append(row)
         }
 
         if !results.artists.isEmpty {
@@ -302,7 +308,7 @@ enum SearchPage {
         case let .song(song): card.contextMenu { Menus.song(env, song) }
         case .artist: break
         }
-        return Overlay(card).add(playButton).size(width: 340, height: -1)
+        return Overlay(card).add(playButton).size(width: 320, height: -1).halign(GTK_ALIGN_START)
     }
 
 }

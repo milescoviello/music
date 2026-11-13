@@ -197,7 +197,7 @@ enum Page {
         _ title: String,
         content: Widget,
         scrolls: Bool = true,
-        clamp: Int32? = 1_160,
+        clamp: Int32? = 1_600,
         heading: Bool = true,
         tag: String? = nil,
         header: ((HeaderBar) -> Void)? = nil

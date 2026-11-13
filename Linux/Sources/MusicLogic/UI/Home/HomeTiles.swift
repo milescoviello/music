@@ -10,13 +10,10 @@ enum HomeTiles {
     static func jumpBackIn(_ env: Env, _ origins: [PlayOrigin]) -> Widget? {
         let shown = Array(origins.prefix(8))
         guard !shown.isEmpty else { return nil }
-        let grid = tileGrid(columns: 4)
-        for (index, origin) in shown.enumerated() {
-            grid.attach(tile(env, origin), column: Int32(index % 4), row: Int32(index / 4))
-        }
+        let grid = TileGrid(shown.map { tile(env, $0) }, tileWidth: 230, maxColumns: 4)
         return Box.vertical(spacing: 10) {
             Label("Jump Back In", "shelf-title").xalign(0)
-            grid
+            grid.root
         }
     }
 
@@ -31,10 +28,7 @@ enum HomeTiles {
                                  symbol: Station.artistMix(ids: [], names: []).symbol) { env.open(.mixBuilder(.artists)) })
         tiles.append(stationTile(app, title: "Album Mix Builder", subtitle: "Pick a few albums",
                                  symbol: Station.albumMix(ids: [], names: []).symbol) { env.open(.mixBuilder(.albums)) })
-        let grid = tileGrid(columns: 3)
-        for (index, tile) in tiles.enumerated() {
-            grid.attach(tile, column: Int32(index % 3), row: Int32(index / 3))
-        }
+        let grid = TileGrid(tiles, tileWidth: 260, maxColumns: 3).root
         return Box.vertical(spacing: 10) {
             Box.horizontal(spacing: 8) {
                 Label("Stations", "shelf-title").hexpand().xalign(0)
@@ -42,14 +36,6 @@ enum HomeTiles {
             }
             grid
         }
-    }
-
-    private static func tileGrid(columns: Int32) -> Grid {
-        let grid = Grid()
-        gtk_grid_set_column_homogeneous(grid.widget.cast(), 1)
-        gtk_grid_set_column_spacing(grid.widget.cast(), 10)
-        gtk_grid_set_row_spacing(grid.widget.cast(), 10)
-        return grid
     }
 
     private static func tile(_ env: Env, _ origin: PlayOrigin) -> Widget {

@@ -10,9 +10,11 @@ import Foundation
 /// saturation, so white type reads over any of them and a pale sleeve doesn't make a pale
 /// window.
 ///
-/// The pools drift a few pixels a step on slow, unequal orbits, so the blend never quite
-/// repeats; nothing else in the window moves. Drawn small and stretched to fill, as the
-/// player's backdrop is: it is all gradient. It stops while the window is hidden.
+/// The pools drift on slow, unequal orbits, so the blend never quite repeats; nothing else
+/// in the window moves. A step a second, each too small to see: every step repaints the
+/// whole window, which eight a second made the app slow. Drawn small and stretched to
+/// fill, as the player's backdrop is: it is all gradient. It stops while the window is
+/// hidden.
 @MainActor
 final class WindowBackdrop {
     let root: Overlay
@@ -76,9 +78,9 @@ final class WindowBackdrop {
         guard drift == nil else { return }
         drift = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(120))
+                try? await Task.sleep(for: .seconds(1))
                 guard let self else { return }
-                time += 0.12
+                time += 1
                 draw()
             }
         }

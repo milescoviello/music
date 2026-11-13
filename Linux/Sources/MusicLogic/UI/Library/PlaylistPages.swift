@@ -213,7 +213,7 @@ enum PlaylistPage {
             }
             return Menu(sections)
         }
-        let page = Page.make(playlist.name, content: loader.bin) { bar in
+        let page = Page.make(playlist.name, content: loader.bin, heading: false) { bar in
             bar.end(menu)
             bar.end(download.root)
             bar.end(selection.button())
@@ -268,16 +268,19 @@ enum PlaylistPage {
         let header = Box.horizontal(spacing: 24) {
             artwork.root
             Box.vertical(spacing: 6) {
-                Label(playlist.name, "page-title").wrap()
+                Label(playlist.name, "hero-title").wrap().xalign(0)
                 if let comment = detail.comment, !comment.isEmpty { Label(comment, "dim").wrap() }
                 Label(subtitle.joined(separator: " · "), "caption", "dim")
                 Box.horizontal(spacing: 8) {
                     Button("Play", icon: "media-playback-start-symbolic", "suggested-action", "pill") { env.play(playable, source: playlist.name) }
-                    Button("Shuffle", icon: "media-playlist-shuffle-symbolic", "pill") { env.play(playable, source: playlist.name, shuffled: true) }
+                    Button("Shuffle", icon: "media-playlist-shuffle-symbolic", "pill", "glass-pill") { env.play(playable, source: playlist.name, shuffled: true) }
                 }.margins(top: 12)
             }.valign(GTK_ALIGN_END).hexpand()
         }
-        let body = Box.vertical(spacing: 18) { header }
+        let body = Box.vertical(spacing: 18) {
+            Widths.stacking(header, cover: artwork.root)
+            header
+        }
         body.append(selection.bar(env, all: { songs }, source: playlist.name))
 
         if songs.count > longList {

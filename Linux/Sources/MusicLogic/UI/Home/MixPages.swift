@@ -152,7 +152,7 @@ enum MixPages {
             }
             slot.child = body.margin(horizontal: 12, vertical: 24)
         }
-        return Page.make(app.mixes.mix(id: id)?.title ?? "Mix", content: slot)
+        return Page.make(app.mixes.mix(id: id)?.title ?? "Mix", content: slot, heading: false)
     }
 
     // MARK: - Stations

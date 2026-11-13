@@ -240,7 +240,7 @@ enum DownloadFolderPage {
             }
             return menu
         }
-        return Page.make(title, content: slot) { bar in bar.end(menu) }
+        return Page.make(title, content: slot, heading: false) { bar in bar.end(menu) }
     }
 
     private static func content(_ env: Env, _ folder: DownloadFolders.Folder) -> Widget {
@@ -250,13 +250,13 @@ enum DownloadFolderPage {
         if folder.duration > 0 { summary.append(folder.duration.asLongDuration) }
         summary.append(folder.byteCount.asFileSize)
         let play = Button("Play", icon: "media-playback-start-symbolic", "suggested-action", "pill") { env.play(folder.songs, source: folder.name) }
-        let shuffle = Button("Shuffle", icon: "media-playlist-shuffle-symbolic", "pill") { env.play(folder.songs, source: folder.name, shuffled: true) }
+        let shuffle = Button("Shuffle", icon: "media-playlist-shuffle-symbolic", "pill", "glass-pill") { env.play(folder.songs, source: folder.name, shuffled: true) }
         play.isSensitive = !folder.songs.isEmpty
         shuffle.isSensitive = !folder.songs.isEmpty
         let header = Box.horizontal(spacing: 24) {
             artwork.root
             Box.vertical(spacing: 6) {
-                Label(folder.name, "page-title").wrap()
+                Label(folder.name, "hero-title").wrap().xalign(0)
                 if let artist = folder.artist { Label(artist, "page-subtitle") }
                 Label(summary.joined(separator: " · "), "caption", "dim")
                 Box.horizontal(spacing: 8) {
@@ -265,7 +265,10 @@ enum DownloadFolderPage {
                 }.margins(top: 12)
             }.valign(GTK_ALIGN_END).hexpand()
         }
-        let body = Box.vertical(spacing: 18) { header }
+        let body = Box.vertical(spacing: 18) {
+            Widths.stacking(header, cover: artwork.root)
+            header
+        }
         switch folder.kind {
         case .album:
             // A section per disc, as the album's own page has. Any track still plays the
