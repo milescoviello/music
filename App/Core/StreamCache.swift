@@ -222,8 +222,13 @@ final class StreamCache {
 
         do {
             // The async API leaves the temporary file for the caller to move, unlike the
-            // delegate one, which deletes it the moment the callback returns.
+            // delegate one, which deletes it the moment the callback returns. On Linux,
+            // libcurl itself: URLSession there cost a slow machine a core per download.
+            #if os(Linux) && canImport(CCurl)
+            let (temporary, response) = try await CurlDownload.download(from: request.url, in: directory)
+            #else
             let (temporary, response) = try await session.download(from: request.url)
+            #endif
             defer { try? FileManager.default.removeItem(at: temporary) }
 
             // A Subsonic error is a 200 with a JSON body, and a 401 is still a completed
