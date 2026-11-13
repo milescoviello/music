@@ -151,7 +151,7 @@ enum AlbumPage {
             let client = app.client
             async let info = try? client.albumInfo(id: album.id)
             async let similarAlbums = app.sonic.similarAlbumsWithSingles(to: album.id, limit: 6)
-            async let duplicates = try? SonicClient(configuration: app.sonic.configuration).duplicateAlbums()
+            async let duplicates = DuplicatesCache.albums(app)
             var more: [Album] = []
             if let artistID = detail.artistId, let artist = try? await client.artistDetail(id: artistID) {
                 more = SearchRanking.moreBy(artist.albums, than: Album(id: album.id, name: detail.name, artist: detail.artist))
@@ -252,6 +252,30 @@ enum AlbumPage {
             parts.append(genre)
         }
         return parts
+    }
+
+    /// The albums in both libraries, for "Also in": the whole list is the service's one
+    /// answer, so it is asked for once in ten minutes, not once per album opened.
+    @MainActor
+    enum DuplicatesCache {
+        private static var list: [SonicClient.DuplicateAlbum]?
+        private static var fetchedAt = Date.distantPast
+        private static var inFlight: Task<[SonicClient.DuplicateAlbum]?, Never>?
+
+        static func albums(_ app: AppState) async -> [SonicClient.DuplicateAlbum]? {
+            if let list, Date.now.timeIntervalSince(fetchedAt) < 600 { return list }
+            if let inFlight { return await inFlight.value }
+            let client = SonicClient(configuration: app.sonic.configuration)
+            let task = Task { try? await client.duplicateAlbums() }
+            inFlight = task
+            let fetched = await task.value
+            inFlight = nil
+            if let fetched {
+                list = fetched
+                fetchedAt = .now
+            }
+            return fetched ?? list
+        }
     }
 
     private static func startRadio(_ app: AppState, album: AlbumRef, songs: [Song]) {

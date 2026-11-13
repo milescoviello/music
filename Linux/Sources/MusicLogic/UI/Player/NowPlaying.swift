@@ -126,6 +126,8 @@ final class NowPlaying {
         (transportRow, inlineShuffle, inlineRepeat) = Self.transport(app)
         volume = Self.volumeRow()
         queuePane = QueuePane(env: env)
+        let lights = WeakReference<NowPlaying>(nil)
+        queuePane.onTabChanged = { lights.value?.refreshMode() }
         toolbarShuffle = Self.shuffleButton(app)
         toolbarRepeat = Self.repeatButton(app)
         toolbar = Box.horizontal(spacing: 0)
@@ -182,6 +184,7 @@ final class NowPlaying {
         let sizer = DrawingArea { _, _, _ in }
         sizer.hexpand().vexpand().canTarget(false)
         root.add(sizer)
+        lights.value = self
         root.keep(self)
         modeReference.value = self
 
@@ -537,7 +540,8 @@ final class NowPlaying {
         // Side by side, the lyrics are a tab beside the cover, which stays.
         if target == .lyrics, layout == .sideBySide {
             if !showsQueueColumn { toggleQueueColumn() }
-            queuePane.select(.lyrics)
+            // A second press puts Up Next back, as it puts the cover back in place.
+            queuePane.select(queuePane.showsLyrics && showsQueueColumn ? .upNext : .lyrics)
             if mode == .lyrics { mode = .artwork }
             arrange()
             return
@@ -582,8 +586,9 @@ final class NowPlaying {
 
     private func refreshMode() {
         poster.visibleName = showsVideo ? Self.videoPage : mode.rawValue
-        for (candidate, button) in modeButtons { button.setCSS("selected", candidate == mode) }
-        for (candidate, button) in sideModeButtons { button.setCSS("selected", candidate == mode) }
+        let lyricsBeside = layout == .sideBySide && showsQueueColumn && queuePane.showsLyrics
+        for (candidate, button) in modeButtons { button.setCSS("selected", candidate == mode || (candidate == .lyrics && lyricsBeside)) }
+        for (candidate, button) in sideModeButtons { button.setCSS("selected", candidate == mode || (candidate == .lyrics && lyricsBeside)) }
         queueToggle?.setCSS("selected", showsQueueColumn)
     }
 

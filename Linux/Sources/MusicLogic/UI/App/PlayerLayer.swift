@@ -19,7 +19,9 @@ final class PlayerLayer {
     private var open = false
     private var onOpen: [@MainActor (Bool) -> Void] = []
 
-    init(content: Widget, player playerView: Widget, bar barView: Widget) {
+    /// `opensFromBar`: whether a click anywhere on the bar opens the player. The player
+    /// bar says no: it has a seekbar and a volume, and opens the player from its song.
+    init(content: Widget, player playerView: Widget, bar barView: Widget, opensFromBar: Bool = true) {
         let bar = Revealer(barView, transition: GTK_REVEALER_TRANSITION_TYPE_SLIDE_UP)
         root = Stack(transition: GTK_STACK_TRANSITION_TYPE_OVER_UP_DOWN)
         gtk_stack_set_hhomogeneous(root.widget.cast(), 0)
@@ -38,7 +40,7 @@ final class PlayerLayer {
         // The bar opens the player wherever it is clicked that is not one of its buttons;
         // a button's own click claims the press first.
         let reference = WeakReference<PlayerLayer>(nil)
-        barView.onClick { reference.value?.setOpen(true) }
+        if opensFromBar { barView.onClick { reference.value?.setOpen(true) } }
         reference.value = self
         root.keep(self)
     }

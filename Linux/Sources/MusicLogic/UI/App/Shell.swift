@@ -186,7 +186,7 @@ final class Shell {
 
         let player = NowPlaying(app: app, shell: self)
         let bar = PlayerBar(env: navigation.env, player: player)
-        let sheet = PlayerLayer(content: main, player: player.root, bar: bar.root)
+        let sheet = PlayerLayer(content: main, player: player.root, bar: bar.root, opensFromBar: false)
         self.sheet = sheet
         sheet.onOpenChanged { [app] open in
             if app.navigator.showsPlayer != open { app.navigator.showsPlayer = open }
@@ -209,7 +209,8 @@ final class Shell {
             let page = navigation.current?.page
             _ = navigation.coverChanges
             guard let shell = reference.value else { return }
-            shell.backdrop.show(cover: open ? playing : page?.coverArt ?? playing)
+            let cover = open ? playing : page?.coverArt ?? playing
+            shell.backdrop.show(cover: cover, accent: cover == playing)
         }
         // Jumps out of the player, and from anywhere else that asks.
         sheet.root.observe { [app] in
@@ -343,21 +344,20 @@ final class Shell {
         for destination in requests { navigation.push(destination) }
     }
 
-    /// The mouse's back and forward buttons, anywhere in the window.
+    /// The mouse's back and forward buttons, anywhere in the window. A gesture for each of
+    /// those two buttons only: one listening to every button, ahead of everything else,
+    /// had a part in every click in the window.
     private func installHistoryButtons() {
-        let gesture = gtk_gesture_click_new()!
-        gtk_gesture_single_set_button(gesture.cast(), 0)
-        gtk_event_controller_set_propagation_phase(gesture.cast(), GTK_PHASE_CAPTURE)
         let reference = WeakReference(self)
-        Signal.connect(gesture, "pressed", press: { _, _, _ in
-            guard let shell = reference.value, shell.sheet?.isOpen != true else { return }
-            switch gtk_gesture_single_get_current_button(gesture.cast()) {
-            case 8: shell.navigation?.goBack()
-            case 9: shell.navigation?.goForward()
-            default: return
-            }
-        })
-        gtk_widget_add_controller(window.widget, gesture.cast())
+        for (button, forward) in [(UInt32(8), false), (UInt32(9), true)] {
+            let gesture = gtk_gesture_click_new()!
+            gtk_gesture_single_set_button(gesture.cast(), button)
+            Signal.connect(gesture, "pressed", press: { _, _, _ in
+                guard let shell = reference.value, shell.sheet?.isOpen != true else { return }
+                if forward { shell.navigation?.goForward() } else { shell.navigation?.goBack() }
+            })
+            gtk_widget_add_controller(window.widget, gesture.cast())
+        }
     }
 
     /// Below 640 points wide, one page at a time, as on the phone.

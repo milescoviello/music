@@ -126,8 +126,11 @@ final class QueuePane {
     }
 
     var showsLyrics: Bool { tab == .lyrics }
+    /// The player's, to light its Lyrics button while the tab shows.
+    var onTabChanged: (@MainActor () -> Void)?
 
     private func show(_ target: Tab) {
+        defer { onTabChanged?() }
         tab = target
         UserDefaults.standard.set(target.rawValue, forKey: Self.tabKey)
         pages.visibleName = "\(target.rawValue)"

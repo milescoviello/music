@@ -59,9 +59,13 @@ enum HomeTiles {
         let open = Button(child: content, "glass", "jump-tile") { HomeTiles.open(env, origin) }
         let play = Button(icon: "media-playback-start-symbolic", "circular", "tile-play") { HomeTiles.play(env, origin) }
         play.tooltip("Play").halign(GTK_ALIGN_END).valign(GTK_ALIGN_CENTER).margins(top: 0, bottom: 0, start: 0, end: 10)
-        play.opacity(0)
+        play.opacity(0).canTarget(false)
         let tile = Overlay(open).add(play)
-        tile.onHover { inside in play.opacity(inside ? 1 : 0) }
+        // Unseen, it still took clicks: the right of a tile played rather than opened it.
+        tile.onHover { inside in
+            play.opacity(inside ? 1 : 0)
+            play.canTarget(inside)
+        }
         return tile
     }
 

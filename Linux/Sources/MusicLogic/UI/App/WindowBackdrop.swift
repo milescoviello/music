@@ -30,6 +30,7 @@ final class WindowBackdrop {
     private var cover: String?
     private var generation = 0
     private var isMapped = false
+    private var setsAccent = true
     /// Whether the window is the one in use (`Shell`).
     var isActive = true {
         didSet { if isActive != oldValue { update() } }
@@ -67,15 +68,18 @@ final class WindowBackdrop {
         draw()
     }
 
-    /// Whose colours: a cover's art id, or nil for the resting ones.
-    func show(cover: String?) {
+    /// Whose colours: a cover's art id, or nil for the resting ones. `accent`: whether the
+    /// accent follows them too, which only the song playing's do: changing it restyles
+    /// the whole window, every page the history keeps, which opening each album paid.
+    func show(cover: String?, accent: Bool) {
+        setsAccent = accent
         guard cover != self.cover else { return }
         self.cover = cover
         generation += 1
         let current = generation
         guard let cover else {
             pools = Self.resting
-            Style.setAccent(nil)
+            if setsAccent { Style.setAccent(nil) }
             draw()
             return
         }
@@ -84,7 +88,7 @@ final class WindowBackdrop {
                   current == self.generation
             else { return }
             self.pools = Self.pick(colours)
-            Style.setAccent(self.pools.max { Style.hsl($0).s < Style.hsl($1).s })
+            if self.setsAccent { Style.setAccent(self.pools.max { Style.hsl($0).s < Style.hsl($1).s }) }
             self.draw()
         }
     }

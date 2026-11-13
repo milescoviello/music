@@ -28,6 +28,8 @@ final class PlayerBar {
             }.valign(GTK_ALIGN_CENTER)
             heart.valign(GTK_ALIGN_CENTER)
         }.halign(GTK_ALIGN_START)
+        song.onClick { app.navigator.showsPlayer = true }
+        gtk_widget_set_cursor_from_name(song.widget, "pointer")
 
         let previous = Button(icon: "media-skip-backward-symbolic", "flat", "circular") { player.previous() }
         let play = Button(icon: "media-playback-start-symbolic", "circular", "bar-play") { player.togglePlayPause() }

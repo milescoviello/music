@@ -88,6 +88,8 @@ final class SeekBar {
         let drag = gtk_gesture_drag_new()!
         var start = 0.0
         Signal.connect(drag, "drag-begin", point: { x, _ in
+            // Its own: a bar or a page under it must not take the press as a click.
+            gtk_gesture_set_state(drag.cast(), GTK_EVENT_SEQUENCE_CLAIMED)
             start = x
             reference.value?.scrubbed(to: x)
         })

@@ -55,9 +55,11 @@ enum Style {
         return OpaquePointer(provider)
     }()
 
+    private static var accentCSS = ""
+
     static func setAccent(_ colour: VisualizerPalette.RGB?) {
         guard let colour else {
-            gtk_css_provider_load_from_string(UnsafeMutablePointer(accent), "")
+            load("")
             return
         }
         let (h, s, _) = hsl(colour)
@@ -67,10 +69,14 @@ enum Style {
         func css(_ c: (Double, Double, Double)) -> String {
             "rgb(\(Int(c.0 * 255)), \(Int(c.1 * 255)), \(Int(c.2 * 255)))"
         }
-        gtk_css_provider_load_from_string(
-            UnsafeMutablePointer(accent),
-            ":root { --accent-color: \(css(text)); --accent-bg-color: \(css(fill)); }"
-        )
+        load(":root { --accent-color: \(css(text)); --accent-bg-color: \(css(fill)); }")
+    }
+
+    /// Only when it differs: every load restyles every widget the window has.
+    private static func load(_ css: String) {
+        guard css != accentCSS else { return }
+        accentCSS = css
+        gtk_css_provider_load_from_string(UnsafeMutablePointer(accent), css)
     }
 
     static func hsl(_ c: VisualizerPalette.RGB) -> (h: Double, s: Double, l: Double) {
