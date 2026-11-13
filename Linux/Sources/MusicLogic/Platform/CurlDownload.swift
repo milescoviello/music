@@ -50,9 +50,7 @@ enum CurlDownload {
 
         do {
             let (status, type) = try await withTaskCancellationHandler {
-                try await Task.detached(priority: .utility) {
-                    try perform(url, into: transfer, stallTimeout: stallTimeout)
-                }.value
+                try await onOwnThread { try perform(url, into: transfer, stallTimeout: stallTimeout) }
             } onCancel: {
                 transfer.cancel()
             }
@@ -113,6 +111,21 @@ enum CurlDownload {
         var type: UnsafeMutablePointer<CChar>?
         _ = ccurl_getinfo_string(curl, CURLINFO_CONTENT_TYPE, &type)
         return (status, type.map { String(cString: $0) } ?? "")
+    }
+
+    /// A blocking transfer on a thread of its own. Not on Swift's own threads, of which
+    /// there are as many as cores: on two, a launch's thirty requests went two at a time,
+    /// each about fourteen seconds late, and everything else waited behind them.
+    static func onOwnThread<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            Thread {
+                do {
+                    continuation.resume(returning: try body())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }.start()
+        }
     }
 
     static func error(for code: CURLcode) -> URLError.Code {
@@ -182,9 +195,7 @@ enum CurlFetch {
         guard let url = request.url else { throw URLError(.badURL) }
         let answer = Answer()
         let (status, finalURL) = try await withTaskCancellationHandler {
-            try await Task.detached(priority: .userInitiated) {
-                try perform(request, url: url, into: answer, timeout: timeout)
-            }.value
+            try await CurlDownload.onOwnThread { try perform(request, url: url, into: answer, timeout: timeout) }
         } onCancel: {
             answer.cancel()
         }
