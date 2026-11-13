@@ -222,7 +222,7 @@ actor SubsonicClient {
         let url = try dataURL(endpoint, query, repeated)
         let started = Date.now
         do {
-            let (data, _) = try await session.data(from: url)
+            let (data, _) = try await session.fetch(from: url)
             await Self.recordIfSlow(endpoint, bytes: data.count, since: started)
             onAnswer?(started)
             return data
@@ -303,7 +303,7 @@ actor SubsonicClient {
 
         let started = Date.now
         do {
-            let (data, _) = try await session.data(for: request)
+            let (data, _) = try await session.fetch(request)
             await Self.recordIfSlow(endpoint, bytes: data.count, since: started)
             onAnswer?(started)
             return data
@@ -673,6 +673,7 @@ actor SubsonicClient {
     /// `time` is epoch milliseconds of the *listen*, not of the request, so a
     /// scrobble flushed from the outbox days later is still recorded correctly.
     func scrobble(id: String, submission: Bool, at listenedAt: Date? = nil) async throws {
+        guard !TestCopy.isOn else { return }
         try await perform(
             "scrobble.view",
             query: [

@@ -197,7 +197,7 @@ actor NavidromeClient {
                 withJSONObject: ["insert_before": String(target)]
             )
 
-            let (_, response) = try await session.data(for: request)
+            let (_, response) = try await session.fetch(request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
 
             if status == 401, attempt == 0 {
@@ -228,7 +228,7 @@ actor NavidromeClient {
             "password": credentials.password,
         ])
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.fetch(request)
         guard (response as? HTTPURLResponse)?.statusCode == 200,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let token = object["token"] as? String
@@ -328,7 +328,7 @@ actor NavidromeClient {
             request.setValue("Bearer \(bearer)", forHTTPHeaderField: "x-nd-authorization")
 
             let started = Date.now
-            let (data, response) = try await session.data(for: request)
+            let (data, response) = try await session.fetch(request)
             await SubsonicClient.recordIfSlow(path, bytes: data.count, since: started)
             guard let http = response as? HTTPURLResponse else {
                 throw SubsonicClient.ClientError.transport("No response from Navidrome.")

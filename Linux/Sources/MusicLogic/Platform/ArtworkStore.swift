@@ -299,7 +299,7 @@ final class ArtworkStore {
             let data: Data
             let response: URLResponse
             do {
-                (data, response) = try await session.data(from: remote)
+                (data, response) = try await session.fetch(from: remote)
             } catch let error as URLError where attempt < 2 && isTransient(error.code) {
                 try? await Task.sleep(for: .seconds(attempt == 0 ? 2 : 6))
                 continue

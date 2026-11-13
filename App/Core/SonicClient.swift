@@ -209,7 +209,7 @@ struct SonicClient: Sendable {
     /// on the server. Returns the file's name. A service too old to take one answers 404.
     func sendLogs(_ text: String, source: String) async throws -> String {
         guard let request = logsRequest(text, source: source) else { throw SonicError.badURL }
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.fetch(request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200...299).contains(status) else { throw SonicError.status(status) }
         return (try? JSONDecoder().decode(Kept.self, from: data))?.name ?? ""
@@ -462,7 +462,7 @@ struct SonicClient: Sendable {
         request.httpBody = try JSONEncoder().encode(body)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         authorise(&request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.fetch(request)
         return (data, (response as? HTTPURLResponse)?.statusCode ?? 0)
     }
 
@@ -497,13 +497,14 @@ struct SonicClient: Sendable {
     }
 
     func pushTaste(device: String, events: [TasteEvent]) async throws {
+        guard !TestCopy.isOn else { return }
         guard let url = url("v1/taste") else { throw SonicError.badURL }
         var request = URLRequest(url: url, timeoutInterval: 30)
         request.httpMethod = "POST"
         request.httpBody = try JSONEncoder().encode(TasteBatch(device: device, events: events))
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         authorise(&request)
-        let (_, response) = try await session.data(for: request)
+        let (_, response) = try await session.fetch(request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200...299).contains(status) else { throw SonicError.status(status) }
     }
@@ -544,7 +545,7 @@ struct SonicClient: Sendable {
         guard let path = item.coverPath, let url = url(path) else { return nil }
         var request = URLRequest(url: url, timeoutInterval: 30)
         authorise(&request)
-        guard let (data, response) = try? await session.data(for: request),
+        guard let (data, response) = try? await session.fetch(request),
               (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty
         else { return nil }
         return data
@@ -591,7 +592,7 @@ struct SonicClient: Sendable {
         guard let url = url(path, query) else { throw SonicError.badURL }
         var request = URLRequest(url: url, timeoutInterval: 10)
         authorise(&request)
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.fetch(request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if status == 404 { return nil }
         guard (200...299).contains(status) else { throw SonicError.status(status) }

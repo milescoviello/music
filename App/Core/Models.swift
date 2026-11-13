@@ -589,6 +589,14 @@ struct SavedQueue: Codable, PayloadKeyed, Sendable {
 /// `ISO8601DateFormatter` is a mutable class and not `Sendable`, so a `static let` of one
 /// is a data race under strict concurrency. Building one per call is cheap next to the
 /// network request that produced the string.
+/// A copy of the app run to check it (`MUSIC_TEST_COPY=1`: the .148 sandbox, the test
+/// laptop) keeps its hands off what the real devices share: it uploads no queue (each
+/// time one did, it replaced the queue the phone was playing), sends no taste and counts
+/// no plays.
+enum TestCopy {
+    static let isOn = ProcessInfo.processInfo.environment["MUSIC_TEST_COPY"] == "1"
+}
+
 enum ServerDate {
     static func parse(_ value: String?) -> Date? {
         guard let value else { return nil }
