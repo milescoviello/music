@@ -29,11 +29,20 @@ actor LyricTranslationStore {
         var engine: String?
 
         /// Made from the whole song by the big model on the server: nothing better to ask for.
-        var isFinal: Bool { engine == LyricTranslationStore.wholeSong }
+        var isFinal: Bool { LyricTranslationStore.isWholeSong(engine) }
     }
 
-    /// The engine name of the server's whole-song translations.
+    /// The engine name the phone keeps its copies of the server's whole-song translations under.
     static let wholeSong = "flash-next"
+
+    /// The engines the server's whole-song translations come from: Flash-Next made the first
+    /// ones, Claude has made them since 2026-11-13. Only `flash-next` was accepted before, so
+    /// every song Claude translated was thrown away and the phone's own translation shown.
+    static let wholeSongEngines: Set<String> = ["flash-next", "claude"]
+
+    static func isWholeSong(_ engine: String?) -> Bool {
+        engine.map(wholeSongEngines.contains) ?? false
+    }
 
     private let directory: URL
     private var memory: [String: Entry] = [:]

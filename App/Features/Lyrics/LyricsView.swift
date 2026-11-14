@@ -583,15 +583,22 @@ struct LyricsView: View {
         }
 
         guard let lyrics, !lyrics.lines.isEmpty else {
+            await Diagnostics.shared.record("lyrics", "\(song.id) “\(song.title)”: no lyrics"
+                + (saved == nil ? (kept.isEmpty ? " (none kept, none from the server)" : " (kept copy empty)") : ""))
             state = .missing
             return
         }
+        await Diagnostics.shared.record("lyrics", "\(song.id) “\(song.title)”: "
+            + (saved != nil ? "just saved" : kept.isEmpty ? "from the server" : "the downloaded copy")
+            + ", \(lyrics.synced ? "synced" : "unsynced"), \(lyrics.lines.count) lines, tagged \(lyrics.lang ?? "no language")")
 
         // Worked out before the lyrics appear, so a romanization, or a translation made
         // on an earlier visit, does not arrive a moment later and push every line down.
         // Only what is quick: a translation still to be made starts once they show.
         readAlong.show(lyrics, songID: song.id)
         await readAlong.update(romanize: settings.romanizesLyrics)
+        await Diagnostics.shared.record("lyrics", "\(song.id): read as \(readAlong.language ?? "unknown")"
+            + (settings.romanizesLyrics ? ", romanized" : ""))
         // The server's whole-song translation, when it has one; short wait, so the phone's
         // own translation is not held up away from home.
         let sonic = SonicClient(configuration: appState.sonic.configuration)
@@ -602,9 +609,19 @@ struct LyricsView: View {
             language: readAlong.language,
             wanted: false,
             server: { lines, language in
-                guard case let .done(answer)? = try? await sonic.translate(lines, language: language, songID: songID, timeout: 6)
-                else { return nil }
-                return answer
+                do {
+                    switch try await sonic.translate(lines, language: language, songID: songID, timeout: 6) {
+                    case .done(let answer):
+                        return answer
+                    case .translating:
+                        await Diagnostics.shared.record("lyrics", "\(songID): the server is still translating \(lines.count) \(language) lines")
+                    case .failed(let reason):
+                        await Diagnostics.shared.record("lyrics", "\(songID): the server's translation failed: \(reason)")
+                    }
+                } catch {
+                    await Diagnostics.shared.record("lyrics", "\(songID): translation request failed: \(error.localizedDescription)")
+                }
+                return nil
             }
         )
         guard !Task.isCancelled else { return }

@@ -391,6 +391,7 @@ final class LyricsPane {
         guard !LyricsLanguage.isEnglish(language), !wanted.isEmpty else {
             for pair in labels { pair.translated.isVisible = false; pair.note.isVisible = false }
             translationNote.isVisible = false
+            Task { await Diagnostics.shared.record("lyrics", "\(id): lyrics in \(language ?? "an unknown language"), \(wanted.count) lines worth translating: none asked") }
             return
         }
         let sonic = SonicClient(configuration: env.app.sonic.configuration)
@@ -426,6 +427,7 @@ final class LyricsPane {
             let source = wanted.map { text[$0] }
             if let kept = await LyricTranslationStore.shared.kept(songID: id, lines: text) {
                 show(kept.translations, kept.notes)
+                await Diagnostics.shared.record("lyrics", "\(id): kept translation by \(kept.engine ?? "the service")\(kept.isFinal ? "" : ", not final: asking for the whole-song one")")
                 guard !kept.isFinal else { return }
                 // Kept from before the whole-song translations: one quiet ask for a better one.
                 if case let .done(answer)? = try? await sonic.translate(source, language: language ?? "", songID: id),
@@ -433,9 +435,11 @@ final class LyricsPane {
                     let made = placed(answer)
                     show(made.lines, made.notes)
                     await LyricTranslationStore.shared.save(made.lines, notes: made.notes, engine: answer.engine, of: text, songID: id)
+                    await Diagnostics.shared.record("lyrics", "\(id): whole-song translation by \(answer.engine ?? "?") in place of the kept one")
                 }
                 return
             }
+            await Diagnostics.shared.record("lyrics", "\(id): asking for \(source.count) \(language ?? "?") lines")
             say("Translating…")
             // Asked again every few seconds while the service works on it, for up to
             // five minutes.
@@ -446,6 +450,8 @@ final class LyricsPane {
                     case let .done(answer):
                         let made = placed(answer)
                         show(made.lines, made.notes)
+                        await Diagnostics.shared.record("lyrics", "\(id): translation by \(answer.engine ?? "?")\(answer.draft ? " (draft)" : ""), "
+                            + "\(made.lines.compactMap { $0 }.count) lines, \(made.notes.compactMap { $0 }.count) notes")
                         guard answer.draft else {
                             await LyricTranslationStore.shared.save(made.lines, notes: made.notes, engine: answer.engine, of: text, songID: id)
                             return
@@ -458,9 +464,11 @@ final class LyricsPane {
                         if attempt == 3 { say("Translating… The first time takes a minute or two.") }
                         try? await Task.sleep(for: .seconds(4))
                     case let .failed(reason):
+                        await Diagnostics.shared.record("lyrics", "\(id): translation failed: \(reason)")
                         return say("Couldn't translate these lyrics: \(reason)")
                     }
                 } catch {
+                    await Diagnostics.shared.record("lyrics", "\(id): couldn't reach the translator: \(error.localizedDescription)")
                     return say("Couldn't reach the translator.")
                 }
             }

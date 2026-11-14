@@ -50,4 +50,19 @@ struct LyricTranslationStoreTests {
         #expect(kept?.notes == [nil])
         #expect(kept?.isFinal == false)
     }
+
+    /// Claude has made the server's whole-song translations since 2026-11-13; the apps took
+    /// only Flash-Next's, so every one of those was dropped for the phone's own.
+    @Test func claudesWholeSongTranslationsCountAsWholeSong() async {
+        #expect(LyricTranslationStore.isWholeSong("claude"))
+        #expect(LyricTranslationStore.isWholeSong("flash-next"))
+        #expect(!LyricTranslationStore.isWholeSong("argos"))
+        #expect(!LyricTranslationStore.isWholeSong(nil))
+        #expect(SonicClient.Translated(lines: ["Hi"], notes: [nil], draft: false, engine: "claude").isWholeSong)
+
+        // Linux keeps the server's answer under its own engine name: still final.
+        let store = store()
+        await store.save(["Blood type on my sleeve"], notes: [nil], engine: "claude", of: ["Группа крови на рукаве"], songID: "a")
+        #expect(await store.kept(songID: "a", lines: ["Группа крови на рукаве"])?.isFinal == true)
+    }
 }

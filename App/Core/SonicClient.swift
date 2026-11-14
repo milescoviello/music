@@ -267,7 +267,7 @@ struct SonicClient: Sendable {
         /// "flash-next" for a whole-song translation made ahead of time.
         var engine: String?
 
-        var isWholeSong: Bool { engine == LyricTranslationStore.wholeSong }
+        var isWholeSong: Bool { LyricTranslationStore.isWholeSong(engine) }
     }
 
     enum Translation: Equatable, Sendable {

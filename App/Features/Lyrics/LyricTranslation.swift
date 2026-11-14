@@ -70,7 +70,10 @@ final class LyricTranslation {
         status = .idle
         configuration = nil
 
-        if let kept = await LyricTranslationStore.shared.kept(songID: songID, lines: lines), self.job == job {
+        let kept = await LyricTranslationStore.shared.kept(songID: songID, lines: lines)
+        log("\(songID): \(lines.count) lines in \(language ?? "an unknown language"), Translate to English \(wanted ? "on" : "off"), "
+            + (kept.map { "a kept translation by \($0.engine ?? "the phone")\($0.isFinal ? "" : ", not final")" } ?? "no kept translation"))
+        if let kept, self.job == job {
             self.lines = kept.translations
             self.notes = kept.notes
             self.engine = kept.engine
@@ -87,10 +90,28 @@ final class LyricTranslation {
 
     /// The server's whole-song translation of the lines worth translating, placed by line.
     private func fromServer(_ job: Job) async -> (lines: [String?], notes: [String?])? {
-        guard let server, let language, !LyricsLanguage.isEnglish(language) else { return nil }
+        guard let server else { log("\(job.songID): no server to ask for a translation"); return nil }
+        guard let language, !LyricsLanguage.isEnglish(language) else {
+            log("\(job.songID): lyrics in \(language ?? "an unknown language"), no translation asked")
+            return nil
+        }
         let wanted = LyricsLanguage.linesToTranslate(job.lines)
-        guard !wanted.isEmpty, let answer = await server(wanted.map { job.lines[$0] }, language),
-              answer.isWholeSong, answer.lines.count == wanted.count else { return nil }
+        guard !wanted.isEmpty else { log("\(job.songID): no lines worth translating"); return nil }
+        let asked = Date()
+        guard let answer = await server(wanted.map { job.lines[$0] }, language) else {
+            log("\(job.songID): no whole-song translation from the server for \(wanted.count) \(language) lines (\(Self.took(asked)))")
+            return nil
+        }
+        guard answer.isWholeSong else {
+            log("\(job.songID): the server answered with \(answer.engine ?? "an unnamed engine"), not a whole-song translation; not used")
+            return nil
+        }
+        guard answer.lines.count == wanted.count else {
+            log("\(job.songID): the server's translation has \(answer.lines.count) lines for \(wanted.count) asked; not used")
+            return nil
+        }
+        log("\(job.songID): whole-song translation by \(answer.engine ?? "?"): \(wanted.count) lines, "
+            + "\(answer.notes.compactMap { $0 }.count) notes (\(Self.took(asked)))")
         var lines = [String?](repeating: nil, count: job.lines.count)
         var notes = [String?](repeating: nil, count: job.lines.count)
         for (k, index) in wanted.enumerated() {
@@ -104,8 +125,9 @@ final class LyricTranslation {
     /// kept, so turning it back on is instant. Turning it off and on again after a
     /// failure tries again.
     func setWanted(_ wanted: Bool) async {
+        if let job { log("\(job.songID): Translate to English \(wanted ? "on" : "off")") }
         if wanted {
-            if let job, !lines.isEmpty, engine != LyricTranslationStore.wholeSong { await upgrade(job) }
+            if let job, !lines.isEmpty, !LyricTranslationStore.isWholeSong(engine) { await upgrade(job) }
             await start()
         } else if status != .idle {
             status = .idle
@@ -132,9 +154,11 @@ final class LyricTranslation {
         if let source, let language, await !Self.canTranslate(from: source) {
             guard self.job == job, status == .translating else { return }
             let name = Locale.current.localizedString(forIdentifier: language) ?? language
+            log("\(job.songID): no whole-song translation, and the phone can't translate from \(name)")
             status = .failed("Translation from \(name) isn't available")
             return
         }
+        log("\(job.songID): no whole-song translation; translating \(LyricsLanguage.linesToTranslate(job.lines).count) lines on the phone")
         guard self.job == job, status == .translating else { return }
 
         // An equal configuration would not start the task again, as it must for the
@@ -151,6 +175,15 @@ final class LyricTranslation {
     /// The task's question: what to translate, if anything.
     private var pendingJob: Job? {
         status == .translating ? job : nil
+    }
+
+    /// What the translation did, in the logs he can send ("[lyrics]").
+    private func log(_ message: String) {
+        Task { await Diagnostics.shared.record("lyrics", message) }
+    }
+
+    private static func took(_ since: Date) -> String {
+        String(format: "%.1fs", Date().timeIntervalSince(since))
     }
 
     private func finish(_ job: Job, with translations: [String?], notes: [String?]? = nil, engine: String? = nil) {
@@ -170,6 +203,7 @@ final class LyricTranslation {
             status = .idle
             return
         }
+        log("\(job.songID): the phone's translation failed: \(error.localizedDescription)")
         status = .failed((error as? LocalizedError)?.errorDescription ?? "Couldn't translate these lyrics")
     }
 
