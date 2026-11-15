@@ -17,6 +17,9 @@ struct NowPlayingView: View {
     @State private var mode: PlayerMode = .artwork
     /// Written by a sideways swipe over the visualiser; `VisualizerView` reads the same key.
     @AppStorage(VisualizerProgram.storageKey) private var visualizerName = VisualizerProgram.defaultName
+    /// The visualiser was turned over in place of the artwork, kept across launches: only the
+    /// program was remembered, so every launch came back to the artwork.
+    @AppStorage("visualizer.shown") private var visualizerShown = false
     @State private var drag = DismissDrag()
     @State private var similarTo: Song?
     @State private var showsVisualizerPicker = false
@@ -57,7 +60,7 @@ struct NowPlayingView: View {
         }
         .sheet(isPresented: $showsVisualizerPicker) {
             // Choosing one from the artwork shows it, as in Plexamp.
-            VisualizerPicker(onSelect: { mode = .visualizer })
+            VisualizerPicker(onSelect: { show(visualizer: true) })
         }
         .sheet(item: $changingVideo) { song in
             ChangeVideoSheet(song: song)
@@ -74,6 +77,15 @@ struct NowPlayingView: View {
         .onChange(of: videos.isStandingIn) { _, standing in
             if standing, mode == .visualizer { mode = .artwork }
         }
+        .onAppear {
+            if mode == .artwork, visualizerShown, !videos.wantsVideo { mode = .visualizer }
+        }
+    }
+
+    /// The artwork turned over to the visualiser or back, by him: remembered.
+    private func show(visualizer: Bool) {
+        visualizerShown = visualizer
+        mode = visualizer ? .visualizer : .artwork
     }
 
     private var playerBody: some View {
@@ -337,7 +349,7 @@ struct NowPlayingView: View {
                 .matchedGeometryEffect(id: "artwork", in: modeNamespace)
                 // Plexamp's artwork is the visualiser's other side: a tap turns it over,
                 // a long press picks which one.
-                .onTapGesture { mode = .visualizer }
+                .onTapGesture { show(visualizer: true) }
                 .onLongPressGesture { showsVisualizerPicker = true }
 
             case .queue:
@@ -351,7 +363,7 @@ struct NowPlayingView: View {
             case .visualizer:
                 VisualizerView(
                     isPaused: drag.isMoved,
-                    onTap: { mode = .artwork },
+                    onTap: { show(visualizer: false) },
                     onLongPress: { showsVisualizerPicker = true }
                 )
             }
@@ -695,7 +707,8 @@ struct NowPlayingView: View {
         let isSelected = mode == target
 
         return Button {
-            mode = isSelected ? .artwork : target
+            // Leaving the lyrics or the queue goes back to whichever side was up.
+            mode = isSelected ? (visualizerShown && !videos.wantsVideo ? .visualizer : .artwork) : target
         } label: {
             Image(systemName: symbol)
                 .font(.title3.weight(isSelected ? .bold : .regular))
