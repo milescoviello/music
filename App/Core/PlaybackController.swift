@@ -977,6 +977,11 @@ final class PlaybackController {
             publishNowPlaying(force: true)
             return
         }
+        // Logged, so a report of lyrics out of step says whether the song was moved in.
+        if let song = queue.current {
+            let line = "“\(song.title)” (\(song.id)) moved from \(LogReport.clock(elapsed)) to \(LogReport.clock(seconds))"
+            Task { await Diagnostics.shared.record("playback", line) }
+        }
         output.seek(to: seconds)
         elapsed = seconds
         tracker.interrupted(at: seconds)

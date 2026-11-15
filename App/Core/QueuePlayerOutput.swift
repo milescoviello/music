@@ -455,6 +455,13 @@ final class QueuePlayerOutput: AudioOutput {
         if !location.isLocal, let mime = location.mimeType {
             options[AVURLAssetOverrideMIMETypeKey] = mime
         }
+        // A file on the phone is read for exact timing. Without it a seek in a FLAC can
+        // land the sound seconds from where `currentTime` says it is, and the lyrics
+        // follow the clock: Suru, skipped ahead in its download, ran a line behind.
+        // Not for a stream, where it would mean reading the whole file before it plays.
+        if location.isLocal {
+            options[AVURLAssetPreciseDurationAndTimingKey] = true
+        }
 
         let asset = AVURLAsset(url: location.url, options: options)
         let item = AVPlayerItem(asset: asset)
