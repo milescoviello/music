@@ -460,7 +460,7 @@ final class QueuePlayerOutput: AudioOutput {
         // follow the clock: Suru, skipped ahead in its download, ran a line behind.
         // Not for a stream, where it would mean reading the whole file before it plays.
         if location.isLocal {
-            options[AVURLAssetPreciseDurationAndTimingKey] = true
+            options[AVURLAssetPreferPreciseDurationAndTimingKey] = true
         }
 
         let asset = AVURLAsset(url: location.url, options: options)
