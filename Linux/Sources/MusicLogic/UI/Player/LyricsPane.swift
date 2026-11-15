@@ -428,11 +428,13 @@ final class LyricsPane {
             if let kept = await LyricTranslationStore.shared.kept(songID: id, lines: text) {
                 show(kept.translations, kept.notes)
                 await Diagnostics.shared.record("lyrics", "\(id): kept translation by \(kept.engine ?? "the service")\(kept.isFinal ? "" : ", not final: asking for the whole-song one")")
-                guard !kept.isFinal else { return }
-                // Kept from before the whole-song translations: one quiet ask for a better one.
+                // One quiet ask for the server's whole-song translation, even over a kept whole-song
+                // one: those get redone (Claude's replaced Flash-Next's, fixed lyrics get theirs
+                // again), and the kept one used to be shown forever.
                 if case let .done(answer)? = try? await sonic.translate(source, language: language ?? "", songID: id),
                    answer.isWholeSong, !Task.isCancelled {
                     let made = placed(answer)
+                    if kept.isFinal, made.lines == kept.translations, made.notes == kept.notes { return }
                     show(made.lines, made.notes)
                     await LyricTranslationStore.shared.save(made.lines, notes: made.notes, engine: answer.engine, of: text, songID: id)
                     await Diagnostics.shared.record("lyrics", "\(id): whole-song translation by \(answer.engine ?? "?") in place of the kept one")

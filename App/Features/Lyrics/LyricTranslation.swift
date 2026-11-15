@@ -77,14 +77,20 @@ final class LyricTranslation {
             self.lines = kept.translations
             self.notes = kept.notes
             self.engine = kept.engine
-            if !kept.isFinal, wanted { await upgrade(job) }
+            // Even a kept whole-song translation is checked against the server's: those get
+            // redone (Claude's replaced Flash-Next's, fixed lyrics get theirs again), and the
+            // phone used to show the one it kept first forever.
+            if wanted { await upgrade(job, over: kept) }
         }
         if wanted { await start() }
     }
 
-    /// The server's whole-song translation in place of one kept from the phone, if it has one.
-    private func upgrade(_ job: Job) async {
+    /// The server's whole-song translation in place of the one on screen, if it has one and
+    /// it isn't the same whole-song translation already.
+    private func upgrade(_ job: Job, over shown: LyricTranslationStore.Kept? = nil) async {
         guard let made = await fromServer(job), self.job == job else { return }
+        if let shown, shown.isFinal, made.lines == shown.translations, made.notes == shown.notes { return }
+        if shown?.isFinal == true { log("\(job.songID): the server's translation changed since it was kept; showing the new one") }
         finish(job, with: made.lines, notes: made.notes, engine: LyricTranslationStore.wholeSong)
     }
 
@@ -127,7 +133,12 @@ final class LyricTranslation {
     func setWanted(_ wanted: Bool) async {
         if let job { log("\(job.songID): Translate to English \(wanted ? "on" : "off")") }
         if wanted {
-            if let job, !lines.isEmpty, !LyricTranslationStore.isWholeSong(engine) { await upgrade(job) }
+            if let job, !lines.isEmpty {
+                let shown = LyricTranslationStore.Kept(translations: lines,
+                                                       notes: notes.count == lines.count ? notes : Array(repeating: nil, count: lines.count),
+                                                       engine: engine)
+                await upgrade(job, over: shown)
+            }
             await start()
         } else if status != .idle {
             status = .idle
