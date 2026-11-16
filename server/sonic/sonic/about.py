@@ -65,7 +65,14 @@ def _names(artist: str) -> list[str]:
     return [name for name in dict.fromkeys([plain(artist)] + [plain(part) for part in parts]) if len(name) >= 2]
 
 
+OTHER_TAKE = re.compile(r"\b(live|remix|demo|acoustic|instrumental|cover|karaoke|sped up|slowed)\b", re.I)
+
+
 def same_title(theirs: str | None, ours: str) -> bool:
+    # "Deathmetal - Live in Nottingham" is another recording's page, not the album track "Deathmetal".
+    take = OTHER_TAKE.search(theirs or "")
+    if take and not re.search(rf"\b{re.escape(take.group(1))}\b", ours, re.I):
+        return False
     a, b = plain(lrclib.clean(theirs or "")), plain(lrclib.clean(ours))
     if not a or not b:
         return False
@@ -128,7 +135,7 @@ class SongAbout:
 
     def answer(self, track_id: str, title: str, artist: str, album: str = "", language: str | None = None,
                refresh: bool = False) -> dict:
-        found = self._found(track_id, title, artist, language, refresh)
+        found = self._found(track_id, title, artist, album, language, refresh)
         answer = {"id": track_id, "title": title, "artist": artist, "album": album,
                   "summary": self.summary(track_id), **found}
         return answer
@@ -146,7 +153,7 @@ class SongAbout:
             return None
         return {"text": text.strip(), "basis": "lyrics" if stored.get("basis") == "lyrics" else "sources"}
 
-    def _found(self, track_id: str, title: str, artist: str, language: str | None, refresh: bool) -> dict:
+    def _found(self, track_id: str, title: str, artist: str, album: str, language: str | None, refresh: bool) -> dict:
         with self._db() as db:
             row = db.execute("select at, found, data from about where id = ?", (track_id,)).fetchone()
         now = self._clock()
@@ -158,7 +165,7 @@ class SongAbout:
                 return stored
         with self._lock:
             try:
-                fetched = self.fetch(title, artist, language)
+                fetched = self.fetch(title, artist, language, album)
                 state = 1 if (fetched["sections"] or fetched["notes"]) else 0
             except OSError as error:   # urllib's errors are OSErrors
                 log.warning("song about %s: %s", track_id, error)
@@ -182,12 +189,13 @@ class SongAbout:
             if error.code == 404:
                 return None
             raise
-        except ValueError:
-            return None
+        except ValueError as error:
+            # A challenge page instead of an answer: a failure, asked again within the hour, never "nothing found".
+            raise OSError(f"not JSON from {url}") from error
 
-    def fetch(self, title: str, artist: str, language: str | None = None) -> dict:
+    def fetch(self, title: str, artist: str, language: str | None = None, album: str = "") -> dict:
         sections, notes, links, extra = [], [], [], {}
-        genius = self.genius(title, artist)
+        genius = self.genius(title, artist, album)
         if genius:
             song, referents = genius
             about = ((song.get("description") or {}).get("plain") or "").strip()
@@ -220,23 +228,34 @@ class SongAbout:
                 break
         return {"sections": sections, "notes": notes, "links": links, **extra}
 
-    def genius(self, title: str, artist: str) -> tuple[dict, list] | None:
+    def genius(self, title: str, artist: str, album: str = "") -> tuple[dict, list] | None:
         """The song's Genius page and its notes, or None when no hit is this song."""
         for query in dict.fromkeys([f"{title} {artist}", f"{lrclib.clean(title)} {artist}"]):
             found = self._get(f"{GENIUS}/search/song", {"q": query, "per_page": 5}, BROWSER) or {}
             hits = [hit.get("result") or {} for section in (found.get("response") or {}).get("sections") or []
                     for hit in section.get("hits") or [] if hit.get("type") == "song"]
-            for hit in hits:
-                if same_title(hit.get("title"), title) and \
-                        same_artist((hit.get("primary_artist") or {}).get("name") or hit.get("artist_names"), artist):
-                    song = ((self._get(f"{GENIUS}/songs/{hit['id']}", {"text_format": "plain"}, BROWSER) or {})
-                            .get("response") or {}).get("song")
-                    if not song:
-                        return None
-                    referents = ((self._get(f"{GENIUS}/referents", {"song_id": hit["id"], "text_format": "plain",
-                                                                    "per_page": 50}, BROWSER) or {})
-                                 .get("response") or {}).get("referents") or []
-                    return song, referents
+            matches = [hit for hit in hits if same_title(hit.get("title"), title) and
+                       same_artist((hit.get("primary_artist") or {}).get("name") or hit.get("artist_names"), artist)]
+            if not matches:
+                continue
+            # Several pages of one title (Panchiko's "Deathmetal": the 2000 album's, and a 2022 live album's):
+            # the one on this album, else the first.
+            songs = []
+            for hit in matches[:3 if album else 1]:
+                song = ((self._get(f"{GENIUS}/songs/{hit['id']}", {"text_format": "plain"}, BROWSER) or {})
+                        .get("response") or {}).get("song")
+                if song:
+                    songs.append((hit["id"], song))
+                    if not album or plain((song.get("album") or {}).get("name")) == plain(album):
+                        break
+            if not songs:
+                return None
+            song_id, song = next(((i, s) for i, s in songs if album and plain((s.get("album") or {}).get("name")) == plain(album)),
+                                 songs[0])
+            referents = ((self._get(f"{GENIUS}/referents", {"song_id": song_id, "text_format": "plain",
+                                                            "per_page": 50}, BROWSER) or {})
+                         .get("response") or {}).get("referents") or []
+            return song, referents
         return None
 
     def wikipedia(self, title: str, artist: str, lang: str = "en") -> tuple[str, str, list] | None:

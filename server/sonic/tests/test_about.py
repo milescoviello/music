@@ -69,6 +69,9 @@ class Matching(unittest.TestCase):
         self.assertTrue(same_title("Группа крови (Blood Type)", "Группа крови"))
         self.assertFalse(same_title("Universe", "Parallel Universe"))
         self.assertFalse(same_title("Love", "Lovely Day"))
+        self.assertFalse(same_title("Deathmetal - Live in Nottingham", "Deathmetal"))
+        self.assertFalse(same_title("DEATHMETAL (Live)", "Deathmetal"))
+        self.assertTrue(same_title("Cold Heart (PNAU Remix)", "Cold Heart (PNAU remix)"))
 
     def test_artists_by_any_of_their_names(self):
         self.assertTrue(same_artist("КИНО (KINO)", "Кино"))
@@ -107,6 +110,18 @@ class Answers(unittest.TestCase):
             "title": "Parallel Universe (song)", "extract": '"Parallel Universe" is a song by Someone Else.'}}}}
         answer = self.about(Web(pages)).answer("a", "Parallel Universe", "Red Hot Chili Peppers")
         self.assertEqual((answer["sections"], answer["notes"], answer["links"]), ([], [], []))
+
+    def test_of_two_pages_of_one_title_the_one_on_this_album(self):
+        pages = everything()
+        pages["https://genius.com/api/search/song"] = genius_search(
+            (2, "Parallel Universe", "Red Hot Chili Peppers"), (1, "Parallel Universe", "Red Hot Chili Peppers"))
+        pages["https://genius.com/api/songs/2"] = {"response": {"song": {
+            "id": 2, "url": "https://genius.com/live", "album": {"name": "Live at Slane Castle"},
+            "description": {"plain": "Live at Slane."}}}}
+        pages["https://genius.com/api/songs/1"] = {"response": {"song": dict(
+            GENIUS_SONG["response"]["song"], id=1, album={"name": "Californication"})}}
+        answer = self.about(Web(pages)).answer("a", "Parallel Universe", "Red Hot Chili Peppers", "Californication")
+        self.assertEqual(answer["sections"][0]["text"], "The second song off Californication.")
 
     def test_an_album_page_is_not_the_song(self):
         pages = everything()
@@ -152,6 +167,13 @@ class Answers(unittest.TestCase):
         web.fail, web.pages = False, everything()
         self.now += 3_601
         self.assertEqual(len(about.answer("a", "Parallel Universe", "Red Hot Chili Peppers")["sections"]), 3)
+
+    def test_a_page_that_is_not_an_answer_is_a_failure_not_nothing(self):
+        class Challenge(Web):
+            def __call__(self, request, timeout=None):
+                self.asked.append(request.full_url)
+                return io.BytesIO(b"<!DOCTYPE html><html>Just a moment...</html>")
+        self.assertTrue(self.about(Challenge()).answer("a", "Parallel Universe", "Red Hot Chili Peppers")["unavailable"])
 
     def test_a_failed_refresh_keeps_what_was_found(self):
         web = Web(everything())
