@@ -61,8 +61,9 @@ def plain(text: str | None) -> str:
 
 
 def _names(artist: str) -> list[str]:
-    """"Кино (Kino)" -> ["кинокino", "кино", "kino"]; "Elton John & Dua Lipa" -> both, and each."""
-    parts = re.split(r"\s*(?:[()&,/]|\bfeat\.?|\bft\.?|\bwith\b|\band\b|\bx\b)\s*", artist or "", flags=re.I)
+    """"Кино (Kino)" -> ["кинокino", "кино", "kino"]; "Elton John & Dua Lipa" or "The Strokes • Julian
+    Casablancas" -> both, and each."""
+    parts = re.split(r"\s*(?:[()&,/;•·+]|\bfeat\.?|\bft\.?|\bwith\b|\band\b|\bx\b)\s*", artist or "", flags=re.I)
     return [name for name in dict.fromkeys([plain(artist)] + [plain(part) for part in parts]) if len(name) >= 2]
 
 

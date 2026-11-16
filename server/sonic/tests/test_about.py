@@ -77,6 +77,7 @@ class Matching(unittest.TestCase):
         self.assertTrue(same_artist("КИНО (KINO)", "Кино"))
         self.assertTrue(same_artist("Elton John", "Elton John & Dua Lipa"))
         self.assertFalse(same_artist("Red Hot Chili Peppers", "Foo Fighters"))
+        self.assertTrue(same_artist("The Strokes", "The Strokes • Julian Casablancas"))
 
 
 class Answers(unittest.TestCase):
