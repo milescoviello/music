@@ -140,8 +140,14 @@ class SongAbout:
     def answer(self, track_id: str, title: str, artist: str, album: str = "", language: str | None = None,
                refresh: bool = False) -> dict:
         found = self._found(track_id, title, artist, album, language, refresh)
-        answer = {"id": track_id, "title": title, "artist": artist, "album": album,
-                  "summary": self.summary(track_id), **found}
+        summary = self.summary(track_id)
+        answer = {"id": track_id, "title": title, "artist": artist, "album": album, **found,
+                  "summary": summary and {k: summary[k] for k in ("text", "basis")}}
+        # Where the summary's facts came from when Genius and Wikipedia had nothing: shown with their links.
+        known = {link.get("url") for link in answer.get("links") or []}
+        extra = [link for link in (summary or {}).get("links", []) if link["url"] not in known]
+        if extra:
+            answer["links"] = list(answer.get("links") or []) + extra
         return answer
 
     def summary(self, track_id: str) -> dict | None:
@@ -155,7 +161,9 @@ class SongAbout:
         text = stored.get("text") if isinstance(stored, dict) else None
         if not isinstance(text, str) or not text.strip():
             return None
-        return {"text": text.strip(), "basis": "lyrics" if stored.get("basis") == "lyrics" else "sources"}
+        links = [{"name": str(link["name"]), "url": str(link["url"])} for link in stored.get("links") or []
+                 if isinstance(link, dict) and link.get("name") and str(link.get("url", "")).startswith("http")]
+        return {"text": text.strip(), "basis": "lyrics" if stored.get("basis") == "lyrics" else "sources", "links": links}
 
     def _found(self, track_id: str, title: str, artist: str, album: str, language: str | None, refresh: bool) -> dict:
         with self._db() as db:

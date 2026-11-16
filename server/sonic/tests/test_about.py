@@ -169,6 +169,15 @@ class Answers(unittest.TestCase):
         answer = self.about(Web(everything())).answer("a", "Parallel Universe", "Red Hot Chili Peppers")
         self.assertEqual(answer["summary"], {"text": "About addiction.", "basis": "lyrics"})
 
+    def test_a_summarys_own_sources_are_linked(self):
+        (self.dir / "song-about-summaries").mkdir(exist_ok=True)
+        (self.dir / "song-about-summaries" / "a.json").write_text(json.dumps({
+            "text": "From an interview.", "basis": "sources",
+            "links": [{"name": "Interview", "url": "https://example.com/i"}, {"name": "Bad", "url": "javascript:x"}]}))
+        answer = self.about(Web({})).answer("a", "Obscure", "Nobody")
+        self.assertEqual(answer["summary"], {"text": "From an interview.", "basis": "sources"})
+        self.assertEqual(answer["links"], [{"name": "Interview", "url": "https://example.com/i"}])
+
     def test_looked_up_once_then_kept(self):
         web = Web(everything())
         about = self.about(web)
