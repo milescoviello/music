@@ -67,6 +67,26 @@ final class SonicService {
         }
     }
 
+    // MARK: - What a song is about
+
+    enum AboutAnswer: Equatable, Sendable {
+        case about(SongAbout)
+        /// The service doesn't know the song.
+        case unknown
+        /// The service isn't reachable.
+        case unreachable
+    }
+
+    /// The About sheet's content. Asks even before the analysis has started: it needs the service, not its index.
+    func about(_ song: Song, refresh: Bool = false) async -> AboutAnswer {
+        do {
+            guard let about = try await client.about(songID: song.id, refresh: refresh) else { return .unknown }
+            return .about(about)
+        } catch {
+            return .unreachable
+        }
+    }
+
     // MARK: - Tracks
 
     /// Plexamp's Sonically Similar tracks.

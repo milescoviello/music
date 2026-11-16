@@ -31,6 +31,7 @@ runtime.
 | `/v1/status` | tracks, analysed, failed, indexed, analysing |
 | `/v1/tracks/{id}/levels?points=128` | `{id, hop, levels}` — loudness in LUFS, bucket means; `points=0` for every reading |
 | `/v1/tracks/{id}/rhythm` | `{id, bpm, confidence, beats[], key, scale, keyStrength, duration, loudness}` |
+| `/v1/tracks/{id}/about?refresh=1` | `{id, title, artist, album, summary{text, basis}, released, writers[], sections[{source, heading, text, url}], notes[{fragment, text, url, reviewed}], links[], unavailable?}` — the About sheet: Genius's About and the song's Wikipedia sections quoted, Genius's notes on lines, and the summary in `data/song-about-summaries/{id}.json`; looked up on first ask, kept in `data/song-about.db` (`about.py`) |
 | `/v1/tracks/{id}/similar?limit=&exclude_artist=&max_distance=` | nearest tracks |
 | `/v1/tracks/{id}/distant?limit=` | related but not close, unplayed first |
 | `/v1/tracks/{id}/tags` | the strongest of the 50 tags |

@@ -101,6 +101,7 @@ def make_handler(service):
         (re.compile(r"^/v1/shows$"), lambda match, q: service.shows.answer()),
         (re.compile(r"^/v1/library/duplicates$"), lambda match, q: service.duplicate_albums()),
         (re.compile(r"^/v1/lyrics/([^/]+)/words$"), lambda match, q: service.words(match[1])),
+        (re.compile(r"^/v1/tracks/([^/]+)/about$"), lambda match, q: service.about(match[1], _flag(q, "refresh"))),
         (re.compile(r"^/v1/video/search$"),
          lambda match, q: {"items": service.videos.search(_text(q, "q"), _int(q, "limit", 12, 1, 30))}),
         (re.compile(r"^/v1/video/match$"),

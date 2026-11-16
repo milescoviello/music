@@ -3,6 +3,7 @@ keeps the in-memory index current for the HTTP layer."""
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import threading
@@ -19,6 +20,7 @@ from .analyse import analyse, init_worker
 from .config import ANALYSIS_VERSION, MODEL_NAME, MODEL_URL, Config
 from .index import Index, bucket_levels, stored_levels
 from .lyrics import LyricIndex
+from .about import SongAbout
 from .words import Readings, Translations
 from .radar import Radar
 from .shows import Shows
@@ -39,6 +41,7 @@ class Service:
         self.shows = Shows(config.ticketmaster_key, config.shows_place, config.shows_radius,
                            self.radar.artists, config.data_dir / "shows.json")
         self.word_timings = WordTimings(config.data_dir / "word-timings.db")
+        self.song_about = SongAbout(config.data_dir)
         # The library's songs at the last pass, for what a song is without a copy of the
         # database: title, artist, album, length.
         self.songs: dict = {}
@@ -172,6 +175,21 @@ class Service:
             title, artist, duration = song.title, song.artist, song.duration
         lines = self.word_timings.answer(track_id, title, artist, duration)
         return None if lines is None else {"id": track_id, "lines": lines}
+
+    def about(self, track_id: str, refresh: bool = False) -> dict | None:
+        """What the song is about (`about`): quoted background, Genius's notes on lines, and the summary
+        written ahead of time; None for a song unknown."""
+        song = self.songs.get(track_id)
+        if song is None:
+            song = library.locate(self.config, track_id)
+            if song is None:
+                return None
+        language = None
+        try:
+            language = json.loads((self.translations.songs / f"{track_id}.json").read_text()).get("language")
+        except (OSError, ValueError, AttributeError):
+            pass
+        return self.song_about.answer(track_id, song.title, song.artist, song.album, language, refresh)
 
     def _index_lyrics(self, track_id: str, song, text: str) -> None:
         """Lyrics just written, into the search at once rather than at the next pass."""

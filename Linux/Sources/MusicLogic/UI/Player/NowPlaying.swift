@@ -736,6 +736,7 @@ final class NowPlaying {
         // No queue items: this song is already playing, so they would only queue a copy.
         var sections = Menus.song(env, song, showsNavigation: false, showsRating: true, showsQueueItems: false).sections
         var jumps = Menus.navigationItems(env, song, jumps: true)
+        jumps.append(.action("About This Song") { SongAboutPage.present(app, song: song) })
         jumps.append(.action("Show Similar Tracks") { [env] in SimilarTracks.present(env, song: song) })
         jumps.append(.action("Sonic Adventure…") { app.navigator.open(.sonicAdventure(song)) })
         if app.video.isAvailable {
@@ -807,6 +808,11 @@ final class NowPlaying {
         let player = app.player
         let artist = Button("", "flat", "link-button", "np-artist")
         let title = Label("", "np-title").ellipsize().xalign(0.5)
+        // The title opens what the song is about, as on the phone.
+        title.tooltip("About this song").onClick {
+            guard let song = player.currentSong else { return }
+            SongAboutPage.present(app, song: song)
+        }
         let album = Button("", "flat", "link-button", "np-album")
         for button in [artist, album] {
             button.halign(GTK_ALIGN_CENTER)

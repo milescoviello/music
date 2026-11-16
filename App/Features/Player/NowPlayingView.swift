@@ -22,6 +22,7 @@ struct NowPlayingView: View {
     @AppStorage("visualizer.shown") private var visualizerShown = false
     @State private var drag = DismissDrag()
     @State private var similarTo: Song?
+    @State private var aboutSong: Song?
     @State private var showsVisualizerPicker = false
     /// Change Video, for this song.
     @State private var changingVideo: Song?
@@ -57,6 +58,9 @@ struct NowPlayingView: View {
         .onAppear { drag.offset = 0 }
         .sheet(item: $similarTo) { song in
             SimilarTracksView(song: song)
+        }
+        .sheet(item: $aboutSong) { song in
+            SongAboutView(song: song)
         }
         .sheet(isPresented: $showsVisualizerPicker) {
             // Choosing one from the artwork shows it, as in Plexamp.
@@ -256,6 +260,9 @@ struct NowPlayingView: View {
                         }
                     }
 
+                    Button("About This Song", systemImage: "info.circle") {
+                        aboutSong = song
+                    }
                     Button("Show Similar Tracks", systemImage: "wand.and.stars") {
                         similarTo = song
                     }
@@ -473,9 +480,22 @@ struct NowPlayingView: View {
     private func metadata(_ song: Song) -> some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(song.title)
-                    .font(.title3.weight(.bold))
-                    .lineLimit(1)
+                // The title opens what the song is about: "what is this one about" is the question
+                // a song playing raises, and the dimmed mark says the title answers it.
+                Button {
+                    aboutSong = song
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(song.title)
+                            .font(.title3.weight(.bold))
+                            .lineLimit(1)
+                        Image(systemName: "info.circle")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.45))
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Shows what the song is about")
 
                 // Tappable, because "who is this" is the most common next question and
                 // the menu is two taps away.

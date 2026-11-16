@@ -126,6 +126,7 @@ func logicPackage() -> Package {
                     "LibraryScope.swift",
                     "RecentPlays.swift",
                     "SonicClient.swift",
+                    "SongAbout.swift",
                     "HTTPFetch.swift",
                     "LogReport.swift",
                     "Diagnostics.swift",

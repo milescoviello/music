@@ -434,6 +434,14 @@ struct SonicClient: Sendable {
         try await getIfPresent("v1/lyrics/\(songID)/words", [:], as: WordList.self)?.lines
     }
 
+    // MARK: - What a song is about
+
+    /// The About sheet's content; nil when the service doesn't know the song. The first ask for a song looks it up on
+    /// Genius and Wikipedia, which takes a few seconds; later asks answer at once. `refresh` looks again.
+    func about(songID: String, refresh: Bool = false) async throws -> SongAbout? {
+        try await getIfPresent("v1/tracks/\(songID)/about", refresh ? ["refresh": "1"] : [:], as: SongAbout.self, timeout: 30)
+    }
+
     // MARK: - Lyrics for a song with none
 
     private struct LyricsFind: Encodable {
@@ -608,9 +616,10 @@ struct SonicClient: Sendable {
     }
 
     /// Nil for a 404 — not analysed, or not known — and an error for anything else.
-    private func getIfPresent<T: Decodable>(_ path: String, _ query: [String: String], as type: T.Type) async throws -> T? {
+    private func getIfPresent<T: Decodable>(_ path: String, _ query: [String: String], as type: T.Type,
+                                            timeout: TimeInterval = 10) async throws -> T? {
         guard let url = url(path, query) else { throw SonicError.badURL }
-        var request = URLRequest(url: url, timeoutInterval: 10)
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         authorise(&request)
         let (data, response) = try await session.fetch(request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
