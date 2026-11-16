@@ -51,6 +51,7 @@ WANTED = re.compile(r"background|writing|written|composition|lyric|meaning|theme
                     r"content|interpretation|origin|development|production|история|создани|текст|背景|制作|歌詞", re.I)
 UNWANTED = re.compile(r"release|chart|personnel|track ?list|video|reference|credit|certif|accolade|cover|live|"
                       r"version|reception|legacy|performance|in popular culture|external|see also|notes", re.I)
+DISAMBIGUATION = re.compile(r"may (also )?refer to|может означать|может относиться|曖昧さ回避", re.I)
 SONG_WORDS = re.compile(r"\b(song|single|track|ballad|anthem)\b|песн|сингл|曲|シングル|楽曲", re.I)
 
 
@@ -88,17 +89,19 @@ def same_artist(theirs: str | None, ours: str) -> bool:
     return any(x == y or (min(len(x), len(y)) >= 3 and (x in y or y in x)) for x in mine for y in other)
 
 
-def _sections(extract: str) -> list[tuple[str, str]]:
-    """A plain-text Wikipedia extract as [(heading, text)], the opening first under ""."""
-    out, heading, body, keep_level = [], "", [], None
+def _sections(extract: str) -> list[tuple[str, str, str]]:
+    """A plain-text Wikipedia extract as [(heading, top-level heading above it, text)], the opening first under ""."""
+    out, heading, parent, body = [], "", "", []
     for line in extract.splitlines():
         m = re.match(r"^(=+)\s*(.*?)\s*\1\s*$", line)
         if m:
-            out.append((heading, "\n".join(body).strip())); heading, body = m[2], []
+            out.append((heading, parent, "\n".join(body).strip()))
+            heading, body = m[2], []
+            parent = heading if len(m[1]) <= 2 else parent
             continue
         body.append(line)
-    out.append((heading, "\n".join(body).strip()))
-    return [(h, t) for h, t in out if t]
+    out.append((heading, parent, "\n".join(body).strip()))
+    return [(h, p, t) for h, p, t in out if t]
 
 
 def _cap(text: str, limit: int) -> str:
@@ -202,11 +205,17 @@ class SongAbout:
             if about and about != "?":
                 sections.append({"source": "Genius", "heading": "About", "text": _cap(about, SECTION_CHARS),
                                  "url": song.get("url")})
+            seen = set()
             for referent in referents:
                 annotation = (referent.get("annotations") or [{}])[0]
                 body = ((annotation.get("body") or {}).get("plain") or "").strip()
-                if not body or (annotation.get("votes_total") or 0) < 0 or not (referent.get("fragment") or "").strip():
+                fragment = (referent.get("fragment") or "").strip()
+                # Not the empty, the voted down, the ones that only repeat the line ("Yeah": "yeah"), or a note
+                # already shown for another of the same line's repeats.
+                if not body or not fragment or (annotation.get("votes_total") or 0) < 0 or len(body) < 25 \
+                        or plain(body) in plain(fragment) or plain(body) in seen:
                     continue
+                seen.add(plain(body))
                 notes.append({"fragment": referent["fragment"].strip(), "text": _cap(body, NOTE_CHARS),
                               "url": referent.get("url"), "reviewed": referent.get("classification") in ("accepted", "verified")})
                 if len(notes) >= MAX_NOTES:
@@ -276,12 +285,15 @@ class SongAbout:
             parts = _sections(extract)
             if not parts or parts[0][0]:
                 continue
-            opening = parts[0][1]
-            if not any(name in plain(opening) for name in _names(artist)) or not SONG_WORDS.search(opening[:600]):
+            opening = parts[0][2]
+            if DISAMBIGUATION.search(opening[:300]) or not any(name in plain(opening) for name in _names(artist)) \
+                    or not SONG_WORDS.search(opening[:600]):
                 continue
             keep = [("", _cap(opening, SECTION_CHARS))]
-            for heading, text in parts[1:]:
-                if WANTED.search(heading) and not UNWANTED.search(heading) and len(keep) < 5:
+            for heading, parent, text in parts[1:]:
+                # A subsection counts only under a wanted section: "Composition" under "Cover versions" is the cover's.
+                if (WANTED.search(heading) or parent != heading and WANTED.search(parent)) \
+                        and not UNWANTED.search(heading) and not UNWANTED.search(parent) and len(keep) < 5:
                     keep.append((heading, _cap(text, SECTION_CHARS)))
             name = pages[0].get("title") or page
             return name, f"{WIKIPEDIA.format(lang=lang)}/wiki/{urllib.parse.quote(name.replace(' ', '_'))}", keep

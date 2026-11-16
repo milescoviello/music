@@ -103,6 +103,35 @@ class Answers(unittest.TestCase):
         self.assertEqual(notes, [{"fragment": "Deep inside of a parallel universe", "text": "The private world of addiction.",
                                   "url": "https://genius.com/1", "reviewed": False}])
 
+    def test_notes_that_repeat_the_line_or_each_other_are_left_out(self):
+        pages = everything()
+        long = "He is back home, and will return when he can fly high."
+        pages["https://genius.com/api/referents"] = {"response": {"referents": [
+            {"fragment": "Yeah", "annotations": [{"votes_total": 1, "body": {"plain": "yeah"}}]},
+            {"fragment": "Make my way back home", "annotations": [{"votes_total": 1, "body": {"plain": long}}]},
+            {"fragment": "Make my way back home when I learn to fly", "annotations": [{"votes_total": 1, "body": {"plain": long}}]},
+        ]}}
+        notes = self.about(Web(pages)).answer("a", "Parallel Universe", "Red Hot Chili Peppers")["notes"]
+        self.assertEqual([n["fragment"] for n in notes], ["Make my way back home"])
+
+    def test_a_disambiguation_page_is_not_the_song(self):
+        pages = everything()
+        pages["https://en.wikipedia.org/w/api.php?action=query&prop=extracts"] = {"query": {"pages": {"1": {
+            "title": "Parallel Universe", "extract": "Parallel Universe may refer to:\n\n\"Parallel Universe\", a song by "
+                                                    "the Red Hot Chili Peppers from the album Californication"}}}}
+        sections = self.about(Web(pages)).answer("a", "Parallel Universe", "Red Hot Chili Peppers")["sections"]
+        self.assertEqual([s["source"] for s in sections], ["Genius"])
+
+    def test_a_subsection_counts_only_under_a_wanted_section(self):
+        pages = everything()
+        pages["https://en.wikipedia.org/w/api.php?action=query&prop=extracts"] = {"query": {"pages": {"1": {
+            "title": "Parallel Universe (song)", "extract": (
+                '"Parallel Universe" is a single by the Red Hot Chili Peppers.\n\n'
+                "== Writing ==\nKiedis wrote it.\n\n=== Lyrics ===\nAbout addiction.\n\n"
+                "== Cover versions ==\nA band covered it.\n\n=== Composition ===\nThe cover's composition.")}}}}
+        sections = self.about(Web(pages)).answer("a", "Parallel Universe", "Red Hot Chili Peppers")["sections"]
+        self.assertEqual([s["heading"] for s in sections if s["source"] == "Wikipedia"], ["Overview", "Writing", "Lyrics"])
+
     def test_another_artists_song_of_the_same_name_is_not_this_one(self):
         pages = everything()
         pages["https://genius.com/api/search/song"] = genius_search((1, "Parallel Universe", "Someone Else"))
