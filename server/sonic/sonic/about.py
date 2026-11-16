@@ -240,7 +240,8 @@ class SongAbout:
 
     def genius(self, title: str, artist: str, album: str = "") -> tuple[dict, list] | None:
         """The song's Genius page and its notes, or None when no hit is this song."""
-        for query in dict.fromkeys([f"{title} {artist}", f"{lrclib.clean(title)} {artist}"]):
+        first = re.split(r"\s*(?:[&,/;•·+]|\bfeat\.?|\bft\.?|\bwith\b|\bx\b)\s*", artist or "", flags=re.I)[0]
+        for query in dict.fromkeys([f"{title} {artist}", f"{lrclib.clean(title)} {artist}", f"{lrclib.clean(title)} {first}"]):
             found = self._get(f"{GENIUS}/search/song", {"q": query, "per_page": 5}, BROWSER) or {}
             hits = [hit.get("result") or {} for section in (found.get("response") or {}).get("sections") or []
                     for hit in section.get("hits") or [] if hit.get("type") == "song"]
