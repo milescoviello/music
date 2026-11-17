@@ -224,6 +224,19 @@ enum Style {
     button.accent-button { color: var(--accent-color); -gtk-icon-size: 22px; min-width: 44px; min-height: 44px; padding: 0;
         background: none; box-shadow: none; }
 
+    /* Detail pages: an album's, a playlist's header. */
+    .artwork.detail-art { border-radius: 10px; box-shadow: 0 6px 24px alpha(#000000, 0.45); }
+    .detail-title { font-size: 22px; font-weight: 700; }
+    .detail-artist { font-size: 15px; color: var(--ios-secondary); }
+    .detail-meta { font-size: 12px; color: var(--ios-tertiary); }
+    .detail-review { font-size: 16px; color: var(--ios-secondary); }
+    button.play-pill, button.shuffle-pill { border-radius: 9999px; min-height: 46px; font-size: 17px; font-weight: 600;
+        box-shadow: none; padding: 0 16px; }
+    button.play-pill { background-color: var(--accent-bg-color); color: #ffffff; }
+    button.shuffle-pill { background-color: alpha(#fa475c, 0.16); color: var(--accent-color); }
+    button.play-pill:hover { filter: brightness(1.1); }
+    button.shuffle-pill:hover { background-color: alpha(#fa475c, 0.24); }
+
     /* The mini player. */
     .mini-player { padding: 6px 12px; }
     .mini-player .title { font-weight: 600; }
@@ -511,6 +524,19 @@ enum Style {
     button.accent-button { color: var(--accent-color); -gtk-icon-size: 22px; min-width: 44px; min-height: 44px; padding: 0;
         background: none; box-shadow: none; }
 
+    /* Detail pages: an album's, a playlist's header. */
+    .artwork.detail-art { border-radius: 10px; box-shadow: 0 6px 24px alpha(#000000, 0.45); }
+    .detail-title { font-size: 22px; font-weight: 700; }
+    .detail-artist { font-size: 15px; color: var(--ios-secondary); }
+    .detail-meta { font-size: 12px; color: var(--ios-tertiary); }
+    .detail-review { font-size: 16px; color: var(--ios-secondary); }
+    button.play-pill, button.shuffle-pill { border-radius: 9999px; min-height: 46px; font-size: 17px; font-weight: 600;
+        box-shadow: none; padding: 0 16px; }
+    button.play-pill { background-color: var(--accent-bg-color); color: #ffffff; }
+    button.shuffle-pill { background-color: alpha(#fa475c, 0.16); color: var(--accent-color); }
+    button.play-pill:hover { filter: brightness(1.1); }
+    button.shuffle-pill:hover { background-color: alpha(#fa475c, 0.24); }
+
     /* The mini player. */
     .mini-capsule { min-height: 56px; }
     .mini-player-row { padding: 0 8px 0 8px; min-height: 56px; }
@@ -572,7 +598,7 @@ enum Style {
     button.np-top-button:hover { background-color: alpha(#ffffff, 0.08); }
     .np-source-heading { font-size: 11px; font-weight: 600; color: alpha(#ffffff, 0.5); }
     .np-source { font-size: 12px; font-weight: 500; color: alpha(#ffffff, 0.85); }
-    button.np-plain { background: none; box-shadow: none; padding: 0 2px; min-height: 0; border-radius: 6px; }
+    button.np-plain { background: none; box-shadow: none; padding: 0 2px; min-height: 0; border-radius: 6px; font-weight: 400; }
     button.np-plain:hover { background-color: alpha(#ffffff, 0.06); }
     .np-title { font-size: 20px; font-weight: 700; }
     .np-info { color: alpha(#ffffff, 0.45); }

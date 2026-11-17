@@ -2,8 +2,8 @@ import CGtk
 import Foundation
 
 /// Where a screenshot run (`tools/linux-shot`) opens: `MUSIC_OPEN` names a tab
-/// (`home`, `library`, `search`, `downloads`, `settings`), `player`, `search:<words>`, or a
-/// page that needs no
+/// (`home`, `library`, `search`, `downloads`, `settings`), `player`, `search:<words>`,
+/// `album:<name>`, `artist:<name>`, `playlist:<name>`, or a page that needs no
 /// id (`playlists`, `artists`, `albums`, `genres`, `favorites`, `stats`, `charts`, …).
 /// Opened once the app has signed in and built its window.
 @MainActor
@@ -29,7 +29,24 @@ enum ShotRoute {
             }
             return
         }
-        if route.hasPrefix("search:") {
+        if let colon = route.firstIndex(of: ":"), ["album", "artist", "playlist"].contains(String(route[..<colon])) {
+            let kind = String(route[..<colon])
+            let name = String(route[route.index(after: colon)...])
+            Task { @MainActor in
+                if kind == "playlist" {
+                    await app.playlistStore.refreshIfStale()
+                    guard let playlist = app.playlistStore.playlists.first(where: { $0.name == name }) else { return }
+                    app.navigator.open(.playlist(PlaylistRef(playlist)))
+                    return
+                }
+                guard let found = await app.search.search(name, scope: app.scope.scope) else { return }
+                if kind == "album", let album = found.results.albums.first {
+                    app.navigator.open(.album(AlbumRef(album)))
+                } else if kind == "artist", let artist = found.results.artists.first {
+                    app.navigator.open(.artist(ArtistRef(artist)))
+                }
+            }
+        } else if route.hasPrefix("search:") {
             shell.select(.search)
             shell.navigation?.searchEntry?.text = String(route.dropFirst(7))
         } else if route == "player" {

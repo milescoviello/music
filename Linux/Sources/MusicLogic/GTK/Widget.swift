@@ -640,12 +640,12 @@ enum Markup {
 /// A themed icon, by freedesktop name.
 final class Icon: Widget {
     init(_ name: String, size: Int32 = 16) {
-        super.init(gtk_image_new_from_icon_name(name)!)
+        super.init(gtk_image_new_from_icon_name(Symbol.resolve(name))!)
         gtk_image_set_pixel_size(widget.cast(), size)
     }
 
     var name: String = "" {
-        didSet { gtk_image_set_from_icon_name(widget.cast(), name) }
+        didSet { gtk_image_set_from_icon_name(widget.cast(), Symbol.resolve(name)) }
     }
 
     @discardableResult
@@ -696,19 +696,19 @@ final class Button: Widget {
         case let (label?, icon?):
             let content = adw_button_content_new()!
             adw_button_content_set_label(content.cast(), label)
-            adw_button_content_set_icon_name(content.cast(), icon)
+            adw_button_content_set_icon_name(content.cast(), Symbol.resolve(icon))
             gtk_button_set_child(widget.cast(), content)
         case let (label?, nil):
             gtk_button_set_label(widget.cast(), label)
         case let (nil, icon?):
-            gtk_button_set_icon_name(widget.cast(), icon)
+            gtk_button_set_icon_name(widget.cast(), Symbol.resolve(icon))
         case (nil, nil):
             break
         }
     }
 
     var icon: String = "" {
-        didSet { gtk_button_set_icon_name(widget.cast(), icon) }
+        didSet { gtk_button_set_icon_name(widget.cast(), Symbol.resolve(icon)) }
     }
 
     var label: String = "" {
@@ -728,7 +728,7 @@ final class ToggleButton: Widget {
     init(_ label: String? = nil, icon: String? = nil, _ classes: String..., toggled: (@MainActor (Bool) -> Void)? = nil) {
         super.init(gtk_toggle_button_new()!)
         if let label { gtk_button_set_label(widget.cast(), label) }
-        if let icon { gtk_button_set_icon_name(widget.cast(), icon) }
+        if let icon { gtk_button_set_icon_name(widget.cast(), Symbol.resolve(icon)) }
         for name in classes { gtk_widget_add_css_class(widget, name) }
         if let toggled {
             let reference = WeakReference(self)

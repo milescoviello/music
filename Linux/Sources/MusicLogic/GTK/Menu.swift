@@ -133,10 +133,10 @@ final class MenuButton: Widget {
         if let label {
             let content = adw_button_content_new()!
             adw_button_content_set_label(content.cast(), label)
-            adw_button_content_set_icon_name(content.cast(), icon)
+            adw_button_content_set_icon_name(content.cast(), Symbol.resolve(icon))
             gtk_button_set_child(widget.cast(), content)
         } else {
-            gtk_button_set_icon_name(widget.cast(), icon)
+            gtk_button_set_icon_name(widget.cast(), Symbol.resolve(icon))
         }
         for name in classes { gtk_widget_add_css_class(widget, name) }
         let reference = WeakReference(self)

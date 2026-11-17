@@ -263,7 +263,7 @@ final class NavigationSplitView: Widget {
 final class StatusPage: Widget {
     init(icon: String? = nil, title: String, description: String? = nil, child: Widget? = nil) {
         super.init(adw_status_page_new()!)
-        if let icon { adw_status_page_set_icon_name(widget.cast(), icon) }
+        if let icon { adw_status_page_set_icon_name(widget.cast(), Symbol.resolve(icon)) }
         adw_status_page_set_title(widget.cast(), title)
         if let description { adw_status_page_set_description(widget.cast(), description) }
         if let child { adw_status_page_set_child(widget.cast(), child.widget) }
@@ -336,7 +336,7 @@ final class PreferencesPage: Widget {
     init(title: String = "", icon: String? = nil, @WidgetBuilder _ groups: () -> [Widget] = { [] }) {
         super.init(adw_preferences_page_new()!)
         adw_preferences_page_set_title(widget.cast(), title)
-        if let icon { adw_preferences_page_set_icon_name(widget.cast(), icon) }
+        if let icon { adw_preferences_page_set_icon_name(widget.cast(), Symbol.resolve(icon)) }
         for group in groups() { add(group) }
     }
 
@@ -583,7 +583,7 @@ final class ButtonRow: Widget {
     init(_ title: String, icon: String? = nil, destructive: Bool = false, suggested: Bool = false, action: @escaping @MainActor () -> Void) {
         super.init(adw_button_row_new()!)
         adw_preferences_row_set_title(widget.cast(), title)
-        if let icon { adw_button_row_set_start_icon_name(widget.cast(), icon) }
+        if let icon { adw_button_row_set_start_icon_name(widget.cast(), Symbol.resolve(icon)) }
         if destructive { css("destructive-action") }
         if suggested { css("suggested-action") }
         Signal.connect(widget, "activated", action)

@@ -1,10 +1,10 @@
 import CGtk
 import Foundation
 
-/// An album: its cover and the essentials over the cover's own colours, Play and Shuffle,
-/// the tracks by disc as plain rows, and beside them a column of what the files are, the
-/// other library's copy and what sounds like it; under them the review when the server's
-/// agents have one, and more by the same artist.
+/// An album, the phone's `AlbumDetailView`: the cover centred over its name, artist and
+/// year, Play and Shuffle; the tracks by disc as plain numbered rows; the release's facts
+/// in small print; the review when the server's agents have one; what sounds like it; the
+/// other library's copy; and more by the same artist.
 @MainActor
 enum AlbumPage {
     static func make(_ env: Env, album: AlbumRef) -> NavigationPage {
@@ -12,23 +12,28 @@ enum AlbumPage {
         let loader = Loader()
         var songs: [Song] = []
 
-        let favourite = Button(icon: "music-heart-symbolic", "flat")
+        let favourite = Button(icon: Symbol.icon("heart"), "flat")
         let selection = TrackSelection()
         let download = CollectionDownloadButton(env, groupID: album.id, groupName: album.name) { songs }
-        let menu = MenuButton(icon: "view-more-symbolic", "flat") {
+        // The phone's three: download, the heart, and the menu with Select Tracks in it.
+        let menu = MenuButton(icon: Symbol.icon("ellipsis.circle"), "flat") {
             Menu([
                 Menus.queueItems(env, songs),
                 [
                     .action("Start Radio") { startRadio(app, album: album, songs: songs) },
                     Menus.playlistItem(env, songs, suggestedName: album.name),
                 ],
+                [.action("Select Tracks") { selection.begin() }],
             ])
         }
+        let done = Button("Done", "flat") { selection.end() }
+        done.observe { done.isVisible = selection.isActive }
         let page = Page.make(album.name, content: loader.bin, heading: false) { bar in
+            bar.showsTitle(false)
+            bar.start(done)
             bar.end(menu)
             bar.end(favourite)
             bar.end(download.root)
-            bar.end(selection.button())
         }
 
         page.coverArt = album.coverArt
@@ -47,7 +52,7 @@ enum AlbumPage {
             if page.coverArt == nil { page.coverArt = detail.coverArt }
             favourite.observe {
                 let starred = app.userState.isStarred(id: album.id, serverValue: detail.starred != nil)
-                favourite.setCSS("accent", starred)
+                favourite.icon = Symbol.icon(starred ? "heart.fill" : "heart")
                 favourite.tooltip(starred ? "Remove Favourite" : "Favourite")
             }
             favourite.onClicked {
@@ -78,91 +83,64 @@ enum AlbumPage {
         let songs = detail.songs
         let artist = album.artist ?? detail.artist
 
-        let artwork = ArtworkView(app, size: .full, side: 232, shape: .player)
+        let artwork = ArtworkView(app, size: .full, side: 200, shape: .player)
         artwork.show(album.coverArt ?? detail.coverArt, fallback: album.name)
+        artwork.root.css("detail-art")
 
         var subtitle: [String] = []
         if let year = detail.year { subtitle.append(String(year)) }
-        if let count = detail.songCount { subtitle.append(count == 1 ? "1 song" : "\(count) songs") }
+        if let count = detail.songCount { subtitle.append("\(count) tracks") }
         if let duration = detail.duration { subtitle.append(duration.asLongDuration) }
 
-        let artistButton = Button(artist ?? "", "flat", "link-button", "hero-artist")
-        artistButton.halign(GTK_ALIGN_START).isVisible = artist != nil
+        let artistButton = Button(child: Label(artist ?? "", "detail-artist").xalign(0.5), "flat", "np-plain")
+        artistButton.halign(GTK_ALIGN_CENTER).isVisible = artist != nil
         if let id = detail.artistId, let artist {
             artistButton.onClicked { env.open(.artist(ArtistRef(id: id, name: artist))) }
         }
 
-        let header = Box.horizontal(spacing: 28) {
+        let header = Box.vertical(spacing: 12) {
             artwork.root
             Box.vertical(spacing: 4) {
-                Label(songs.count == 1 ? "Single" : "Album", "hero-kind").xalign(0)
-                Label(album.name, "hero-title").wrap().xalign(0).lines(2).ellipsize()
+                Label(album.name, "detail-title").xalign(0.5).wrap().justify(GTK_JUSTIFY_CENTER)
                 artistButton
-                Label(subtitle.joined(separator: " · "), "hero-meta").xalign(0)
-                Box.horizontal(spacing: 10) {
-                    Button("Play", icon: "media-playback-start-symbolic", "suggested-action", "pill") {
-                        env.play(songs, source: album.name)
-                    }
-                    Button("Shuffle", icon: "media-playlist-shuffle-symbolic", "pill", "glass-pill") {
-                        env.play(songs, source: album.name, shuffled: true)
-                    }
-                }.margins(top: 14)
-            }.valign(GTK_ALIGN_END).hexpand()
-        }
+                Label(subtitle.joined(separator: " · "), "detail-meta").xalign(0.5)
+            }
+            PlayShuffle.make(
+                play: { env.play(songs, source: album.name) },
+                shuffle: { env.play(songs, source: album.name, shuffled: true) }
+            ).margin(horizontal: 16, vertical: 0)
+            HermesNoteView.make(env, subject: .album(id: album.id, name: album.name, artist: artist)).margin(horizontal: 16, vertical: 0)
+        }.margins(top: 8, bottom: 16)
 
-        let tracks = Box.vertical(spacing: 12)
+        let tracks = Box.vertical(spacing: 0)
         tracks.append(selection.bar(env, all: { songs }, source: album.name))
         // By disc when there is more than one.
         let discs = Dictionary(grouping: songs) { $0.discNumber ?? 1 }.sorted { $0.key < $1.key }
         if discs.count > 1 {
             for (number, discSongs) in discs {
-                tracks.append(Label("Disc \(number)", "heading").xalign(0).margins(top: 6, bottom: 0, start: 8, end: 0))
+                tracks.append(PlainList.header("Disc \(number)"))
                 tracks.append(numberedList(env, discSongs, all: songs, source: album.name, artist: artist, selection: selection))
             }
         } else {
             tracks.append(numberedList(env, songs, all: songs, source: album.name, artist: artist, selection: selection))
         }
 
-        let side = Box.vertical(spacing: 14).hexpand(false)
-        side.size(width: 300, height: -1)
         let facts = describe(detail, songs: songs)
-        if !facts.isEmpty {
-            let panel = Box.vertical(spacing: 6).css("glass", "side-panel")
-            panel.append(Label("Details", "side-heading").xalign(0))
-            for fact in facts { panel.append(Label(fact, "side-fact").xalign(0).wrap().maxWidthChars(30)) }
-            side.append(panel)
-        }
-        let copies = Box.vertical(spacing: 6).css("glass", "side-panel").visible(false)
-        let similarPanel = Box.vertical(spacing: 4).css("glass", "side-panel").visible(false)
-        side.append(copies)
-        side.append(similarPanel)
-
-        // Side by side when there is room; the column under the tracks when there isn't.
-        let columns = Box.horizontal(spacing: 28) {
-            tracks.hexpand()
-            side
-        }
-        let sizer = Widths.watch { width in
-            let narrow = width < 860
-            columns.orientation(narrow ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL)
-            side.size(width: narrow ? -1 : 300, height: -1)
-            // The cover over the title on a phone's width.
-            header.orientation(width < 560 ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL)
-            artwork.root.halign(width < 560 ? GTK_ALIGN_CENTER : GTK_ALIGN_FILL)
-        }
-
-        let body = Box.vertical(spacing: 22) {
+        let body = Box.vertical(spacing: 0) {
             header
-            HermesNoteView.make(env, subject: .album(id: album.id, name: album.name, artist: artist))
-            sizer
-            columns
+            tracks
+            if !facts.isEmpty {
+                Label(facts.joined(separator: " · "), "plain-subtitle").xalign(0).wrap().margins(top: 14, bottom: 0, start: 16, end: 16)
+            }
         }
+        let copies = Box.vertical(spacing: 0)
 
         // The review, the other copy, more by the artist and the sonic neighbours arrive
         // after the tracks.
-        let extras = Box.vertical(spacing: 24)
+        let extras = Box.vertical(spacing: 24).margins(top: 24)
+        body.append(copies)
         body.append(extras)
-        guard withExtras else { return body.margin(horizontal: 12, vertical: 20) }
+        guard withExtras else { return body }
         let alive = extras.liveness
         Task { @MainActor in
             let client = app.client
@@ -177,62 +155,54 @@ enum AlbumPage {
             let similar = await similarAlbums
             let pair = await duplicates?.first { $0.copies.contains { $0.albumId == album.id } }
             guard alive.isAlive else { return }
-            if let pair {
-                let others = pair.copies.filter { $0.albumId != album.id }
-                copies.append(Label(others.count == 1 ? "Also in \(others[0].library)" : "Other Copies", "side-heading").xalign(0))
-                for copy in others {
-                    let row = Box.horizontal(spacing: 8) {
-                        Box.vertical(spacing: 0) {
-                            Label(copy.format, "side-fact").xalign(0)
-                            Label("\(copy.tracks) songs · \(copy.plays) plays", "side-detail").xalign(0)
-                        }.hexpand()
-                        Icon("go-next-symbolic", size: 14).opacity(0.6)
-                    }
-                    copies.append(Button(child: row, "flat", "side-link") {
-                        env.open(.album(AlbumRef(id: copy.albumId, name: copy.name, artist: copy.artist)))
-                    })
+            if let review {
+                // The phone's About This Album: five lines, then More.
+                let text = Label(review, "detail-review").xalign(0).wrap().selectable()
+                gtk_label_set_lines(text.widget.cast(), 5)
+                gtk_label_set_ellipsize(text.widget.cast(), PANGO_ELLIPSIZE_END)
+                let toggle = Button("More", "flat", "see-all")
+                toggle.onClicked {
+                    let expanded = gtk_label_get_lines(text.widget.cast()) == -1
+                    gtk_label_set_lines(text.widget.cast(), expanded ? 5 : -1)
+                    gtk_label_set_ellipsize(text.widget.cast(), expanded ? PANGO_ELLIPSIZE_END : PANGO_ELLIPSIZE_NONE)
+                    toggle.label = expanded ? "More" : "Less"
                 }
-                copies.isVisible = !others.isEmpty
+                extras.append(Box.vertical(spacing: 6) {
+                    PlainList.header("About This Album")
+                    text.margin(horizontal: 16, vertical: 0)
+                    toggle.halign(GTK_ALIGN_START).margin(horizontal: 12, vertical: 0)
+                })
             }
             if let similar, !similar.isEmpty {
-                similarPanel.append(Label("Sonically Similar", "side-heading").xalign(0))
-                for item in similar.prefix(5) {
-                    let cover = ArtworkView(app, size: .thumb, side: 40, shape: .thumb)
-                    cover.show(item.album.coverArt, fallback: item.album.name)
-                    let row = Box.horizontal(spacing: 10) {
-                        cover.root
-                        Box.vertical(spacing: 0) {
-                            Label(item.album.name, "side-fact").xalign(0).ellipsize().maxWidthChars(1)
-                            Label(item.album.artist ?? "", "side-detail").xalign(0).ellipsize().maxWidthChars(1)
-                        }.hexpand().valign(GTK_ALIGN_CENTER)
-                    }
-                    let link = Button(child: row, "flat", "side-link") {
-                        if let single = item.single {
-                            env.play([single], source: "Sonically Similar")
-                        } else {
-                            env.open(.album(AlbumRef(item.album)))
+                extras.append(Shelf.make("Sonically Similar", cards: similar.map { item in
+                    Cards.album(env, item.album, single: item.single)
+                }))
+            }
+            if let pair {
+                // The other library's copy (the phone keeps both under one name).
+                let others = pair.copies.filter { $0.albumId != album.id }
+                if !others.isEmpty {
+                    let list = PlainList.list()
+                    for copy in others {
+                        list.append(PlainList.row(leading: nil, title: "\(copy.library) · \(copy.format)",
+                                                  subtitle: "\(copy.tracks) songs · \(copy.plays) plays", minHeight: 56)) {
+                            env.open(.album(AlbumRef(id: copy.albumId, name: copy.name, artist: copy.artist)))
                         }
                     }
-                    similarPanel.append(link.contextMenu { Menus.album(env, item.album) })
+                    copies.append(PlainList.header(others.count == 1 ? "Also in \(others[0].library)" : "Other Copies"))
+                    copies.append(list)
                 }
-                similarPanel.isVisible = true
-            }
-            if let review {
-                extras.append(PreferencesGroup("About This Album") {
-                    Label(review, "dim").wrap().selectable().margin(12)
-                })
             }
             if !more.isEmpty, let artist {
                 extras.append(Shelf.make("More by \(artist)", cards: more.map { Cards.album(env, $0) }))
             }
         }
-        return body.margin(horizontal: 12, vertical: 20)
+        return body
     }
 
     /// Tracks by number, where activating one plays the whole album from there.
     private static func numberedList(_ env: Env, _ songs: [Song], all: [Song], source: String, artist: String?, selection: TrackSelection) -> Widget {
-        let list = ListBox(boxed: false)
-        list.css("track-list")
+        let list = PlainList.list()
         for song in songs {
             let row = SongRowView(env, style: .numbered, showsNavigation: false)
             row.bind(song, albumArtist: artist)
