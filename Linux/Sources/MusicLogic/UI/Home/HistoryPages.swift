@@ -177,11 +177,11 @@ enum StatsPage {
         let history = app.history
         var window: ListeningHistory.Window = .month
         let windows = ListeningHistory.Window.allCases
-        let switcher = Box.horizontal().css("linked").halign(GTK_ALIGN_CENTER)
+        let switcher = Box.horizontal().homogeneous().css("segmented").halign(GTK_ALIGN_CENTER)
         let local = Box.vertical(spacing: 24)
         var first: ToggleButton?
         for option in windows {
-            let toggle = ToggleButton(option.title)
+            let toggle = ToggleButton(option.title, "segment")
             if let first { toggle.group(with: first) } else { first = toggle }
             toggle.isActive = option == window
             switcher.append(toggle)
@@ -399,7 +399,7 @@ enum ChartsPage {
             defaults.set(span.rawValue, forKey: "charts.span")
             period = nil
         }
-        let kinds = Box.horizontal().css("linked").halign(GTK_ALIGN_CENTER)
+        let kinds = Box.horizontal().homogeneous().css("segmented").halign(GTK_ALIGN_CENTER)
         let list = ListBox()
         let body = Box.vertical(spacing: 18) {
             PreferencesGroup { spanCombo }
@@ -488,7 +488,7 @@ enum ChartsPage {
 
         var firstKind: ToggleButton?
         for option in Kind.allCases {
-            let toggle = ToggleButton(option.rawValue)
+            let toggle = ToggleButton(option.rawValue, "segment")
             if let firstKind { toggle.group(with: firstKind) } else { firstKind = toggle }
             toggle.isActive = option == kind
             kinds.append(toggle)
