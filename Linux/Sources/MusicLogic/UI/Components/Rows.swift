@@ -16,12 +16,12 @@ final class SongRowView {
     private let env: Env
     private let style: Style
     private let number = Label("", "song-number").xalign(1).widthChars(3)
-    private let playing = Icon("audio-volume-high-symbolic", size: 14).css("accent")
+    private let playing = Icon(Symbol.icon("waveform"), size: 16).css("accent")
     private let artwork: ArtworkView?
-    private let title = Label("", "title").ellipsize()
-    private let subtitle = Label("", "caption", "dim").ellipsize()
-    private let downloaded = Icon("folder-download-symbolic", size: 14).css("accent").tooltip("Downloaded")
-    private let heart = Icon("music-heart-symbolic", size: 14).css("accent")
+    private let title = Label("", "plain-title").ellipsize().xalign(0)
+    private let subtitle = Label("", "plain-subtitle").ellipsize().xalign(0)
+    private let downloaded = Icon(Symbol.icon("arrow.down.circle.fill"), size: 13).css("accent").tooltip("Downloaded")
+    private let heart = Icon(Symbol.icon("heart.fill"), size: 12).css("accent")
     private let trailing = Label("", "song-meta")
     private(set) var song: Song?
     /// The list's own items, before the song's: a playlist's Move and Remove. Here, not
@@ -40,7 +40,7 @@ final class SongRowView {
             leading = artwork.root
         } else {
             // Play in the number's place under the pointer, as a click there plays.
-            let hoverPlay = Icon("media-playback-start-symbolic", size: 14).halign(GTK_ALIGN_END).opacity(0)
+            let hoverPlay = Icon(Symbol.icon("play.fill"), size: 14).halign(GTK_ALIGN_END).opacity(0)
             let number = self.number
             let playing = self.playing
             leading = Overlay(number).add(playing.halign(GTK_ALIGN_END)).add(hoverPlay).size(width: 28)
@@ -51,17 +51,22 @@ final class SongRowView {
             }
         }
         let (title, subtitle, downloaded, heart, trailing) = (self.title, self.subtitle, self.downloaded, self.heart, self.trailing)
-        root = Box.horizontal(spacing: 12) {
-            leading
+        // The phone's row in its plain list: the separator runs from the text to the end.
+        let body = Box.horizontal(spacing: 8) {
             Box.vertical(spacing: 2) {
                 title
                 subtitle
             }.hexpand().valign(GTK_ALIGN_CENTER)
-            downloaded
-            heart
-            trailing
+            downloaded.valign(GTK_ALIGN_CENTER)
+            heart.valign(GTK_ALIGN_CENTER)
+            trailing.valign(GTK_ALIGN_CENTER)
+        }.css("plain-row-body")
+        body.size(width: -1, height: style == .artwork ? 64 : 50)
+        root = Box.horizontal(spacing: 12) {
+            leading.valign(GTK_ALIGN_CENTER)
+            body.hexpand()
         }
-        root.css("song-row").margin(horizontal: 0, vertical: 2)
+        root.css("song-row", "plain-row")
         if let hover = hoverChanged { root.onHover(hover) }
 
         let reference = WeakReference(self)
@@ -131,7 +136,7 @@ enum SongList {
         showsNavigation: Bool = true,
         trailing: ((Song) -> String?)? = nil
     ) -> ListBox {
-        let list = ListBox()
+        let list = PlainList.list()
         for (index, song) in songs.enumerated() {
             let row = SongRowView(env, style: style, showsNavigation: showsNavigation)
             row.bind(song, trailing: trailing?(song))

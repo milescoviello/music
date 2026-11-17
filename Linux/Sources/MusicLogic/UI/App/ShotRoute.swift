@@ -2,7 +2,8 @@ import CGtk
 import Foundation
 
 /// Where a screenshot run (`tools/linux-shot`) opens: `MUSIC_OPEN` names a tab
-/// (`home`, `library`, `search`, `downloads`, `settings`), `player`, or a page that needs no
+/// (`home`, `library`, `search`, `downloads`, `settings`), `player`, `search:<words>`, or a
+/// page that needs no
 /// id (`playlists`, `artists`, `albums`, `genres`, `favorites`, `stats`, `charts`, …).
 /// Opened once the app has signed in and built its window.
 @MainActor
@@ -28,7 +29,10 @@ enum ShotRoute {
             }
             return
         }
-        if route == "player" {
+        if route.hasPrefix("search:") {
+            shell.select(.search)
+            shell.navigation?.searchEntry?.text = String(route.dropFirst(7))
+        } else if route == "player" {
             app.navigator.showsPlayer = true
         } else if let section = Shell.Section(rawValue: route) {
             shell.select(section)

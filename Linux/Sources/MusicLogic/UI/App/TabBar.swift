@@ -45,10 +45,32 @@ final class BottomChrome {
         let search = Button(icon: Symbol.icon("magnifyingglass"), "search-tab", "glass-surface") { shell.select(.search) }
         search.tooltip("Search")
 
-        let row = Box.horizontal(spacing: 10) {
+        let tabsRow = Box.horizontal(spacing: 10) {
             tabs.hexpand()
             search.valign(GTK_ALIGN_CENTER)
         }
+
+        // On Search, iOS 26's bar: the tab bar shrinks to a circle for the tab before, the
+        // field takes the rest, and a cross clears it.
+        let back = Button(icon: Symbol.icon(navigation.previousTab.symbol + ".fill"), "glass-surface", "search-side") {
+            shell.select(navigation.previousTab)
+        }
+        back.tooltip("Back")
+        let clear = Button(icon: Symbol.icon("xmark"), "glass-surface", "search-side") {
+            navigation.searchEntry?.text = ""
+        }
+        clear.tooltip("Clear")
+        clear.isVisible = false
+        let searchRow = Box.horizontal(spacing: 10)
+        searchRow.append(back.valign(GTK_ALIGN_CENTER))
+        if let entry = navigation.searchEntry {
+            searchRow.append(entry.hexpand().valign(GTK_ALIGN_CENTER))
+            Signal.connect(entry.widget, "search-changed") { clear.isVisible = !entry.text.isEmpty }
+        }
+        searchRow.append(clear.valign(GTK_ALIGN_CENTER))
+        let row = Stack(transition: GTK_STACK_TRANSITION_TYPE_CROSSFADE)
+        row.add(tabsRow, name: "tabs")
+        row.add(searchRow, name: "search")
         let column = Box.vertical(spacing: 8) {
             miniSlot
             row
@@ -63,6 +85,8 @@ final class BottomChrome {
                 button.setCSS("selected", section == current)
             }
             search.setCSS("selected", current == .search)
+            row.visibleName = current == .search ? "search" : "tabs"
+            back.icon = Symbol.icon(navigation.previousTab.symbol + ".fill")
         }
         root.observe {
             miniSlot.isRevealed = app.player.hasQueue && app.player.currentSong != nil

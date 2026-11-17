@@ -200,6 +200,30 @@ enum Style {
     .alphabet-rail { background-color: alpha(currentColor, 0.06); border-radius: 10px; padding: 4px 0; }
     .alphabet-letter { min-width: 22px; min-height: 0; padding: 0 2px; font-size: 10px; font-weight: 700; color: var(--accent-color); }
 
+    /* Search's bar: the field as a glass capsule, a circle either side. */
+    button.search-side { min-width: 54px; min-height: 54px; padding: 0; -gtk-icon-size: 22px; color: #ffffff; }
+    entry.bottom-search, entry.bottom-search:focus-within { min-height: 54px; background-color: alpha(#2a2a2d, 0.82);
+        box-shadow: inset 0 0 0 1px alpha(#ffffff, 0.10), 0 6px 18px alpha(#000000, 0.45); outline: none; }
+    entry.ios-search:focus-within { outline: none; }
+
+    /* The segmented picker. */
+    .segmented { background-color: var(--ios-fill); border-radius: 9999px; padding: 3px; }
+    .segmented button.segment { background: none; box-shadow: none; border-radius: 9999px; min-height: 30px;
+        font-size: 14px; font-weight: 500; color: #ffffff; padding: 0 12px; }
+    .segmented button.segment:checked { background-color: alpha(#ffffff, 0.24); font-weight: 600; }
+
+    /* Search's idle page. */
+    button.genre-tile { background-color: #2c2c2e; border-radius: 8px; min-height: 72px; padding: 0 8px; box-shadow: none; }
+    button.genre-tile:hover { background-color: #3a3a3c; }
+    .genre-name { font-size: 15px; font-weight: 500; }
+    button.decade-pill { background-color: #2c2c2e; border-radius: 9999px; min-height: 44px; padding: 0 18px;
+        font-size: 15px; font-weight: 500; box-shadow: none; }
+    button.recent-term { padding: 0; border-radius: 0; font-weight: 400; }
+    .tertiary-icon { color: var(--ios-tertiary); }
+    .top-result-title { font-size: 20px; font-weight: 600; }
+    button.accent-button { color: var(--accent-color); -gtk-icon-size: 22px; min-width: 44px; min-height: 44px; padding: 0;
+        background: none; box-shadow: none; }
+
     /* The mini player. */
     .mini-player { padding: 6px 12px; }
     .mini-player .title { font-weight: 600; }
@@ -463,6 +487,30 @@ enum Style {
     button.search-tab { min-width: 62px; min-height: 62px; padding: 0; -gtk-icon-size: 24px; color: #ffffff; }
     button.search-tab.selected { color: var(--accent-color); }
 
+    /* Search's bar: the field as a glass capsule, a circle either side. */
+    button.search-side { min-width: 54px; min-height: 54px; padding: 0; -gtk-icon-size: 22px; color: #ffffff; }
+    entry.bottom-search, entry.bottom-search:focus-within { min-height: 54px; background-color: alpha(#2a2a2d, 0.82);
+        box-shadow: inset 0 0 0 1px alpha(#ffffff, 0.10), 0 6px 18px alpha(#000000, 0.45); outline: none; }
+    entry.ios-search:focus-within { outline: none; }
+
+    /* The segmented picker. */
+    .segmented { background-color: var(--ios-fill); border-radius: 9999px; padding: 3px; }
+    .segmented button.segment { background: none; box-shadow: none; border-radius: 9999px; min-height: 30px;
+        font-size: 14px; font-weight: 500; color: #ffffff; padding: 0 12px; }
+    .segmented button.segment:checked { background-color: alpha(#ffffff, 0.24); font-weight: 600; }
+
+    /* Search's idle page. */
+    button.genre-tile { background-color: #2c2c2e; border-radius: 8px; min-height: 72px; padding: 0 8px; box-shadow: none; }
+    button.genre-tile:hover { background-color: #3a3a3c; }
+    .genre-name { font-size: 15px; font-weight: 500; }
+    button.decade-pill { background-color: #2c2c2e; border-radius: 9999px; min-height: 44px; padding: 0 18px;
+        font-size: 15px; font-weight: 500; box-shadow: none; }
+    button.recent-term { padding: 0; border-radius: 0; font-weight: 400; }
+    .tertiary-icon { color: var(--ios-tertiary); }
+    .top-result-title { font-size: 20px; font-weight: 600; }
+    button.accent-button { color: var(--accent-color); -gtk-icon-size: 22px; min-width: 44px; min-height: 44px; padding: 0;
+        background: none; box-shadow: none; }
+
     /* The mini player. */
     .mini-capsule { min-height: 56px; }
     .mini-player-row { padding: 0 8px 0 8px; min-height: 56px; }
@@ -504,6 +552,10 @@ enum Style {
     .plain-detail { font-size: 12px; color: var(--ios-tertiary); }
     .list-section-header { font-size: 17px; font-weight: 600; color: var(--ios-secondary); margin: 18px 16px 4px 16px; }
     .list-footer { font-size: 13px; color: var(--ios-secondary); margin: 10px 16px; }
+    .song-row { padding: 0 0 0 16px; }
+    .song-row .song-meta { font-size: 13px; color: var(--ios-tertiary); opacity: 1; font-feature-settings: "tnum"; }
+    .song-row .song-number { font-size: 13px; color: var(--ios-tertiary); opacity: 1; }
+    .song-row .plain-title.current { color: var(--accent-color); }
 
     popover > contents, popover > arrow { background-color: alpha(#252527, 0.97); }
     popover > contents { border-radius: 16px; }

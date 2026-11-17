@@ -1,15 +1,17 @@
 import CGtk
 import Foundation
 
-/// Search: recent searches, genres and decades while the field is empty; the top result,
-/// matching playlists, artists, albums and songs as you type; and when nothing matches,
-/// the way to ask Hermes to find it, or to search lyrics instead. A Library | YouTube
-/// switch over it searches YouTube instead: music videos to play, and songs to add.
+/// Search, the phone's: recent searches, genres and decades while the field is empty; as
+/// you type, one plain list of the top result, playlists, artists, albums, songs and lyric
+/// matches; and when nothing matches, the way to ask Hermes to find it or to search the
+/// lyrics instead. The field is in the bottom bar, where iOS 26 puts a search tab's
+/// (`BottomChrome`); Library | YouTube and the library's scopes are along the top.
 @MainActor
 enum SearchPage {
     static func make(_ env: Env) -> NavigationPage {
         let app = env.app
         let entry = SearchEntry(placeholder: "Artists, Albums, Songs").searchDelay(300)
+        entry.css("ios-search", "bottom-search")
         env.navigation.searchEntry = entry
         let stack = Stack()
         let idle = Bin()
@@ -17,6 +19,7 @@ enum SearchPage {
         stack.add(idle, name: "idle")
         stack.add(Spinner().size(32).halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_START).margin(48), name: "searching")
         stack.add(results, name: "results")
+        let hasQuery = Observed(false)
 
         var generation = 0
         var searchesYouTube = false
@@ -24,6 +27,7 @@ enum SearchPage {
             let trimmed = text.trimmingCharacters(in: .whitespaces)
             generation += 1
             let current = generation
+            hasQuery.value = !trimmed.isEmpty
             if searchesYouTube {
                 // YouTube's side searches for itself, and says so when the field is empty.
                 results.child = YouTubeResults.make(env, query: trimmed)
@@ -58,33 +62,44 @@ enum SearchPage {
             }
         }
 
-        // Library | YouTube. Shown while the sonic service answers, since YouTube comes
-        // through it -- or while YouTube is chosen, so it can be left.
-        let library = ToggleButton("Library")
-        let youtube = ToggleButton("YouTube")
-        youtube.group(with: library)
-        library.isActive = true
-        Signal.connect(youtube.widget, "toggled") {
-            guard youtube.isActive != searchesYouTube else { return }
-            searchesYouTube = youtube.isActive
-            gtk_search_entry_set_placeholder_text(entry.widget.cast(), searchesYouTube ? "Music Videos, Songs" : "Artists, Albums, Songs")
-            search(entry.text)
-        }
-        let sources = Box.horizontal(spacing: 0) {
-            library
-            youtube
-        }.css("linked").halign(GTK_ALIGN_CENTER)
-        sources.observe {
-            sources.isVisible = app.video.isAvailable || searchesYouTube
+        // The library's scopes while searching, as the phone's search scopes show.
+        let scopes = Bin()
+        scopes.observe {
+            _ = app.scope.generation
+            let store = app.scope
+            guard store.isSwitchable, hasQuery.value, !searchesYouTube else {
+                scopes.child = nil
+                return
+            }
+            scopes.child = Segmented(store.options.map { ($0.cacheKey, $0.shortName) }, selected: store.scope.cacheKey) { key in
+                guard let option = store.options.first(where: { $0.cacheKey == key }) else { return }
+                store.scope = option
+                search(entry.text)
+            }.root
         }
 
-        let body = Box.vertical(spacing: 12) {
-            entry.hexpand()
+        // Library | YouTube, while the sonic service answers (YouTube comes through it) or
+        // while YouTube is chosen, so it can be left.
+        let sources = Segmented([("library", "Library"), ("youtube", "YouTube")], selected: "library") { key in
+            let youtube = key == "youtube"
+            guard youtube != searchesYouTube else { return }
+            searchesYouTube = youtube
+            gtk_search_entry_set_placeholder_text(entry.widget.cast(), youtube ? "Music Videos, Songs" : "Artists, Albums, Songs")
+            search(entry.text)
+        }.root
+        sources.observe { sources.isVisible = app.video.isAvailable || searchesYouTube }
+
+        let top = Box.vertical(spacing: 8) {
+            scopes
             sources
+        }.margins(top: 2, bottom: 10, start: 16, end: 16)
+        let body = Box.vertical(spacing: 0) {
+            top
             stack
-        }.margin(horizontal: 12, vertical: 18)
+        }
+        body.keep(hasQuery)
         entry.onMap { entry.grabFocus() }
-        return Page.make("Search", content: body) { bar in bar.end(ScopeMenu.make(app)) }
+        return Page.make("Search", content: body, heading: false) { bar in bar.showsTitle(false) }
     }
 
     /// Ctrl+F: the field takes the keyboard.
@@ -96,48 +111,61 @@ enum SearchPage {
 
     private static func idleView(_ env: Env, pick: @escaping @MainActor (String) -> Void) -> Widget {
         let app = env.app
-        let body = Box.vertical(spacing: 18)
+        let body = Box.vertical(spacing: 12).margins(top: 4, bottom: 12)
         let terms = app.recentSearches.terms
         if !terms.isEmpty {
-            let group = PreferencesGroup("Recent").suffix(Button("Clear", "flat") { app.recentSearches.clear() })
+            body.append(Box.horizontal(spacing: 12) {
+                Label("Recent", "shelf-title").xalign(0).hexpand()
+                Button("Clear", "flat", "see-all") { app.recentSearches.clear() }
+            }.margin(horizontal: 16, vertical: 0))
+            let list = Box.vertical(spacing: 0)
             for term in terms {
-                group.add(ActionRow(term, icon: "document-open-recent-symbolic") { pick(term) })
+                list.append(Button(child: Box.horizontal(spacing: 12) {
+                    Icon(Symbol.icon("clock.arrow.circlepath"), size: 18).css("tertiary-icon")
+                    Label(term, "plain-title").xalign(0).ellipsize().hexpand()
+                }.margin(horizontal: 16, vertical: 10), "flat", "recent-term") { pick(term) })
             }
-            body.append(group)
+            body.append(list)
         }
 
-        let genres = FlowBox(spacing: 8).columns(min: 2, max: 6).homogeneous()
-        let genreGroup = PreferencesGroup("Browse Genres")
-        genreGroup.add(genres)
-        body.append(genreGroup)
+        body.append(Label("Browse Genres", "shelf-title").xalign(0).margin(horizontal: 16, vertical: 0))
+        let genres = Bin().margin(horizontal: 16, vertical: 0)
+        body.append(genres)
         let alive = genres.liveness
         Task { @MainActor in
             let list = ((try? await app.client.genres(scope: app.scope.scope)) ?? [])
                 .sorted { ($0.albumCount ?? 0) > ($1.albumCount ?? 0) }
             guard alive.isAlive else { return }
-            for genre in list.prefix(30) {
-                genres.append(Button(genre.value, "card-button") { env.open(.genre(genre.value)) }.size(height: 64))
+            let tiles: [Widget] = list.prefix(30).map { genre in
+                Button(child: Label(genre.value, "genre-name").xalign(0.5).lines(2).maxWidthChars(1), "genre-tile") {
+                    env.open(.genre(genre.value))
+                }
             }
+            // Two across on the phone's width, more as the window widens.
+            genres.child = TileGrid(tiles, tileWidth: 200, maxColumns: 6).root
         }
 
-        let decades = Box.horizontal(spacing: 8)
+        body.append(Label("Browse by Decade", "shelf-title").xalign(0).margins(top: 12, start: 16, end: 16))
+        let decades = Box.horizontal(spacing: 12).margin(horizontal: 16, vertical: 0)
         for start in stride(from: 1960, through: 2020, by: 10) {
-            decades.append(Button("\(start)s", "pill") { env.open(.decade(start)) })
+            decades.append(Button("\(start)s", "decade-pill") { env.open(.decade(start)) })
         }
-        let decadeGroup = PreferencesGroup("Browse by Decade")
-        decadeGroup.add(ScrolledWindow(decades, horizontal: GTK_POLICY_AUTOMATIC, vertical: GTK_POLICY_NEVER).propagatesNaturalHeight())
-        body.append(decadeGroup)
+        let scroller = ScrolledWindow(decades, horizontal: GTK_POLICY_AUTOMATIC, vertical: GTK_POLICY_NEVER).propagatesNaturalHeight()
+        gtk_scrolled_window_set_overlay_scrolling(scroller.widget.cast(), 1)
+        scroller.css("shelf-scroller")
+        Shelf.passesWheelToPage(scroller)
+        body.append(scroller)
         return body
     }
 
     private static func resultsView(_ env: Env, query: String, outcome: SearchService.Outcome?) -> Widget {
         let app = env.app
-        let body = Box.vertical(spacing: 18)
+        let body = Box.vertical(spacing: 0)
         let record: @MainActor () -> Void = { app.recentSearches.record(query) }
 
         guard let outcome else {
             return StatusPage(
-                icon: "network-offline-symbolic",
+                icon: Symbol.icon("wifi.exclamationmark"),
                 title: "Can’t Reach the Server",
                 description: "Search needs the server. Downloads are in Library."
             )
@@ -145,186 +173,154 @@ enum SearchPage {
         let results = outcome.results
         if outcome.isOffline, outcome.isEmpty {
             return StatusPage(
-                icon: "network-offline-symbolic",
+                icon: Symbol.icon("wifi.exclamationmark"),
                 title: "Can’t Reach the Server",
                 description: "Nothing downloaded matches “\(query)”."
             )
         }
         guard !outcome.isEmpty else {
             return StatusPage(
-                icon: "system-search-symbolic",
+                icon: Symbol.icon("magnifyingglass"),
                 title: "No Results",
                 description: "Nothing in your library matches “\(query)”.",
                 child: Box.vertical(spacing: 8) {
-                    Button("Ask Hermes to Find It", "suggested-action", "pill") { env.open(.requestMusic(query)) }
-                    Button("Search Lyrics Instead", "pill") { env.open(.lyricSearch(query)) }
+                    Button("Ask Hermes to find it", "suggested-action", "pill") { env.open(.requestMusic(query)) }
+                    Button("Search lyrics instead", "flat", "see-all") { env.open(.lyricSearch(query)) }
                 }.halign(GTK_ALIGN_CENTER)
             )
         }
 
-        if outcome.isOffline {
-            body.append(Label("Offline · showing what is downloaded", "caption", "dim").xalign(0))
+        func note(_ text: String) {
+            body.append(Label(text, "plain-subtitle").xalign(0).margins(top: 4, bottom: 4, start: 16, end: 16))
         }
-        if let correction = outcome.correction {
-            // Said, so a result that is not what was typed is not a mystery.
-            body.append(Label(outcome.isCorrectionOnly
-                ? "Showing results for “\(correction)”"
-                : "Including results for “\(correction)”", "caption", "dim").xalign(0))
+        func thumb(_ cover: String?, _ name: String, round: Bool = false, playlistID: String? = nil) -> Widget {
+            let artwork = ArtworkView(app, size: .thumb, side: 40, shape: round ? .round : .thumb)
+            artwork.show(cover, playlistID: playlistID, fallback: name)
+            return artwork.root
         }
-        if outcome.isCorrectionOnly {
-            // Nothing matched what was typed, so these are the library's nearest words --
-            // for an artist not in the library ("nerio"), something else entirely. Asking
-            // for it stays a click away, as it is under No Results.
-            body.append(Button("Ask Hermes to Find “\(query)”", "pill") { env.open(.requestMusic(query)) }.halign(GTK_ALIGN_START))
+        func section(_ title: String, _ rows: [(Widget, @MainActor () -> Void)]) {
+            guard !rows.isEmpty else { return }
+            body.append(PlainList.header(title))
+            let list = PlainList.list()
+            for (row, action) in rows { list.append(row, activate: action) }
+            body.append(list)
         }
 
-        // The top result as a card, the first songs beside it.
-        let top = SearchRanking.topResult(for: outcome.rankedFor, in: results)
-        let leading = Array(results.songs.prefix(top == nil ? 0 : 4))
-        if let top {
-            let songs = Box.vertical(spacing: 6) {
-                Label("Songs", "shelf-title").xalign(0)
-                SongList.make(env, leading, source: "Search")
+        if outcome.isOffline { note("Offline · showing what is downloaded") }
+        if let correction = outcome.correction {
+            // Said, so a result that is not what was typed is not a mystery.
+            note(outcome.isCorrectionOnly ? "Showing results for “\(correction)”" : "Including results for “\(correction)”")
+        }
+        if outcome.isCorrectionOnly {
+            // Nothing matched what was typed: these are the library's nearest words, so
+            // asking for it stays a click away, as it is under No Results.
+            let list = PlainList.list()
+            list.append(PlainList.row(
+                leading: Icon(Symbol.icon("arrow.down.heart"), size: 22).css("accent"),
+                title: "Ask Hermes to find “\(query)”", minHeight: 52
+            )) { env.open(.requestMusic(query)) }
+            body.append(list)
+        }
+
+        if let top = SearchRanking.topResult(for: outcome.rankedFor, in: results) {
+            body.append(PlainList.header("Top Result"))
+            let list = PlainList.list()
+            switch top {
+            case let .artist(artist):
+                let artwork = ArtworkView(app, size: .thumb, side: 72, shape: .round)
+                artwork.show(artist.coverArt, fallback: artist.name)
+                let radio = Button(icon: Symbol.icon("dot.radiowaves.left.and.right"), "flat", "accent-button") {
+                    record()
+                    app.stations.play(.artistMix(ids: [artist.id], names: [artist.name]))
+                }
+                radio.tooltip("Play \(artist.name) Radio")
+                list.append(PlainList.row(leading: artwork.root, title: artist.name, subtitle: "Artist", trailing: radio,
+                                          minHeight: 96, titleClasses: ["top-result-title"])) {
+                    record()
+                    env.open(.artist(ArtistRef(artist)))
+                }
+            case let .album(album):
+                let artwork = ArtworkView(app, size: .thumb, side: 72, shape: .thumb)
+                artwork.show(album.coverArt, fallback: album.name)
+                let kind = ["Album", album.artist, album.year.map(String.init)].compactMap { $0 }.joined(separator: " · ")
+                let row = PlainList.row(leading: artwork.root, title: album.name, subtitle: kind, minHeight: 96,
+                                        titleClasses: ["top-result-title"])
+                row.contextMenu { Menus.album(env, album) }
+                list.append(row) {
+                    record()
+                    env.open(.album(AlbumRef(album)))
+                }
+            case let .song(song):
+                body.append(SongList.make(env, [song], source: "Search"))
             }
-            songs.isVisible = !leading.isEmpty
-            let card = Box.vertical(spacing: 6) {
-                Label("Top Result", "shelf-title").xalign(0)
-                topCard(env, top, record: record)
-            }
-            // Side by side when there is room, the songs under the card when there isn't.
-            let row = Box.horizontal(spacing: 24) {
-                card
-                songs.hexpand()
-            }
-            body.append(Widths.watch { width in
-                row.orientation(width < 760 ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL)
-            })
-            body.append(row)
+            if gtk_widget_get_first_child(list.widget) != nil { body.append(list) }
         }
 
         // The rest in pieces, each once GTK has nothing more pressing: built at once, the
         // page held up the keys typed meanwhile, a second on the 2009 MacBook. A newer
         // search's page takes this one's place, and the pieces stop.
         Task { @MainActor in
-            // Holding the page here keeps it alive, so whether it is still shown is the test.
             @MainActor func next() async -> Bool {
                 await MainLoop.idle()
                 return gtk_widget_get_parent(body.widget) != nil
             }
             guard await next() else { return }
-            if !results.artists.isEmpty {
-                body.append(Shelf.make("Artists", cards: results.artists.prefix(12).map { Cards.artist(env, $0, side: 96) }))
-            }
-            guard await next() else { return }
-            if !results.albums.isEmpty {
-                body.append(Shelf.make("Albums", cards: results.albums.prefix(12).map { Cards.album(env, $0) }))
-            }
-            guard await next() else { return }
             let wanted = query.trimmingCharacters(in: .whitespaces)
-            let playlists = app.playlistStore.playlists.filter { $0.name.localizedCaseInsensitiveContains(wanted) }
-            if !playlists.isEmpty {
-                let group = PreferencesGroup("Playlists")
-                for playlist in playlists.prefix(4) {
-                    let artwork = ArtworkView(app, size: .thumb, side: 40, shape: .thumb)
-                    artwork.show(playlist.coverArt, playlistID: playlist.id, fallback: playlist.name)
-                    let row = ActionRow(playlist.name, subtitle: playlist.songCount.map { "\($0) songs" }) {
+            if wanted.count >= 2 {
+                let playlists = app.playlistStore.playlists.filter { $0.name.localizedCaseInsensitiveContains(wanted) }
+                section("Playlists", playlists.prefix(4).map { playlist in
+                    (PlainList.row(leading: thumb(playlist.coverArt, playlist.name, playlistID: playlist.id), title: playlist.name,
+                                   subtitle: playlist.songCount.map { "\($0) songs" }, minHeight: 66), {
                         record()
                         env.open(.playlist(PlaylistRef(playlist)))
-                    }
-                    row.prefix(artwork.root)
-                    group.add(row)
-                }
-                body.append(group)
+                    })
+                })
             }
-
             guard await next() else { return }
-            let rest = Array(results.songs.dropFirst(leading.count).prefix(20))
-            if !rest.isEmpty {
-                body.append(Label(leading.isEmpty ? "Songs" : "More Songs", "shelf-title").xalign(0))
-                body.append(SongList.make(env, rest, source: "Search"))
+            section("Artists", results.artists.prefix(4).map { artist in
+                (PlainList.row(leading: thumb(artist.coverArt, artist.name, round: true), title: artist.name, minHeight: 66), {
+                    record()
+                    env.open(.artist(ArtistRef(artist)))
+                })
+            })
+            guard await next() else { return }
+            section("Albums", results.albums.prefix(6).map { album in
+                let row = PlainList.row(leading: thumb(album.coverArt, album.name), title: album.name, subtitle: album.artist, minHeight: 66)
+                row.contextMenu { Menus.album(env, album) }
+                return (row, {
+                    record()
+                    env.open(.album(AlbumRef(album)))
+                })
+            })
+            guard await next() else { return }
+            let songs = Array(results.songs.prefix(20))
+            if !songs.isEmpty {
+                body.append(PlainList.header("Songs"))
+                body.append(SongList.make(env, songs, source: "Search"))
             }
             guard await next() else { return }
             if !outcome.lyrics.isEmpty {
                 // The song, and the line that matched, so it is plain why it is here.
-                let group = PreferencesGroup("Lyrics")
-                for match in outcome.lyrics {
-                    let artwork = ArtworkView(app, size: .thumb, side: 40, shape: .thumb)
-                    artwork.show(match.song.coverArt, fallback: match.song.album ?? match.song.title)
-                    let row = ActionRow(match.song.title, subtitle: "“\(match.line)” · \(match.song.artist ?? "")") {
-                        record()
-                        app.player.play(songs: [match.song], startingAt: 0, source: "Search")
-                    }
-                    row.prefix(artwork.root)
+                section("Lyrics", outcome.lyrics.map { match in
                     let song = match.song
+                    let row = PlainList.row(leading: thumb(song.coverArt, song.album ?? song.title), title: song.title,
+                                            subtitle: song.artist, detail: "“\(match.line)”", chevron: false, minHeight: 72)
                     row.contextMenu { Menus.song(env, song) }
-                    group.add(row)
-                }
-                body.append(group)
+                    return (row, {
+                        record()
+                        app.player.play(songs: [song], startingAt: 0, source: "Search")
+                    })
+                })
             }
             guard await next() else { return }
-            body.append(Button("Search lyrics for “\(query)”", icon: "edit-find-symbolic", "flat") {
-                env.open(.lyricSearch(query))
-            }.halign(GTK_ALIGN_START))
+            let lyrics = PlainList.list()
+            lyrics.append(PlainList.row(
+                leading: Icon(Symbol.icon("text.magnifyingglass"), size: 22).css("accent"),
+                title: "Search lyrics for “\(query)”", minHeight: 52, titleClasses: ["accent"]
+            )) { env.open(.lyricSearch(query)) }
+            body.append(lyrics.margins(top: 12))
         }
         return body
-    }
-
-    /// The top result, large: a click opens it (a song plays), the round button plays it.
-    private static func topCard(_ env: Env, _ top: SearchRanking.TopResult, record: @escaping @MainActor () -> Void) -> Widget {
-        let app = env.app
-        let name: String
-        let kind: String
-        let artwork: ArtworkView
-        let open: @MainActor () -> Void
-        let play: @MainActor () -> Void
-        switch top {
-        case let .artist(artist):
-            artwork = ArtworkView(app, size: .card, side: 112, shape: .round)
-            artwork.show(artist.coverArt, fallback: artist.name)
-            name = artist.name
-            kind = "Artist"
-            open = { env.open(.artist(ArtistRef(artist))) }
-            play = { app.stations.play(.artistMix(ids: [artist.id], names: [artist.name])) }
-        case let .album(album):
-            artwork = ArtworkView(app, size: .card, side: 112, shape: .card)
-            artwork.show(album.coverArt, fallback: album.name)
-            name = album.name
-            kind = ["Album", album.artist].compactMap { $0 }.joined(separator: " · ")
-            open = { env.open(.album(AlbumRef(album))) }
-            play = {
-                Task {
-                    guard let detail = try? await app.client.albumDetail(id: album.id), !detail.songs.isEmpty else { return }
-                    env.play(detail.songs, source: album.name)
-                }
-            }
-        case let .song(song):
-            artwork = ArtworkView(app, size: .card, side: 112, shape: .card)
-            artwork.show(song.coverArt, fallback: song.album ?? song.title)
-            name = song.title
-            kind = ["Song", song.artist].compactMap { $0 }.joined(separator: " · ")
-            open = { env.play([song], source: "Search") }
-            play = open
-        }
-        let content = Box.vertical(spacing: 4) {
-            artwork.root.halign(GTK_ALIGN_START).margins(top: 0, bottom: 10, start: 0, end: 0)
-            Label(name, "top-name").xalign(0).ellipsize().maxWidthChars(1)
-            Label(kind, "top-kind").xalign(0).ellipsize().maxWidthChars(1)
-        }
-        let card = Button(child: content, "glass", "top-result") {
-            record()
-            open()
-        }
-        let playButton = Button(icon: "media-playback-start-symbolic", "circular", "tile-play", "top-play") {
-            record()
-            play()
-        }
-        playButton.tooltip("Play").halign(GTK_ALIGN_END).valign(GTK_ALIGN_END).margin(16)
-        switch top {
-        case let .album(album): card.contextMenu { Menus.album(env, album) }
-        case let .song(song): card.contextMenu { Menus.song(env, song) }
-        case .artist: break
-        }
-        return Overlay(card).add(playButton).size(width: 320, height: -1).halign(GTK_ALIGN_START)
     }
 
 }

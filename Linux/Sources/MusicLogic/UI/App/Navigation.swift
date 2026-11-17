@@ -24,7 +24,11 @@ final class Navigation {
     /// The Search tab's field, for Ctrl+F.
     @ObservationIgnored var searchEntry: SearchEntry?
     private(set) var histories: [Shell.Section: [Entry]] = [:]
-    private(set) var section: Shell.Section = .home
+    private(set) var section: Shell.Section = .home {
+        didSet { if oldValue != section, oldValue != .search { previousTab = oldValue } }
+    }
+    /// The tab before Search, which Search's bar offers the way back to, as iOS 26 does.
+    private(set) var previousTab: Shell.Section = .home
     /// Counts pages that have said what cover they show (`NavigationPage.coverArt`).
     private(set) var coverChanges = 0
     @ObservationIgnored private var opened = 0
