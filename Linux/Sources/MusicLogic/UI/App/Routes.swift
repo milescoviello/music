@@ -63,6 +63,18 @@ enum LibraryFacet: String, Hashable, Sendable, CaseIterable {
         }
     }
 
+    /// The phone's symbol for it.
+    var symbol: String {
+        switch self {
+        case .compilations: return "rectangle.stack"
+        case .soundtracks: return "film"
+        case .live: return "music.mic.circle"
+        case .singles: return "opticaldisc"
+        case .labels: return "building.2"
+        case .moods: return "face.smiling"
+        }
+    }
+
     var icon: String {
         switch self {
         case .compilations: return "view-dual-symbolic"

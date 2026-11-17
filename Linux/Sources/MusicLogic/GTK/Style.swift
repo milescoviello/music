@@ -381,5 +381,97 @@ enum Style {
     .tile-subtitle { font-size: 0.85em; color: alpha(#ffffff, 0.6); }
     .station-icon { color: var(--accent-color); background-color: alpha(var(--accent-bg-color), 0.28); border-radius: 10px; padding: 9px; }
     .tile-play { min-width: 34px; min-height: 34px; padding: 0; background-color: var(--accent-bg-color); color: #ffffff; }
+
+    /* ---- The phone's look (iOS 26, dark), over everything above. Sizes are the phone's
+       points as pixels; colours are iOS's dark system colours. ---- */
+    :root {
+        --window-bg-color: #000000;
+        --view-bg-color: #000000;
+        --card-bg-color: #1c1c1e;
+        --popover-bg-color: #1c1c1e;
+        --dialog-bg-color: #1c1c1e;
+        --ios-secondary: alpha(#ebebf5, 0.6);
+        --ios-tertiary: alpha(#ebebf5, 0.3);
+        --ios-separator: alpha(#545458, 0.65);
+        --ios-grouped: #1c1c1e;
+        --ios-fill: alpha(#767680, 0.24);
+    }
+    window, popover, dialog, tooltip { font-size: 17px; }
+    window.background { background-color: #000000; }
+    .pages { background-color: #000000; }
+
+    /* Type: large title 34 bold, title 2 22 bold, headline 17 semibold, body 17,
+       subheadline 15, footnote 13, caption 12. */
+    .page-heading { font-size: 34px; font-weight: 700; letter-spacing: -0.4px; }
+    .title-1 { font-size: 28px; font-weight: 700; }
+    .title-2 { font-size: 22px; font-weight: 700; }
+    .title-3 { font-size: 20px; font-weight: 600; }
+    .title-4, .heading { font-size: 17px; font-weight: 600; }
+    .caption { font-size: 12px; }
+    .caption-heading { font-size: 12px; font-weight: 600; }
+    .dim-label, .dim { color: var(--ios-secondary); opacity: 1; }
+    .shelf-title { font-size: 22px; font-weight: 700; letter-spacing: -0.2px; }
+    .see-all { color: var(--accent-color); font-weight: 400; font-size: 17px; }
+    .row-value { color: var(--ios-secondary); }
+
+    /* The navigation bar: clear over the page; glass circles and one glass capsule. */
+    headerbar.ios-bar { background: none; box-shadow: none; min-height: 60px; padding: 8px 10px 4px 10px; }
+    headerbar.ios-bar .title { font-size: 17px; font-weight: 600; }
+    .glass-surface, headerbar.ios-bar .glass-group, button.glass {
+        background-color: alpha(#2a2a2d, 0.82);
+        box-shadow: inset 0 0 0 1px alpha(#ffffff, 0.10), 0 6px 18px alpha(#000000, 0.45);
+        border-radius: 9999px;
+    }
+    headerbar.ios-bar .glass-group { padding: 0 2px; }
+    headerbar.ios-bar .glass-group button, headerbar.ios-bar .glass-group menubutton > button {
+        background: none; box-shadow: none; min-width: 44px; min-height: 44px; padding: 0 6px;
+        color: var(--accent-color); -gtk-icon-size: 22px; border-radius: 9999px;
+    }
+    headerbar.ios-bar .glass-group button:hover { background-color: alpha(#ffffff, 0.08); }
+    headerbar.ios-bar .glass-group button label { color: var(--accent-color); }
+    button.glass.back-button { min-width: 44px; min-height: 44px; padding: 0; -gtk-icon-size: 22px; color: #ffffff; }
+    button.glass:hover { background-color: alpha(#3a3a3e, 0.9); }
+    headerbar.ios-bar .bar-start button.flat, headerbar.ios-bar .bar-start menubutton > button {
+        background-color: alpha(#2a2a2d, 0.82); border-radius: 9999px; min-height: 44px; padding: 0 14px;
+        box-shadow: inset 0 0 0 1px alpha(#ffffff, 0.10), 0 6px 18px alpha(#000000, 0.45);
+        color: var(--accent-color);
+    }
+    windowcontrols button { min-width: 28px; min-height: 28px; }
+
+    /* The floating tab bar and Search circle. */
+    .tab-bar { padding: 4px; min-height: 54px; }
+    .tab-bar button.tab { background: none; box-shadow: none; border-radius: 9999px; padding: 4px 0; color: #ffffff; }
+    .tab-bar button.tab:hover { background-color: alpha(#ffffff, 0.06); }
+    .tab-bar button.tab.selected { background-color: alpha(#ffffff, 0.12); color: var(--accent-color); }
+    .tab-label { font-size: 10px; font-weight: 600; }
+    .tab-badge { font-size: 10px; margin: 0 14px 0 0; }
+    button.search-tab { min-width: 62px; min-height: 62px; padding: 0; -gtk-icon-size: 24px; color: #ffffff; }
+    button.search-tab.selected { color: var(--accent-color); }
+
+    /* The mini player. */
+    .mini-capsule { min-height: 56px; }
+    .mini-player-row { padding: 0 8px 0 8px; min-height: 56px; }
+    .mini-title { font-size: 15px; font-weight: 500; }
+    button.mini-button { min-width: 44px; min-height: 44px; padding: 0; -gtk-icon-size: 24px; color: #ffffff; background: none; }
+    .mini-progress { background-color: var(--accent-bg-color); margin-left: 18px; margin-bottom: 1px; }
+
+    /* Grouped lists (Settings, Library): iOS's inset grouped style. */
+    list.boxed-list { background-color: var(--ios-grouped); box-shadow: none; border-radius: 26px; }
+    list.boxed-list > row { background: none; min-height: 52px; }
+    list.boxed-list > row:hover { background-color: alpha(#ffffff, 0.04); }
+    list.boxed-list > row:not(:last-child) { border-bottom: 1px solid var(--ios-separator); }
+    list.boxed-list > row:first-child { border-top-left-radius: 26px; border-top-right-radius: 26px; }
+    list.boxed-list > row:last-child { border-bottom-left-radius: 26px; border-bottom-right-radius: 26px; }
+    row.activatable .title, row .title { font-size: 17px; }
+    row .subtitle { font-size: 15px; color: var(--ios-secondary); opacity: 1; }
+    row .row-icon { -gtk-icon-size: 22px; min-width: 28px; }
+    row .row-chevron { color: var(--ios-tertiary); opacity: 1; }
+    preferencesgroup > box > box.header .title, preferencesgroup .heading {
+        font-size: 17px; font-weight: 600; color: var(--ios-secondary); }
+    preferencesgroup > box > box.header { margin: 0 16px 6px 16px; }
+    preferencesgroup .description { font-size: 13px; color: var(--ios-secondary); }
+
+    popover > contents, popover > arrow { background-color: alpha(#252527, 0.97); }
+    popover > contents { border-radius: 16px; }
     """
 }

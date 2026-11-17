@@ -1,59 +1,34 @@
 import CGtk
 import Foundation
 
-/// The player over the window, Plexamp's way: the mini player along the bottom while
-/// browsing, and the full player sliding up to fill the whole window, its own top bar
-/// standing in for the header bar — dragged to move the window, with the window's buttons.
+/// The full player over the window, as the phone's comes up over its tabs: sliding up to
+/// fill the whole window, its own top bar standing in for the header bar — dragged to move
+/// the window, with the window's buttons. The mini player that opens it floats over the
+/// pages (`BottomChrome`).
 ///
 /// Not libadwaita's bottom sheet: that leaves a strip of the window above the open sheet
 /// which takes every drag (for swiping the sheet closed), so the window could not be
 /// moved while the player was up.
-///
-/// The two are pages of a stack that is not homogeneous, so only the one showing sets the
-/// window's smallest size: the library's layout does not stop the player being shrunk to
-/// the tiny window Plexamp allows.
 @MainActor
 final class PlayerLayer {
     let root: Stack
-    private let bar: Revealer
     private var open = false
     private var onOpen: [@MainActor (Bool) -> Void] = []
 
-    /// `opensFromBar`: whether a click anywhere on the bar opens the player. The player
-    /// bar says no: it has a seekbar and a volume, and opens the player from its song.
-    init(content: Widget, player playerView: Widget, bar barView: Widget, opensFromBar: Bool = true) {
-        let bar = Revealer(barView, transition: GTK_REVEALER_TRANSITION_TYPE_SLIDE_UP)
+    init(content: Widget, player playerView: Widget) {
         root = Stack(transition: GTK_STACK_TRANSITION_TYPE_OVER_UP_DOWN)
         gtk_stack_set_hhomogeneous(root.widget.cast(), 0)
         gtk_stack_set_vhomogeneous(root.widget.cast(), 0)
         gtk_stack_set_transition_duration(root.widget.cast(), 250)
-        // The bar below the pages rather than over them, so the end of a list is never
-        // hidden under it.
-        root.add(Box.vertical {
-            content.vexpand()
-            bar
-        }, name: "library")
+        root.add(content.vexpand(), name: "library")
         root.add(playerView, name: "player")
         root.visibleName = "library"
-        self.bar = bar
-
-        // The bar opens the player wherever it is clicked that is not one of its buttons;
-        // a button's own click claims the press first.
-        let reference = WeakReference<PlayerLayer>(nil)
-        if opensFromBar { barView.onClick { reference.value?.setOpen(true) } }
-        reference.value = self
         root.keep(self)
     }
 
     var isOpen: Bool {
         get { open }
         set { setOpen(newValue) }
-    }
-
-    /// Whether the mini player shows: only while there is something to play.
-    var revealsBar: Bool {
-        get { bar.isRevealed }
-        set { bar.isRevealed = newValue }
     }
 
     var canOpen = true

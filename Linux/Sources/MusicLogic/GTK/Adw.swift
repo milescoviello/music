@@ -4,9 +4,13 @@ import Foundation
 // libadwaita's building blocks: the header bars, pages, preference rows and sheets that
 // make a GTK app look like it belongs on the desktop it runs on.
 
+/// The phone's navigation bar: clear over the page, a glass circle to go back at the start,
+/// and the page's own buttons together in one glass capsule at the end, as iOS 26 groups
+/// them; the window's buttons after it.
 final class HeaderBar: Widget {
     init() {
         super.init(adw_header_bar_new()!)
+        gtk_widget_add_css_class(widget, "ios-bar")
     }
 
     /// A handle on a header bar that already exists.
@@ -14,16 +18,43 @@ final class HeaderBar: Widget {
         super.init(pointer)
     }
 
+    /// Before everything else at the start: the back button.
     @discardableResult
-    func start(_ child: Widget) -> Self {
-        adw_header_bar_pack_start(widget.cast(), child.widget)
+    func leading(_ child: Widget) -> Self {
+        gtk_box_prepend(slot("bar-start", end: false), child.widget)
         return self
     }
 
     @discardableResult
-    func end(_ child: Widget) -> Self {
-        adw_header_bar_pack_end(widget.cast(), child.widget)
+    func start(_ child: Widget) -> Self {
+        gtk_box_append(slot("bar-start", end: false), child.widget)
         return self
+    }
+
+    /// Into the glass capsule. Each goes before the last, as `pack_end` does, so the first
+    /// given is the one at the far end.
+    @discardableResult
+    func end(_ child: Widget) -> Self {
+        gtk_box_prepend(slot("glass-group", end: true), child.widget)
+        return self
+    }
+
+    /// The box at either end, made the first time it is asked for and found again by any
+    /// handle on the same bar (a page's header found in its tree is a new handle).
+    private func slot(_ name: String, end: Bool) -> UnsafeMutablePointer<GtkBox> {
+        if let found = g_object_get_data(widget.gobject, name) {
+            return found.assumingMemoryBound(to: GtkBox.self)
+        }
+        let box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, end ? 0 : 8)!
+        gtk_widget_add_css_class(box, name)
+        gtk_widget_set_valign(box, GTK_ALIGN_CENTER)
+        if end {
+            adw_header_bar_pack_end(widget.cast(), box)
+        } else {
+            adw_header_bar_pack_start(widget.cast(), box)
+        }
+        g_object_set_data(widget.gobject, name, UnsafeMutableRawPointer(box))
+        return UnsafeMutableRawPointer(box).assumingMemoryBound(to: GtkBox.self)
     }
 
     @discardableResult
@@ -357,7 +388,7 @@ final class ActionRow: Widget {
         super.init(adw_action_row_new()!)
         self.title = title
         if let subtitle { self.subtitle = subtitle }
-        if let icon { adw_action_row_add_prefix(widget.cast(), Icon(icon).css("row-icon").widget) }
+        if let icon { adw_action_row_add_prefix(widget.cast(), Icon(icon, size: 22).css("row-icon").widget) }
         if let action { activated(action) }
     }
 

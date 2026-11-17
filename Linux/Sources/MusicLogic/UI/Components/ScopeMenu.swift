@@ -1,3 +1,4 @@
+import CGtk
 import Foundation
 
 /// The library switch, for servers with more than one music folder: a header-bar menu
@@ -15,8 +16,20 @@ enum ScopeMenu {
                 if let option = store.options.first(where: { $0.cacheKey == key }) { store.scope = option }
             }]])
         }
+        // The phone's label: the books, the folder's name when one is chosen, a small chevron.
+        let name = Label("", "scope-name")
+        let label = Box.horizontal(spacing: 3) {
+            Icon(Symbol.icon("books.vertical"), size: 20)
+            name
+            Icon(Symbol.icon("chevron.down"), size: 11)
+        }
+        gtk_button_set_child(button.widget.cast(), label.widget)
         button.tooltip("Library")
-        button.observe { button.isVisible = store.isSwitchable }
+        button.observe {
+            button.isVisible = store.isSwitchable
+            if case .folder = store.scope { name.text = store.scope.shortName } else { name.text = "" }
+            name.isVisible = !name.text.isEmpty
+        }
         return button
     }
 }

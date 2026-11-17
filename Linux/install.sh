@@ -22,7 +22,7 @@ CONFIG="$PREFIX/share/$ID/install.conf"
 
 uninstall() {
     rm -f "$PREFIX/bin/music" "$PREFIX/bin/music-update" "$PREFIX/share/applications/$ID.desktop" "$CONFIG"
-    rm -rf "$PREFIX/share/$ID/fonts"
+    rm -rf "$PREFIX/share/$ID/fonts" "$PREFIX/share/$ID/symbols"
     for size in $SIZES; do rm -f "$PREFIX/share/icons/hicolor/${size}x$size/apps/$ID.png"; done
     refresh
     echo "Removed. Settings are in ~/.config/music.plist, the library cache and downloads in ~/.local/share/$ID."
@@ -117,6 +117,10 @@ done
 for font in InterVariable.ttf InterVariable-Italic.ttf Inter-LICENSE.txt; do
     install -Dm644 "Linux/Resources/fonts/$font" "$PREFIX/share/$ID/fonts/$font"
 done
+# The phone's icons, drawn with Phosphor (Symbol.swift), likewise the app's own.
+rm -rf "$PREFIX/share/$ID/symbols"
+install -d "$PREFIX/share/$ID/symbols"
+install -m644 Linux/Resources/symbols/* "$PREFIX/share/$ID/symbols/"
 refresh
 
 # `music-update` remembers where the source is and how this machine builds it.

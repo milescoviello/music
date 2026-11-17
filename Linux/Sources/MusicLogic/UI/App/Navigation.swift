@@ -2,14 +2,13 @@ import CGtk
 import Foundation
 import Observation
 
-/// The window's history, a browser's: every page opened, in the order it was opened,
-/// whichever section it was opened in, with Back and Forward through all of it. Opening
-/// an artist from the player or from Search, Back comes back there, not to wherever the
-/// Library section was last left.
+/// Each tab's own history, as the phone keeps a navigation stack per tab: Back goes to
+/// the page before in the same tab, and leaving a tab and coming back finds it where it
+/// was left. A page opened from the player or from a menu opens in the tab showing.
 ///
-/// A page lives as long as the history holds it, so going back or forward finds it
-/// scrolled where it was and its search still typed; each section's first page lives as
-/// long as the window. Pages are shown in a plain stack, without a transition.
+/// A page lives as long as its tab's history holds it, so going back finds it scrolled
+/// where it was; each tab's first page lives as long as the window. Pages are shown in a
+/// plain stack, without a transition.
 @MainActor
 @Observable
 final class Navigation {
@@ -22,17 +21,12 @@ final class Navigation {
     @ObservationIgnored let view = Stack(transition: GTK_STACK_TRANSITION_TYPE_NONE)
     @ObservationIgnored let app: AppState
     @ObservationIgnored weak var shell: Shell?
-    /// The Search section's field, for Ctrl+F.
+    /// The Search tab's field, for Ctrl+F.
     @ObservationIgnored var searchEntry: SearchEntry?
-    private(set) var entries: [Entry] = []
-    private(set) var index = -1
-    /// One page at a time, the sidebar folded away: Back with nothing behind it shows the
-    /// sidebar.
-    var isCollapsed = false
-    /// Counts pages that have said what cover they show (`NavigationPage.coverArt`), so
-    /// the backdrop can follow one that loads late.
+    private(set) var histories: [Shell.Section: [Entry]] = [:]
+    private(set) var section: Shell.Section = .home
+    /// Counts pages that have said what cover they show (`NavigationPage.coverArt`).
     private(set) var coverChanges = 0
-    @ObservationIgnored private var roots: [Shell.Section: Entry] = [:]
     @ObservationIgnored private var opened = 0
     /// Enough to go back through an evening's browsing; each page kept holds its covers
     /// and watches what it shows, so not without end.
@@ -43,62 +37,65 @@ final class Navigation {
         self.shell = shell
         gtk_stack_set_hhomogeneous(view.widget.cast(), 0)
         gtk_stack_set_vhomogeneous(view.widget.cast(), 0)
+        view.css("pages")
         view.keep(self)
     }
 
     var env: Env { Env(app: app, navigation: self) }
 
-    var current: Entry? { entries.indices.contains(index) ? entries[index] : nil }
-    var section: Shell.Section { current?.section ?? .home }
-    var canGoBack: Bool { index > 0 }
-    var canGoForward: Bool { index < entries.count - 1 }
+    var current: Entry? { histories[section]?.last }
+    var canGoBack: Bool { (histories[section]?.count ?? 0) > 1 }
 
-    /// A section's first page, kept for the window's life.
     func coverChanged() {
         coverChanges += 1
     }
 
+    /// A tab's first page, kept for the window's life.
     func addRoot(_ section: Shell.Section, _ page: NavigationPage) {
         let entry = Entry(page: page, name: section.rawValue, section: section)
-        roots[section] = entry
+        histories[section] = [entry]
         view.add(page, name: entry.name)
-        addButtons(to: page)
     }
 
-    /// Opens a page after the one showing, in the same section.
+    /// Opens a page after the one showing, in the same tab.
     func push(_ destination: Destination) {
         let page = Pages.make(destination, env: env)
         opened += 1
         let entry = Entry(page: page, name: "page-\(opened)", section: section)
         view.add(page, name: entry.name)
-        addButtons(to: page)
-        go(to: entry)
+        addBackButton(to: page)
+        var history = histories[section] ?? []
+        history.append(entry)
+        if history.count > Self.limit {
+            let dropped = history.remove(at: 1)
+            view.remove(dropped.page)
+        }
+        histories[section] = history
+        show()
     }
 
-    /// A section from the sidebar: its first page, as a new step in the history. On that
-    /// page already, back to the top of it.
+    /// A tab from the tab bar: where it was left. On it already, back to its first page,
+    /// and on that, to the top, as tapping the tab does on the phone.
     func open(_ section: Shell.Section) {
-        guard let root = roots[section] else { return }
-        if current?.name == root.name {
-            root.page.scroller?.scrollToTop()
+        guard let history = histories[section], let root = history.first else { return }
+        guard section == self.section else {
+            self.section = section
+            show()
             return
         }
-        go(to: root)
+        if history.count > 1 {
+            popToRoot()
+        } else {
+            root.page.scroller?.scrollToTop()
+        }
     }
 
     func goBack() {
-        guard canGoBack else {
-            if isCollapsed { shell?.showSidebar() }
-            return
-        }
-        index -= 1
+        guard var history = histories[section], history.count > 1 else { return }
+        let dropped = history.removeLast()
+        histories[section] = history
         show()
-    }
-
-    func goForward() {
-        guard canGoForward else { return }
-        index += 1
-        show()
+        view.remove(dropped.page)
     }
 
     /// A page closing itself once it has done its work.
@@ -106,47 +103,28 @@ final class Navigation {
         goBack()
     }
 
-    /// What was ahead is forgotten, as a browser forgets it.
-    private func go(to entry: Entry) {
-        var dropped = Array(entries[(index + 1)...])
-        entries.removeSubrange((index + 1)...)
-        entries.append(entry)
-        if entries.count > Self.limit {
-            dropped += entries.prefix(entries.count - Self.limit)
-            entries.removeFirst(entries.count - Self.limit)
-        }
-        index = entries.count - 1
+    func popToRoot() {
+        guard var history = histories[section], history.count > 1 else { return }
+        let dropped = history.dropFirst()
+        history.removeSubrange(1...)
+        histories[section] = history
         show()
-        let kept = Set(entries.map(\.name))
-        for old in dropped where roots[old.section]?.name != old.name && !kept.contains(old.name) {
-            view.remove(old.page)
-        }
+        for entry in dropped { view.remove(entry.page) }
     }
 
     private func show() {
         guard let entry = current else { return }
         view.visibleName = entry.name
-        shell?.showContent()
     }
 
-    /// Back and Forward at the start of every page's header bar. The header bar's own
-    /// back button is off: it only knows the pages of a navigation view.
-    func addButtons(to page: NavigationPage) {
+    /// The phone's back button: a glass circle at the start of a pushed page's bar.
+    func addBackButton(to page: NavigationPage) {
         guard let header = page.header ?? Self.findHeader(in: page.widget) else { return }
-        let back = Button(icon: "go-previous-symbolic", "flat") { [weak self] in self?.goBack() }
-        let forward = Button(icon: "go-next-symbolic", "flat") { [weak self] in self?.goForward() }
-        back.tooltip("Back")
-        forward.tooltip("Forward")
-        let buttons = Box.horizontal(spacing: 0) {
-            back
-            forward
-        }.css("history-buttons")
-        buttons.observe { [weak self] in
-            guard let self else { return }
-            back.isSensitive = canGoBack || isCollapsed
-            forward.isSensitive = canGoForward
+        let back = Button(icon: "go-previous-symbolic", "glass", "circular", "back-button") { [weak self] in
+            self?.goBack()
         }
-        header.showsBackButton(false).start(buttons)
+        back.tooltip("Back")
+        header.showsBackButton(false).leading(back)
     }
 
     /// The header bar of a page not made by `Page.make`: Settings, a genre.
@@ -194,6 +172,9 @@ struct Env {
 /// with a title of its own (an album's, an artist's) asks for no heading.
 @MainActor
 enum Page {
+    /// The tab bar (54), the mini player above it (56) and their gaps.
+    static let chromeClearance: Int32 = 150
+
     static func make(
         _ title: String,
         content: Widget,
@@ -209,11 +190,14 @@ enum Page {
         let large = heading && scrolls ? Label(title, "page-heading").xalign(0).ellipsize() : nil
         if let large {
             body = Box.vertical(spacing: 0) {
-                large.margins(top: 4, bottom: 14, start: 12, end: 12)
+                large.margins(top: 2, bottom: 10, start: 16, end: 16)
                 content
             }
         }
         if let clamp { body = Clamp(body, maximum: clamp, threshold: min(clamp, 700)) }
+        // Room at the end for the mini player and tab bar floating over the page, so the
+        // last row scrolls clear of them rather than ending under them.
+        if scrolls { body = Box.vertical(spacing: 0) { body }.margins(bottom: Page.chromeClearance) }
         var scroller: ScrolledWindow?
         if scrolls {
             let window = ScrolledWindow(body).vexpand()

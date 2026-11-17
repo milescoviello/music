@@ -7,7 +7,8 @@
 # copy of the app's data, in read-only mode: it reads the server and sends it nothing
 # (`ReadOnly.swift`), doesn't advertise itself as a remote, and doesn't auto-download.
 # The copy is a btrfs reflink, so it costs no space; `--fresh` makes it again.
-# Size is in logical pixels, drawn at scale 2. Default 440x956, the iPhone's own.
+# Size is in logical pixels (the virtual output gives apps scale 1 whatever --scale says).
+# Default 440x956, the iPhone's own.
 set -euo pipefail
 
 size=440x956 wait=8 fresh=0
@@ -54,7 +55,7 @@ dbus-run-session -- bash -s "$binary" "$data" "$config" "$width" "$height" "$wai
 binary=$1 data=$2 config=$3 width=$4 height=$5 wait=$6; shift 6
 socket=music-shot-$$
 kwin_wayland --virtual --no-lockscreen --socket "$socket" \
-    --width "$width" --height "$height" --scale 2 >/dev/null 2>&1 &
+    --width "$width" --height "$height" --scale 1 >/dev/null 2>&1 &
 kwin=$!
 for _ in $(seq 50); do [[ -S $XDG_RUNTIME_DIR/$socket ]] && break; sleep 0.1; done
 while [[ $# -gt 0 ]]; do

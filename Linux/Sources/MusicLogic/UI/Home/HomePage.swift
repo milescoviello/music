@@ -55,15 +55,19 @@ enum HomePage {
         }
 
         let page = Page.make("Home", content: body) { bar in
-            bar.end(MenuButton(icon: "emblem-system-symbolic", "flat") {
-                Menu([[
-                    .action("Edit Home…") { editLayout { layoutVersion.value += 1 } },
-                    .action("Refresh") { Task { await model.load(appState: app, scope: app.scope.scope) } },
-                    .action("Settings") { env.navigation.shell?.select(.settings) },
-                ]])
-            })
+            // The phone's three: Library Radio, the library switch, and the gear's menu.
+            // Refresh stands in for the phone's pull to refresh.
+            bar.end(MenuButton(icon: Symbol.icon("gearshape"), "flat") {
+                Menu([
+                    [
+                        .action("Edit Home") { editLayout { layoutVersion.value += 1 } },
+                        .action("Settings") { env.navigation.shell?.select(.settings) },
+                    ],
+                    [.action("Refresh") { Task { await model.load(appState: app, scope: app.scope.scope) } }],
+                ])
+            }.tooltip("Settings"))
             bar.end(ScopeMenu.make(app))
-            bar.end(Button(icon: "media-playlist-shuffle-symbolic", "flat") { app.stations.play(.library) }.tooltip("Shuffle Library"))
+            bar.end(Button(icon: Symbol.icon("shuffle"), "flat") { app.stations.play(.library) }.tooltip("Shuffle Library"))
         }
         return page
     }

@@ -36,6 +36,7 @@ public enum MusicApplication {
         Signal.connect(application, "startup") {
             Style.install()
             BundledIcons.install()
+            Symbol.install()
             installAccelerators(application)
             installQuickPlayActions(application)
         }
