@@ -99,7 +99,7 @@ enum SearchPage {
         }
         body.keep(hasQuery)
         entry.onMap { entry.grabFocus() }
-        return Page.make("Search", content: body, heading: false) { bar in bar.showsTitle(false) }
+        return Page.make("Search", content: body, clamp: 900, heading: false) { bar in bar.showsTitle(false) }
     }
 
     /// Ctrl+F: the field takes the keyboard.

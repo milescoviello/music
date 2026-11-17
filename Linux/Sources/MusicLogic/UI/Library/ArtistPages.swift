@@ -179,7 +179,7 @@ enum ArtistPage {
         body.append(popularBox)
         body.append(shelves)
 
-        let page = Page.make(artist.name, content: body.margins(bottom: 24), heading: false) { bar in
+        let page = Page.make(artist.name, content: body.margins(bottom: 24), clamp: 1100, heading: false) { bar in
             bar.showsTitle(false)
             bar.end(radio)
             bar.end(favourite)

@@ -71,7 +71,7 @@ enum PlaylistList {
         edit.observe { edit.isSensitive = store.playlists.count >= 2 }
 
         body.keep(editing)
-        return Page.make("Playlists", content: body) { bar in
+        return Page.make("Playlists", content: body, clamp: 860) { bar in
             bar.start(edit)
             bar.end(MenuButton(icon: Symbol.icon("plus"), "flat") {
                 Menu([[
@@ -227,7 +227,7 @@ enum PlaylistPage {
         }
         let done = Button("Done", "flat") { selection.end() }
         done.observe { done.isVisible = selection.isActive }
-        let page = Page.make(playlist.name, content: loader.bin, heading: false) { bar in
+        let page = Page.make(playlist.name, content: loader.bin, clamp: 860, heading: false) { bar in
             bar.showsTitle(false)
             bar.start(done)
             bar.end(menu)

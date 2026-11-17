@@ -104,7 +104,7 @@ enum DownloadsPage {
             ])
         }
         // The phone's title sits small in the bar here: its search field is always out.
-        return Page.make("Downloads", content: body, heading: false) { bar in bar.end(menu) }
+        return Page.make("Downloads", content: body, clamp: 860, heading: false) { bar in bar.end(menu) }
     }
 
     private static func section(_ env: Env, _ title: String, _ folders: [DownloadFolders.Folder]) -> Widget {

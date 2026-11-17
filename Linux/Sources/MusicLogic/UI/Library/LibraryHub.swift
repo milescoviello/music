@@ -78,7 +78,7 @@ enum LibraryHub {
                 recentGroup.isVisible = !albums.isEmpty
             }
         }
-        return Page.make("Library", content: content) { bar in
+        return Page.make("Library", content: content, clamp: 720) { bar in
             bar.end(ScopeMenu.make(app))
         }
     }

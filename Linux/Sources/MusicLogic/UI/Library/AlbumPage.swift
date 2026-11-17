@@ -28,7 +28,7 @@ enum AlbumPage {
         }
         let done = Button("Done", "flat") { selection.end() }
         done.observe { done.isVisible = selection.isActive }
-        let page = Page.make(album.name, content: loader.bin, heading: false) { bar in
+        let page = Page.make(album.name, content: loader.bin, clamp: 860, heading: false) { bar in
             bar.showsTitle(false)
             bar.start(done)
             bar.end(menu)
