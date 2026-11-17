@@ -17,35 +17,38 @@ struct DailyMixesView: View {
 
     var body: some View {
         List {
-            ForEach(appState.mixes.mixes) { mix in
-                NavigationLink(value: Destination.dailyMix(mix.id)) {
-                    HStack(spacing: Metrics.itemSpacing) {
-                        MixTile(covers: mix.covers, size: .thumb)
-                            .frame(width: Metrics.thumbPlaylist, height: Metrics.thumbPlaylist)
+            Group {
+                ForEach(appState.mixes.mixes) { mix in
+                    NavigationLink(value: Destination.dailyMix(mix.id)) {
+                        HStack(spacing: Metrics.itemSpacing) {
+                            MixTile(covers: mix.covers, size: .thumb)
+                                .frame(width: Metrics.thumbPlaylist, height: Metrics.thumbPlaylist)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(mix.title)
-                                .lineLimit(1)
-                            Text("\(mix.songs.count) songs · \(mix.subtitle)")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(mix.title)
+                                    .lineLimit(1)
+                                Text("\(mix.songs.count) songs · \(mix.subtitle)")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                         }
                     }
                 }
-            }
 
-            if appState.mixes.canLoadMore {
-                // The sentinel *is* the paging: it only exists when scrolled to, and it
-                // cancels itself if you leave.
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text("Building more…")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                if appState.mixes.canLoadMore {
+                    // The sentinel *is* the paging: it only exists when scrolled to, and it
+                    // cancels itself if you leave.
+                    HStack(spacing: 8) {
+                        ProgressView()
+                        Text("Building more…")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .task { appState.mixes.loadMore(appState: appState, scope: mixScope) }
                 }
-                .task { appState.mixes.loadMore(appState: appState, scope: mixScope) }
             }
+            .clearRow()
         }
         .listStyle(.plain)
         .playerClearance()

@@ -15,40 +15,43 @@ struct FolderView: View {
 
     var body: some View {
         List {
-            if folder == nil {
-                ForEach(indexes) { index in
-                    Section(index.name) {
-                        ForEach(index.artists) { entry in
-                            NavigationLink(value: Destination.folder(FolderRef(id: entry.id, name: entry.name))) {
-                                Label(entry.name, systemImage: "folder")
-                            }
-                        }
-                    }
-                }
-            } else if let directory {
-                if !directory.folders.isEmpty {
-                    Section {
-                        ForEach(directory.folders) { child in
-                            NavigationLink(value: Destination.folder(FolderRef(id: child.id, name: child.song.title))) {
-                                HStack(spacing: Metrics.itemSpacing) {
-                                    ArtworkImage(id: child.song.coverArt, size: .thumb, cornerRadius: Metrics.radiusThumb, fallbackText: child.song.title)
-                                        .frame(width: Metrics.thumbSmall, height: Metrics.thumbSmall)
-                                    Text(child.song.title).lineLimit(1)
+            Group {
+                if folder == nil {
+                    ForEach(indexes) { index in
+                        Section(index.name) {
+                            ForEach(index.artists) { entry in
+                                NavigationLink(value: Destination.folder(FolderRef(id: entry.id, name: entry.name))) {
+                                    Label(entry.name, systemImage: "folder")
                                 }
                             }
                         }
                     }
-                }
+                } else if let directory {
+                    if !directory.folders.isEmpty {
+                        Section {
+                            ForEach(directory.folders) { child in
+                                NavigationLink(value: Destination.folder(FolderRef(id: child.id, name: child.song.title))) {
+                                    HStack(spacing: Metrics.itemSpacing) {
+                                        ArtworkImage(id: child.song.coverArt, size: .thumb, cornerRadius: Metrics.radiusThumb, fallbackText: child.song.title)
+                                            .frame(width: Metrics.thumbSmall, height: Metrics.thumbSmall)
+                                        Text(child.song.title).lineLimit(1)
+                                    }
+                                }
+                            }
+                        }
+                    }
 
-                let songs = directory.songs
-                if !songs.isEmpty {
-                    Section {
-                        ForEach(songs.indices, id: \.self) { index in
-                            PlayableSongRow(songs: songs, index: index, source: directory.name)
+                    let songs = directory.songs
+                    if !songs.isEmpty {
+                        Section {
+                            ForEach(songs.indices, id: \.self) { index in
+                                PlayableSongRow(songs: songs, index: index, source: directory.name)
+                            }
                         }
                     }
                 }
             }
+            .clearRow()
         }
         .listStyle(.plain)
         .navigationTitle(folder?.name ?? "Folders")

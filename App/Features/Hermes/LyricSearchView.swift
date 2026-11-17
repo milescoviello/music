@@ -28,53 +28,56 @@ struct LyricSearchView: View {
 
     var body: some View {
         List {
-            Section {
-                TextField("A line you remember", text: $query, axis: .vertical)
-                    .lineLimit(1...3)
-                    .submitLabel(.search)
-                    .onSubmit { Task { await search() } }
+            Group {
+                Section {
+                    TextField("A line you remember", text: $query, axis: .vertical)
+                        .lineLimit(1...3)
+                        .submitLabel(.search)
+                        .onSubmit { Task { await search() } }
 
-                Button {
-                    Task { await search() }
-                } label: {
-                    if state == .asking {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Searching the library…")
+                    Button {
+                        Task { await search() }
+                    } label: {
+                        if state == .asking {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                Text("Searching the library…")
+                            }
+                        } else {
+                            Label("Search Lyrics", systemImage: "text.magnifyingglass")
+                        }
+                    }
+                    .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty || state == .asking)
+                } footer: {
+                    Text("Searches the lyrics stored with your own files. About 6.5% of this library has lyrics, so a miss means there is nothing on file — not that you don't own the song.")
+                }
+
+                if case let .failed(message) = state {
+                    Section {
+                        Label(message, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                    }
+                }
+
+                if state == .done {
+                    if matches.isEmpty {
+                        Section {
+                            ContentUnavailableView(
+                                "No Lyrics Matched",
+                                systemImage: "quote.closing",
+                                description: Text("Nothing on file contains that line.")
+                            )
                         }
                     } else {
-                        Label("Search Lyrics", systemImage: "text.magnifyingglass")
-                    }
-                }
-                .disabled(query.trimmingCharacters(in: .whitespaces).isEmpty || state == .asking)
-            } footer: {
-                Text("Searches the lyrics stored with your own files. About 6.5% of this library has lyrics, so a miss means there is nothing on file — not that you don't own the song.")
-            }
-
-            if case let .failed(message) = state {
-                Section {
-                    Label(message, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
-                }
-            }
-
-            if state == .done {
-                if matches.isEmpty {
-                    Section {
-                        ContentUnavailableView(
-                            "No Lyrics Matched",
-                            systemImage: "quote.closing",
-                            description: Text("Nothing on file contains that line.")
-                        )
-                    }
-                } else {
-                    Section("\(matches.count) matched") {
-                        ForEach(matches) { match in
-                            row(for: match)
+                        Section("\(matches.count) matched") {
+                            ForEach(matches) { match in
+                                row(for: match)
+                            }
                         }
                     }
                 }
             }
+            .glassRow()
         }
         .navigationTitle("Lyric Search")
         .playerClearance()

@@ -19,40 +19,43 @@ struct LibraryHealthView: View {
 
     var body: some View {
         List {
-            if let report {
-                summary(report)
-                duplicates(report)
-                gaps(report)
-            } else {
-                Section {
-                    Button {
-                        Task { await ask() }
-                    } label: {
-                        if isAsking {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                Text("Asking Hermes…")
+            Group {
+                if let report {
+                    summary(report)
+                    duplicates(report)
+                    gaps(report)
+                } else {
+                    Section {
+                        Button {
+                            Task { await ask() }
+                        } label: {
+                            if isAsking {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                    Text("Asking Hermes…")
+                                }
+                            } else {
+                                Label("Check the library", systemImage: "stethoscope")
                             }
-                        } else {
-                            Label("Check the library", systemImage: "stethoscope")
                         }
-                    }
-                    .disabled(isAsking || !appState.hermes.isAvailable)
+                        .disabled(isAsking || !appState.hermes.isAvailable)
 
-                    if !appState.hermes.isAvailable {
-                        Text("Set the Hermes results address in Settings first.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        if !appState.hermes.isAvailable {
+                            Text("Set the Hermes results address in Settings first.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let failure {
+                            Text(failure)
+                                .font(.footnote)
+                                .foregroundStyle(.orange)
+                        }
+                    } footer: {
+                        Text("One query against Navidrome's own database — duplicates across your two music folders, missing years, missing artwork, and the files that have to be streamed transcoded.")
                     }
-                    if let failure {
-                        Text(failure)
-                            .font(.footnote)
-                            .foregroundStyle(.orange)
-                    }
-                } footer: {
-                    Text("One query against Navidrome's own database — duplicates across your two music folders, missing years, missing artwork, and the files that have to be streamed transcoded.")
                 }
             }
+            .glassRow()
         }
         .navigationTitle("Library Health")
         .playerClearance()

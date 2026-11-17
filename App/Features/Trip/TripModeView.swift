@@ -16,51 +16,54 @@ struct TripModeView: View {
 
     var body: some View {
         Form {
-            Section("How long") {
-                Stepper("\(model.days) \(model.days == 1 ? "day" : "days")", value: $model.days, in: 1...21)
-                Stepper(
-                    "\(model.hoursPerDay) \(model.hoursPerDay == 1 ? "hour" : "hours") a day",
-                    value: $model.hoursPerDay,
-                    in: 1...12
-                )
-                LabeledContent("Music needed", value: model.targetText)
-            }
-
-            Section {
-                Picker("Quality", selection: $model.quality) {
-                    ForEach(DownloadQuality.allCases) { quality in
-                        Text(quality.label).tag(quality)
-                    }
+            Group {
+                Section("How long") {
+                    Stepper("\(model.days) \(model.days == 1 ? "day" : "days")", value: $model.days, in: 1...21)
+                    Stepper(
+                        "\(model.hoursPerDay) \(model.hoursPerDay == 1 ? "hour" : "hours") a day",
+                        value: $model.hoursPerDay,
+                        in: 1...12
+                    )
+                    LabeledContent("Music needed", value: model.targetText)
                 }
-                .pickerStyle(.segmented)
 
-                Text(model.quality.detail)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } header: {
-                Text("Quality")
-            } footer: {
-                // The trade, stated rather than implied.
-                Text("Original is what this app normally downloads. The other three are transcoded by the server on the way out, which is the only way a long trip fits.")
-            }
-
-            planSection
-
-            if !model.plan.groups.isEmpty {
                 Section {
-                    ForEach(model.plan.groups) { group in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(group.name).lineLimit(1)
-                            Text("\(group.songs.count) songs\(group.subtitle.map { " · \($0)" } ?? "")")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
+                    Picker("Quality", selection: $model.quality) {
+                        ForEach(DownloadQuality.allCases) { quality in
+                            Text(quality.label).tag(quality)
                         }
                     }
+                    .pickerStyle(.segmented)
+
+                    Text(model.quality.detail)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 } header: {
-                    Text("What gets packed")
+                    Text("Quality")
+                } footer: {
+                    // The trade, stated rather than implied.
+                    Text("Original is what this app normally downloads. The other three are transcoded by the server on the way out, which is the only way a long trip fits.")
+                }
+
+                planSection
+
+                if !model.plan.groups.isEmpty {
+                    Section {
+                        ForEach(model.plan.groups) { group in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(group.name).lineLimit(1)
+                                Text("\(group.songs.count) songs\(group.subtitle.map { " · \($0)" } ?? "")")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    } header: {
+                        Text("What gets packed")
+                    }
                 }
             }
+            .glassRow()
         }
         .navigationTitle("Trip Mode")
         .playerClearance()

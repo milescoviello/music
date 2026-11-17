@@ -25,83 +25,87 @@ struct LibraryHubView: View {
     var body: some View {
         NavigationStack(path: libraryPath) {
             List {
-                Section {
-                    row("Playlists", "music.note.list", .playlists)
-                    row("Artists", "music.microphone", .artists)
-                    row("Albums", "square.stack", .albums(.alphabeticalByName))
-                    row("Tracks", "music.note", .tracks)
-                    row("Recently Played", "clock.arrow.circlepath", .albums(.recent))
-                    row("Most Played", "chart.bar", .albums(.frequent))
-                    row("Genres", "guitars", .genres)
-                    row("Stations", "dot.radiowaves.left.and.right", .stations)
-                    row("Charts", "chart.line.uptrend.xyaxis", .charts)
-                }
-
-                // Plexamp's other categories, cut from the whole album list.
-                Section {
-                    ForEach(LibraryFacet.allCases, id: \.self) { facet in
-                        row(facet.title, facet.symbol, .libraryFacet(facet))
-                    }
-                    row("Folders", "folder", .folder(nil))
-                }
-
-                Section {
-                    row("Favourites", "heart", .favorites)
-                    // The one row whose contents live on this phone, so it is the
-                    // one row where a count says something the screen does not.
-                    row(
-                        "Downloads",
-                        "arrow.down.circle",
-                        .downloads,
-                        badge: downloads.catalog.entries.isEmpty
-                            ? nil
-                            : "\(downloads.catalog.entries.count)"
-                    )
-                    row("Rediscover", "clock.arrow.circlepath", .rediscover)
-                    row("Make a Playlist", "sparkles", .vibePlaylist)
-                    row("Lyric Search", "text.magnifyingglass", .lyricSearch(""))
-                    row("Trip Mode", "airplane", .tripMode)
-                    row("Stats", "chart.bar.xaxis", .stats)
-                    row("Library Health", "stethoscope", .libraryHealth)
-                    row("Duplicate Albums", "square.on.square", .duplicateAlbums)
-                    row("Request Music", "arrow.down.heart", .requestMusic(""))
-                    row("Settings", "gearshape", .settings)
-                }
-
-                if !recentlyAdded.isEmpty {
+                Group {
                     Section {
-                        // A grid inside a List works reliably as long as the row's
-                        // insets and background are cleared.
-                        LazyVGrid(columns: gridColumns, spacing: Metrics.itemSpacing) {
-                            ForEach(recentlyAdded) { album in
-                                NavigationLink(value: Destination.album(AlbumRef(album))) {
-                                    AlbumCard(album: album)
-                                }
-                                .buttonStyle(.plain)
-                                .albumMenu(album)
-                            }
+                        row("Playlists", "music.note.list", .playlists)
+                        row("Artists", "music.microphone", .artists)
+                        row("Albums", "square.stack", .albums(.alphabeticalByName))
+                        row("Tracks", "music.note", .tracks)
+                        row("Recently Played", "clock.arrow.circlepath", .albums(.recent))
+                        row("Most Played", "chart.bar", .albums(.frequent))
+                        row("Genres", "guitars", .genres)
+                        row("Stations", "dot.radiowaves.left.and.right", .stations)
+                        row("Charts", "chart.line.uptrend.xyaxis", .charts)
+                    }
+
+                    // Plexamp's other categories, cut from the whole album list.
+                    Section {
+                        ForEach(LibraryFacet.allCases, id: \.self) { facet in
+                            row(facet.title, facet.symbol, .libraryFacet(facet))
                         }
-                        .listRowInsets(EdgeInsets(
-                            top: 8, leading: Metrics.gutter,
-                            bottom: 8, trailing: Metrics.gutter
-                        ))
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                    } header: {
-                        HStack {
-                            Text("Recently Added")
-                            Spacer()
-                            NavigationLink(value: Destination.albums(.newest)) {
-                                Text("See All").font(.footnote)
+                        row("Folders", "folder", .folder(nil))
+                    }
+
+                    Section {
+                        row("Favourites", "heart", .favorites)
+                        // The one row whose contents live on this phone, so it is the
+                        // one row where a count says something the screen does not.
+                        row(
+                            "Downloads",
+                            "arrow.down.circle",
+                            .downloads,
+                            badge: downloads.catalog.entries.isEmpty
+                                ? nil
+                                : "\(downloads.catalog.entries.count)"
+                        )
+                        row("Rediscover", "clock.arrow.circlepath", .rediscover)
+                        row("Make a Playlist", "sparkles", .vibePlaylist)
+                        row("Lyric Search", "text.magnifyingglass", .lyricSearch(""))
+                        row("Trip Mode", "airplane", .tripMode)
+                        row("Stats", "chart.bar.xaxis", .stats)
+                        row("Library Health", "stethoscope", .libraryHealth)
+                        row("Duplicate Albums", "square.on.square", .duplicateAlbums)
+                        row("Request Music", "arrow.down.heart", .requestMusic(""))
+                        row("Settings", "gearshape", .settings)
+                    }
+
+                    if !recentlyAdded.isEmpty {
+                        Section {
+                            // A grid inside a List works reliably as long as the row's
+                            // insets and background are cleared.
+                            LazyVGrid(columns: gridColumns, spacing: Metrics.itemSpacing) {
+                                ForEach(recentlyAdded) { album in
+                                    NavigationLink(value: Destination.album(AlbumRef(album))) {
+                                        AlbumCard(album: album)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .albumMenu(album)
+                                }
+                            }
+                            .listRowInsets(EdgeInsets(
+                                top: 8, leading: Metrics.gutter,
+                                bottom: 8, trailing: Metrics.gutter
+                            ))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                        } header: {
+                            HStack {
+                                Text("Recently Added")
+                                Spacer()
+                                NavigationLink(value: Destination.albums(.newest)) {
+                                    Text("See All").font(.footnote)
+                                }
                             }
                         }
                     }
                 }
+                .glassRow()
             }
             .listStyle(.insetGrouped)
             .listSectionSpacing(.compact)
             .navigationTitle("Library")
             .musicDestinations()
+            .pageBackdrop()
             .offlineBanner()
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { LibraryScopeMenu() }

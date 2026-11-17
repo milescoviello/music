@@ -41,9 +41,12 @@ struct YouTubeResultsView: View {
                 ContentUnavailableView.search(text: trimmed)
             } else {
                 List {
-                    ForEach(results) { video in
-                        row(video)
+                    Group {
+                        ForEach(results) { video in
+                            row(video)
+                        }
                     }
+                    .clearRow()
                 }
                 .listStyle(.plain)
             }

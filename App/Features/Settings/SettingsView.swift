@@ -16,95 +16,98 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            if let credentials = appState.credentials {
-                Section("Server") {
-                    LabeledContent("Address", value: credentials.baseURL.absoluteString)
-                    LabeledContent("User", value: credentials.username)
+            Group {
+                if let credentials = appState.credentials {
+                    Section("Server") {
+                        LabeledContent("Address", value: credentials.baseURL.absoluteString)
+                        LabeledContent("User", value: credentials.username)
 
-                    Button {
-                        Task { await test() }
-                    } label: {
-                        HStack {
-                            Text("Test Connection")
-                            Spacer()
-                            if isTesting {
-                                ProgressView()
-                            } else if let testResult {
-                                Text(testResult)
-                                    .font(.footnote)
-                                    .foregroundStyle(testResult == "OK" ? .green : .red)
+                        Button {
+                            Task { await test() }
+                        } label: {
+                            HStack {
+                                Text("Test Connection")
+                                Spacer()
+                                if isTesting {
+                                    ProgressView()
+                                } else if let testResult {
+                                    Text(testResult)
+                                        .font(.footnote)
+                                        .foregroundStyle(testResult == "OK" ? .green : .red)
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            if scope.isSwitchable {
-                Section {
-                    // The same store as the toolbar control: a mirror, not a
-                    // second source of truth.
-                    Picker("Show", selection: Binding(
-                        get: { scope.scope },
-                        set: { scope.scope = $0 }
-                    )) {
-                        ForEach(scope.options, id: \.self) { option in
-                            Text(option.shortName).tag(option)
+                if scope.isSwitchable {
+                    Section {
+                        // The same store as the toolbar control: a mirror, not a
+                        // second source of truth.
+                        Picker("Show", selection: Binding(
+                            get: { scope.scope },
+                            set: { scope.scope = $0 }
+                        )) {
+                            ForEach(scope.options, id: \.self) { option in
+                                Text(option.shortName).tag(option)
+                            }
                         }
+                    } header: {
+                        Text("Library")
+                    } footer: {
+                        Text("Applies to Home, Albums, Artists, Genres and Search. Playlists always show every library.")
                     }
-                } header: {
-                    Text("Library")
-                } footer: {
-                    Text("Applies to Home, Albums, Artists, Genres and Search. Playlists always show every library.")
                 }
-            }
 
-            Section {
-                // Plexamp's groups: what you hear, how it looks and behaves, and where
-                // the bytes come from.
-                NavigationLink(value: Destination.audioSettings) {
-                    LabeledContent("Playback", value: audioSummary)
+                Section {
+                    // Plexamp's groups: what you hear, how it looks and behaves, and where
+                    // the bytes come from.
+                    NavigationLink(value: Destination.audioSettings) {
+                        LabeledContent("Playback", value: audioSummary)
+                    }
+                    NavigationLink(value: Destination.experienceSettings) {
+                        LabeledContent("Experience", value: "Player, Home")
+                    }
+                    NavigationLink(value: Destination.streamingSettings) {
+                        LabeledContent("Streaming & Caching", value: streamingSummary)
+                    }
+                    NavigationLink(value: Destination.sonicSettings) {
+                        LabeledContent("Sonic Analysis", value: sonicSummary)
+                    }
+                    NavigationLink(value: Destination.downloads) {
+                        LabeledContent("Downloads", value: downloadSummary)
+                    }
+                    NavigationLink(value: Destination.offlineSettings) {
+                        LabeledContent("Offline & Library", value: offlineSummary)
+                    }
+                    NavigationLink(value: Destination.requestSettings) {
+                        LabeledContent(
+                            "Music Requests",
+                            value: requests.isConfigured ? "Connected" : "Not set up"
+                        )
+                    }
+                    NavigationLink(value: Destination.remoteControl) {
+                        LabeledContent("Remote Players", value: remoteSummary)
+                    }
                 }
-                NavigationLink(value: Destination.experienceSettings) {
-                    LabeledContent("Experience", value: "Player, Home")
-                }
-                NavigationLink(value: Destination.streamingSettings) {
-                    LabeledContent("Streaming & Caching", value: streamingSummary)
-                }
-                NavigationLink(value: Destination.sonicSettings) {
-                    LabeledContent("Sonic Analysis", value: sonicSummary)
-                }
-                NavigationLink(value: Destination.downloads) {
-                    LabeledContent("Downloads", value: downloadSummary)
-                }
-                NavigationLink(value: Destination.offlineSettings) {
-                    LabeledContent("Offline & Library", value: offlineSummary)
-                }
-                NavigationLink(value: Destination.requestSettings) {
-                    LabeledContent(
-                        "Music Requests",
-                        value: requests.isConfigured ? "Connected" : "Not set up"
-                    )
-                }
-                NavigationLink(value: Destination.remoteControl) {
-                    LabeledContent("Remote Players", value: remoteSummary)
-                }
-            }
 
-            Section {
-                NavigationLink(value: Destination.diagnostics) {
-                    Text("Diagnostics")
+                Section {
+                    NavigationLink(value: Destination.diagnostics) {
+                        Text("Diagnostics")
+                    }
+                }
+
+                Section("About") {
+                    LabeledContent("Version", value: Self.version)
+                }
+
+                Section {
+                    Button("Sign Out", role: .destructive) {
+                        Task { await appState.signOut() }
+                    }
                 }
             }
-
-            Section("About") {
-                LabeledContent("Version", value: Self.version)
-            }
-
-            Section {
-                Button("Sign Out", role: .destructive) {
-                    Task { await appState.signOut() }
-                }
-            }
+            .glassRow()
         }
         .navigationTitle("Settings")
     }

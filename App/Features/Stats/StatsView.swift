@@ -33,23 +33,26 @@ struct StatsView: View {
 
     var body: some View {
         List {
-            Section {
-                Button {
-                    isShowingRecap = true
-                } label: {
-                    Label("Your \(String(Calendar.current.component(.year, from: .now))) in Music", systemImage: "sparkles")
-                        .font(.headline)
+            Group {
+                Section {
+                    Button {
+                        isShowingRecap = true
+                    } label: {
+                        Label("Your \(String(Calendar.current.component(.year, from: .now))) in Music", systemImage: "sparkles")
+                            .font(.headline)
+                    }
+                } footer: {
+                    Text("Your year so far: top songs, artists and albums, and how you listened.")
                 }
-            } footer: {
-                Text("Your year so far: top songs, artists and albums, and how you listened.")
+                listeningSection
+                shapeSection
+                topSection
+                allTimeSection
+                nowPlayingSection
+                librarySection
+                StorageSection()
             }
-            listeningSection
-            shapeSection
-            topSection
-            allTimeSection
-            nowPlayingSection
-            librarySection
-            StorageSection()
+            .glassRow()
         }
         .navigationTitle("Stats")
         .sheet(isPresented: $isShowingRecap) { RecapView() }

@@ -36,9 +36,12 @@ enum Metrics {
 }
 
 extension Color {
-    /// Single accent for the whole app. The player is the only place colour is
-    /// derived from content.
-    static let appTint = Color(red: 0.98, green: 0.28, blue: 0.36)
+    /// The app's own pink: the accent before any song's colours are in.
+    static let appPink = Color(red: 0.98, green: 0.28, blue: 0.36)
+
+    /// The accent, which follows the playing song's cover as the Linux app's does
+    /// (`CoverTint`). A view that reads it redraws when the song changes.
+    static var appTint: Color { CoverTint.shared.accent ?? appPink }
 }
 
 /// Room at the bottom of a scrolling screen for the now-playing bar.

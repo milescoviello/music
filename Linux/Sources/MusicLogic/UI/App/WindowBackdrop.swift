@@ -23,7 +23,7 @@ final class WindowBackdrop {
     let root: Overlay
     private let picture = Picture().fit(GTK_CONTENT_FIT_FILL)
     private let app: AppState
-    private var pools: [VisualizerPalette.RGB] = WindowBackdrop.resting
+    private var pools: [VisualizerPalette.RGB] = CoverColours.resting
     private var aspect = 1.6
     private var time = Double.random(in: 0..<1_000)
     private var drift: Task<Void, Never>?
@@ -36,11 +36,6 @@ final class WindowBackdrop {
         didSet { if isActive != oldValue { update() } }
     }
     private static let drifts = ProcessInfo.processInfo.activeProcessorCount > 2
-
-    /// Before there is a cover: the app's accent, a deep blue and a violet, quietly.
-    private static let resting = [
-        VisualizerPalette.RGB(150, 40, 60), VisualizerPalette.RGB(30, 50, 110), VisualizerPalette.RGB(70, 40, 110),
-    ]
 
     init(app: AppState) {
         self.app = app
@@ -78,7 +73,7 @@ final class WindowBackdrop {
         generation += 1
         let current = generation
         guard let cover else {
-            pools = Self.resting
+            pools = CoverColours.resting
             if setsAccent { Style.setAccent(nil) }
             draw()
             return
@@ -87,7 +82,7 @@ final class WindowBackdrop {
             guard let colours = await VisualizerArtworkPalette.colours(for: cover, artwork: app.artwork),
                   current == self.generation
             else { return }
-            self.pools = Self.pick(colours)
+            self.pools = CoverColours.pick(colours)
             if self.setsAccent { Style.setAccent(self.pools.max { Style.hsl($0).s < Style.hsl($1).s }) }
             self.draw()
         }
@@ -118,66 +113,18 @@ final class WindowBackdrop {
         picture.set(Self.render(pools, aspect: aspect, time: time))
     }
 
-    /// Three colours from the cover's 32, each as unlike the ones before as the cover has.
-    static func pick(_ colours: [VisualizerPalette.RGB]) -> [VisualizerPalette.RGB] {
-        let usable = colours.map(tame).filter { colour in
-            let high = max(colour.r, colour.g, colour.b)
-            return high > 25
-        }
-        guard var chosen = usable.first.map({ [$0] }) else { return resting }
-        func distance(_ a: VisualizerPalette.RGB, _ b: VisualizerPalette.RGB) -> Double {
-            let (dr, dg, db) = (a.r - b.r, a.g - b.g, a.b - b.b)
-            return dr * dr * 0.3 + dg * dg * 0.59 + db * db * 0.11
-        }
-        while chosen.count < 3 {
-            guard let next = usable.max(by: { a, b in
-                chosen.map { distance($0, a) }.min()! < chosen.map { distance($0, b) }.min()!
-            }) else { break }
-            // A cover of one colour: its shades, rather than a colour it doesn't have.
-            if chosen.map({ distance($0, next) }).min()! < 120 {
-                let base = chosen[0]
-                chosen.append(VisualizerPalette.RGB(base.r * 0.55, base.g * 0.55, base.b * 0.7))
-            } else {
-                chosen.append(next)
-            }
-        }
-        return chosen
-    }
-
-    /// A middle lightness and a little less than full saturation.
-    private static func tame(_ colour: VisualizerPalette.RGB) -> VisualizerPalette.RGB {
-        let (r, g, b) = (colour.r / 255, colour.g / 255, colour.b / 255)
-        let high = max(r, g, b)
-        let low = min(r, g, b)
-        let lightness = (high + low) / 2
-        let target = min(max(lightness, 0.3), 0.46)
-        let grey = (r + g + b) / 3
-        // Towards grey by a fifth, then to the target lightness.
-        let (sr, sg, sb) = (grey + (r - grey) * 0.8, grey + (g - grey) * 0.8, grey + (b - grey) * 0.8)
-        let scale = lightness > 0.001 ? target / lightness : 1
-        return VisualizerPalette.RGB(
-            min(255, sr * scale * 255), min(255, sg * scale * 255), min(255, sb * scale * 255)
-        )
-    }
-
     /// The ground, the three pools over it, and a falloff that keeps the edges dark.
     nonisolated private static func render(_ pools: [VisualizerPalette.RGB], aspect: Double, time: Double) -> Texture {
         let width = 96
         let height = max(1, Int((Double(width) / aspect).rounded()))
         let w = aspect
         let h = 1.0
-        // Each pool's orbit: its own speeds and phase, a centre near a third of the window.
-        let orbits: [(cx: Double, cy: Double, sx: Double, sy: Double, ax: Double, ay: Double, phase: Double)] = [
-            (0.25, 0.3, 0.011, 0.017, 0.22, 0.2, 0.0),
-            (0.75, 0.35, 0.013, 0.009, 0.2, 0.24, 2.1),
-            (0.5, 0.8, 0.008, 0.012, 0.28, 0.16, 4.2),
-        ]
-        let centres = orbits.map { orbit in
-            ((orbit.cx + orbit.ax * sin(time * orbit.sx + orbit.phase)) * w,
-             (orbit.cy + orbit.ay * cos(time * orbit.sy + orbit.phase * 1.3)) * h)
+        let centres = (0..<3).map { index in
+            let centre = CoverColours.centre(index, time: time)
+            return (centre.x * w, centre.y * h)
         }
-        let radius = 0.85 * (w * w + h * h).squareRoot() / 1.6
-        let ground = (r: 10.0, g: 10.0, b: 14.0)
+        let radius = CoverColours.radius(width: w, height: h)
+        let ground = (r: CoverColours.ground.r, g: CoverColours.ground.g, b: CoverColours.ground.b)
         var pixels = [UInt8](repeating: 255, count: width * height * 4)
         for y in 0..<height {
             let py = (Double(y) + 0.5) / Double(height) * h
@@ -190,7 +137,7 @@ final class WindowBackdrop {
                     guard distance < 1 else { continue }
                     // Smooth to nothing at the edge: no rim where a pool ends.
                     let falloff = 1 - distance
-                    let alpha = 0.62 * falloff * falloff * (3 - 2 * falloff)
+                    let alpha = CoverColours.poolStrength * falloff * falloff * (3 - 2 * falloff)
                     r = colour.r * alpha + r * (1 - alpha)
                     g = colour.g * alpha + g * (1 - alpha)
                     b = colour.b * alpha + b * (1 - alpha)

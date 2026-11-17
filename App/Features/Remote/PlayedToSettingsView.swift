@@ -9,43 +9,46 @@ struct PlayedToSettingsView: View {
 
     var body: some View {
         Form {
-            Section {
-                Toggle("Let Computers Play Here", isOn: Binding(
-                    get: { server.isEnabled },
-                    set: { server.isEnabled = $0 }
-                ))
-                if server.isEnabled {
-                    TextField("Name", text: $name)
-                        .onSubmit {
-                            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !trimmed.isEmpty { server.name = String(trimmed.prefix(60)) }
-                        }
-                    LabeledContent("Address", value: address)
-                        .textSelection(.enabled)
-                    LabeledContent("Connected Now", value: connected)
+            Group {
+                Section {
+                    Toggle("Let Computers Play Here", isOn: Binding(
+                        get: { server.isEnabled },
+                        set: { server.isEnabled = $0 }
+                    ))
+                    if server.isEnabled {
+                        TextField("Name", text: $name)
+                            .onSubmit {
+                                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty { server.name = String(trimmed.prefix(60)) }
+                            }
+                        LabeledContent("Address", value: address)
+                            .textSelection(.enabled)
+                        LabeledContent("Connected Now", value: connected)
+                    }
+                } footer: {
+                    Text("Music on a computer can play to this iPhone, the way it plays here: in its player, choose Play On and this name. The first time, this iPhone shows a code to type in there. It listens only while Music is open or playing, and only to devices on this network.")
                 }
-            } footer: {
-                Text("Music on a computer can play to this iPhone, the way it plays here: in its player, choose Play On and this name. The first time, this iPhone shows a code to type in there. It listens only while Music is open or playing, and only to devices on this network.")
-            }
 
-            if server.isEnabled {
-                Section("Paired Computers") {
-                    if server.devices.isEmpty {
-                        Text("None yet").foregroundStyle(.secondary)
-                    }
-                    ForEach(server.devices) { device in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(device.name)
-                            Text("Paired \(device.pairedAt.formatted(.relative(presentation: .named)))")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                if server.isEnabled {
+                    Section("Paired Computers") {
+                        if server.devices.isEmpty {
+                            Text("None yet").foregroundStyle(.secondary)
                         }
-                        .swipeActions {
-                            Button("Forget", role: .destructive) { server.forget(device) }
+                        ForEach(server.devices) { device in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(device.name)
+                                Text("Paired \(device.pairedAt.formatted(.relative(presentation: .named)))")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .swipeActions {
+                                Button("Forget", role: .destructive) { server.forget(device) }
+                            }
                         }
                     }
                 }
             }
+            .glassRow()
         }
         .navigationTitle("This iPhone")
     }

@@ -71,6 +71,7 @@ struct SearchView: View {
             .navigationTitle("Search")
             .safeAreaInset(edge: .top, spacing: 0) { sourcePicker }
             .musicDestinations()
+            .pageBackdrop()
             .offlineBanner()
             .searchable(
                 text: $query,
@@ -198,130 +199,133 @@ struct SearchView: View {
 
     private var resultsList: some View {
         List {
-            if let outcome, outcome.isOffline {
-                Label("Offline · showing what is downloaded", systemImage: "wifi.slash")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .listRowSeparator(.hidden)
-            }
-
-            if let outcome, let correction = outcome.correction {
-                // Said, so a result that is not what was typed is not a mystery.
-                Text(outcome.isCorrectionOnly
-                    ? "Showing results for “\(correction)”"
-                    : "Including results for “\(correction)”")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .listRowSeparator(.hidden)
-            }
-
-            if let outcome, outcome.isCorrectionOnly {
-                // Nothing matched what was typed, so these are the library's nearest words
-                // -- which for an artist not in the library ("nerio") is something else
-                // entirely. Asking for it has to stay a tap away, as it is under No Results.
-                NavigationLink(value: Destination.requestMusic(outcome.query)) {
-                    Label("Ask Hermes to find “\(outcome.query)”", systemImage: "arrow.down.heart")
+            Group {
+                if let outcome, outcome.isOffline {
+                    Label("Offline · showing what is downloaded", systemImage: "wifi.slash")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .listRowSeparator(.hidden)
                 }
-            }
 
-            if let outcome, let top = SearchRanking.topResult(for: outcome.rankedFor, in: outcome.results) {
-                Section("Top Result") {
-                    topResultRow(top)
+                if let outcome, let correction = outcome.correction {
+                    // Said, so a result that is not what was typed is not a mystery.
+                    Text(outcome.isCorrectionOnly
+                        ? "Showing results for “\(correction)”"
+                        : "Including results for “\(correction)”")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .listRowSeparator(.hidden)
                 }
-            }
 
-            let playlists = matchingPlaylists
-            if !playlists.isEmpty {
-                Section("Playlists") {
-                    ForEach(playlists.prefix(4)) { playlist in
-                        NavigationLink(value: Destination.playlist(PlaylistRef(playlist))) {
-                            HStack(spacing: Metrics.itemSpacing) {
-                                ArtworkImage(id: playlist.coverArt, size: .thumb, cornerRadius: Metrics.radiusThumb)
+                if let outcome, outcome.isCorrectionOnly {
+                    // Nothing matched what was typed, so these are the library's nearest words
+                    // -- which for an artist not in the library ("nerio") is something else
+                    // entirely. Asking for it has to stay a tap away, as it is under No Results.
+                    NavigationLink(value: Destination.requestMusic(outcome.query)) {
+                        Label("Ask Hermes to find “\(outcome.query)”", systemImage: "arrow.down.heart")
+                    }
+                }
+
+                if let outcome, let top = SearchRanking.topResult(for: outcome.rankedFor, in: outcome.results) {
+                    Section("Top Result") {
+                        topResultRow(top)
+                    }
+                }
+
+                let playlists = matchingPlaylists
+                if !playlists.isEmpty {
+                    Section("Playlists") {
+                        ForEach(playlists.prefix(4)) { playlist in
+                            NavigationLink(value: Destination.playlist(PlaylistRef(playlist))) {
+                                HStack(spacing: Metrics.itemSpacing) {
+                                    ArtworkImage(id: playlist.coverArt, size: .thumb, cornerRadius: Metrics.radiusThumb)
+                                        .frame(width: Metrics.thumbSmall, height: Metrics.thumbSmall)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(playlist.name).lineLimit(1)
+                                        if let count = playlist.songCount {
+                                            Text("\(count) songs").font(.footnote).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let artists = results?.artists, !artists.isEmpty {
+                    Section("Artists") {
+                        ForEach(artists.prefix(4)) { artist in
+                            NavigationLink(value: Destination.artist(ArtistRef(artist))) {
+                                HStack(spacing: Metrics.itemSpacing) {
+                                    ArtistArtwork(
+                                        id: artist.coverArt,
+                                        diameter: Metrics.thumbSmall,
+                                        initials: artist.name.monogram
+                                    )
+                                    Text(artist.name).lineLimit(1)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let albums = results?.albums, !albums.isEmpty {
+                    Section("Albums") {
+                        ForEach(albums.prefix(6)) { album in
+                            NavigationLink(value: Destination.album(AlbumRef(album))) {
+                                HStack(spacing: Metrics.itemSpacing) {
+                                    ArtworkImage(
+                                        id: album.coverArt,
+                                        size: .thumb,
+                                        cornerRadius: Metrics.radiusThumb
+                                    )
                                     .frame(width: Metrics.thumbSmall, height: Metrics.thumbSmall)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(playlist.name).lineLimit(1)
-                                    if let count = playlist.songCount {
-                                        Text("\(count) songs").font(.footnote).foregroundStyle(.secondary)
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(album.name).lineLimit(1)
+                                        if let artist = album.artist {
+                                            Text(artist)
+                                                .font(.footnote)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
                                     }
                                 }
                             }
+                            .albumFavorite(album)
                         }
                     }
                 }
-            }
 
-            if let artists = results?.artists, !artists.isEmpty {
-                Section("Artists") {
-                    ForEach(artists.prefix(4)) { artist in
-                        NavigationLink(value: Destination.artist(ArtistRef(artist))) {
-                            HStack(spacing: Metrics.itemSpacing) {
-                                ArtistArtwork(
-                                    id: artist.coverArt,
-                                    diameter: Metrics.thumbSmall,
-                                    initials: artist.name.monogram
-                                )
-                                Text(artist.name).lineLimit(1)
-                            }
+                if let songs = results?.songs, !songs.isEmpty {
+                    // Capped at 20, then played as that list: results past the cap are
+                    // not on screen, so queueing them would be a surprise.
+                    let visible = Array(songs.prefix(20))
+                    Section("Songs") {
+                        ForEach(Array(visible.enumerated()), id: \.element.id) { index, _ in
+                            PlayableSongRow(songs: visible, index: index, source: "Search", onPlay: recordQuery)
                         }
                     }
                 }
-            }
 
-            if let albums = results?.albums, !albums.isEmpty {
-                Section("Albums") {
-                    ForEach(albums.prefix(6)) { album in
-                        NavigationLink(value: Destination.album(AlbumRef(album))) {
-                            HStack(spacing: Metrics.itemSpacing) {
-                                ArtworkImage(
-                                    id: album.coverArt,
-                                    size: .thumb,
-                                    cornerRadius: Metrics.radiusThumb
-                                )
-                                .frame(width: Metrics.thumbSmall, height: Metrics.thumbSmall)
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(album.name).lineLimit(1)
-                                    if let artist = album.artist {
-                                        Text(artist)
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                    }
-                                }
-                            }
+                if let lyrics = outcome?.lyrics, !lyrics.isEmpty {
+                    Section("Lyrics") {
+                        ForEach(lyrics) { match in
+                            lyricRow(match)
                         }
-                        .albumFavorite(album)
+                    }
+                }
+
+                // A trailing row rather than a second search field: metadata results and
+                // lyric results answer different questions, and the second one costs an
+                // agent run, so it stays opt-in.
+                Section {
+                    NavigationLink(value: Destination.lyricSearch(query)) {
+                        Label("Search lyrics for “\(query)”", systemImage: "text.magnifyingglass")
                     }
                 }
             }
-
-            if let songs = results?.songs, !songs.isEmpty {
-                // Capped at 20, then played as that list: results past the cap are
-                // not on screen, so queueing them would be a surprise.
-                let visible = Array(songs.prefix(20))
-                Section("Songs") {
-                    ForEach(Array(visible.enumerated()), id: \.element.id) { index, _ in
-                        PlayableSongRow(songs: visible, index: index, source: "Search", onPlay: recordQuery)
-                    }
-                }
-            }
-
-            if let lyrics = outcome?.lyrics, !lyrics.isEmpty {
-                Section("Lyrics") {
-                    ForEach(lyrics) { match in
-                        lyricRow(match)
-                    }
-                }
-            }
-
-            // A trailing row rather than a second search field: metadata results and
-            // lyric results answer different questions, and the second one costs an
-            // agent run, so it stays opt-in.
-            Section {
-                NavigationLink(value: Destination.lyricSearch(query)) {
-                    Label("Search lyrics for “\(query)”", systemImage: "text.magnifyingglass")
-                }
-            }
+            .clearRow()
         }
         .listStyle(.plain)
         // Opening or playing a result is what records the search, in `onChange(of:

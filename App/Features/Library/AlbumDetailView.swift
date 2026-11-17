@@ -18,82 +18,87 @@ struct AlbumDetailView: View {
 
     var body: some View {
         List {
-            Section {
-                header
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
-
-            if let error {
-                Text(error)
-                    .foregroundStyle(.red)
-            }
-
-            if detail?.hasMultipleDiscs == true {
-                ForEach(discs, id: \.number) { disc in
-                    Section("Disc \(disc.number)") {
-                        songRows(disc.songs)
-                    }
-                }
-            } else {
-                songRows(songs)
-            }
-
-            if !details.isEmpty {
+            Group {
                 Section {
-                    Text(details)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    header
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                 }
-            }
 
-            // Plexamp's album review, when the server's agents have one.
-            if let review {
-                Section("About This Album") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(review)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(isReviewExpanded ? nil : 5)
-                        Button(isReviewExpanded ? "Less" : "More") {
-                            withAnimation { isReviewExpanded.toggle() }
-                        }
-                        .font(.subheadline.weight(.medium))
-                        .buttonStyle(.borderless)
-                    }
-                    .listRowSeparator(.hidden)
+                if let error {
+                    Text(error)
+                        .foregroundStyle(.red)
                 }
-            }
 
-            if !sonicallySimilar.isEmpty {
-                albumRow("Sonically Similar", sonicallySimilar)
-            }
+                if detail?.hasMultipleDiscs == true {
+                    ForEach(discs, id: \.number) { disc in
+                        Section("Disc \(disc.number)") {
+                            songRows(disc.songs)
+                        }
+                    }
+                } else {
+                    songRows(songs)
+                }
 
-            if !moreByArtist.isEmpty, let artist = album.artist ?? detail?.artist {
-                Section("More by \(artist)") {
-                    ScrollView(.horizontal) {
-                        LazyHStack(alignment: .top, spacing: Metrics.itemSpacing) {
-                            ForEach(moreByArtist) { other in
-                                NavigationLink(value: Destination.album(AlbumRef(other))) {
-                                    AlbumCard(album: other)
-                                        .frame(width: Metrics.cardWidth)
+                if !details.isEmpty {
+                    Section {
+                        Text(details)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .listRowSeparator(.hidden)
+                    }
+                }
+
+                // Plexamp's album review, when the server's agents have one.
+                if let review {
+                    Section("About This Album") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(review)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(isReviewExpanded ? nil : 5)
+                            Button(isReviewExpanded ? "Less" : "More") {
+                                withAnimation { isReviewExpanded.toggle() }
+                            }
+                            .font(.subheadline.weight(.medium))
+                            .buttonStyle(.borderless)
+                        }
+                        .listRowSeparator(.hidden)
+                    }
+                }
+
+                if !sonicallySimilar.isEmpty {
+                    albumRow("Sonically Similar", sonicallySimilar)
+                }
+
+                if !moreByArtist.isEmpty, let artist = album.artist ?? detail?.artist {
+                    Section("More by \(artist)") {
+                        ScrollView(.horizontal) {
+                            LazyHStack(alignment: .top, spacing: Metrics.itemSpacing) {
+                                ForEach(moreByArtist) { other in
+                                    NavigationLink(value: Destination.album(AlbumRef(other))) {
+                                        AlbumCard(album: other)
+                                            .frame(width: Metrics.cardWidth)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .albumMenu(other)
                                 }
-                                .buttonStyle(.plain)
-                                .albumMenu(other)
                             }
                         }
+                        .contentMargins(.horizontal, Metrics.gutter, for: .scrollContent)
+                        .scrollIndicators(.hidden)
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
                     }
-                    .contentMargins(.horizontal, Metrics.gutter, for: .scrollContent)
-                    .scrollIndicators(.hidden)
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
                 }
             }
+            .clearRow()
         }
         .listStyle(.plain)
         .playerClearance()
+        // The album's own colours behind it, as on Linux, not the playing song's.
+        .backdropCover(album.coverArt)
         .collapsingTitle(album.name)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

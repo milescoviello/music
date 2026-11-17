@@ -36,22 +36,25 @@ struct DownloadFolderView: View {
 
     private func content(_ folder: DownloadFolders.Folder) -> some View {
         List {
-            Section {
-                header(folder)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
+            Group {
+                Section {
+                    header(folder)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
 
-            tracks(folder)
+                tracks(folder)
 
-            if !folder.waiting.isEmpty {
-                Section("Still to Download · \(folder.waiting.count)") {
-                    ForEach(folder.waiting) { song in
-                        WaitingSongRow(song: song)
+                if !folder.waiting.isEmpty {
+                    Section("Still to Download · \(folder.waiting.count)") {
+                        ForEach(folder.waiting) { song in
+                            WaitingSongRow(song: song)
+                        }
                     }
                 }
             }
+            .clearRow()
         }
         .listStyle(.plain)
         .playerClearance()

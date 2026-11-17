@@ -28,37 +28,40 @@ struct MixBuilderView: View {
 
     var body: some View {
         List {
-            if hasChoices {
+            Group {
+                if hasChoices {
+                    Section {
+                        chosenList
+                        Button {
+                            play()
+                        } label: {
+                            Label("Play Mix", systemImage: "play.fill")
+                                .font(.headline)
+                        }
+                        .disabled(stations.starting != nil)
+                    } header: {
+                        Text("In This Mix")
+                    }
+                }
+
+                if query.isEmpty, kind == .artists, !suggestions.isEmpty {
+                    Section("Like These") {
+                        ForEach(suggestions) { artist in
+                            artistRow(artist)
+                        }
+                    }
+                }
+
                 Section {
-                    chosenList
-                    Button {
-                        play()
-                    } label: {
-                        Label("Play Mix", systemImage: "play.fill")
-                            .font(.headline)
-                    }
-                    .disabled(stations.starting != nil)
-                } header: {
-                    Text("In This Mix")
-                }
-            }
-
-            if query.isEmpty, kind == .artists, !suggestions.isEmpty {
-                Section("Like These") {
-                    ForEach(suggestions) { artist in
-                        artistRow(artist)
+                    switch kind {
+                    case .artists:
+                        ForEach(artists) { artist in artistRow(artist) }
+                    case .albums:
+                        ForEach(albums) { album in albumRow(album) }
                     }
                 }
             }
-
-            Section {
-                switch kind {
-                case .artists:
-                    ForEach(artists) { artist in artistRow(artist) }
-                case .albums:
-                    ForEach(albums) { album in albumRow(album) }
-                }
-            }
+            .glassRow()
         }
         .navigationTitle(kind == .artists ? "Artist Mix Builder" : "Album Mix Builder")
         .searchable(text: $query, prompt: kind == .artists ? "Artists" : "Albums")
@@ -204,33 +207,36 @@ struct SonicAdventureView: View {
 
     var body: some View {
         List {
-            Section {
-                SongRow(song: start, style: .withArtwork)
-            } header: {
-                Text("From")
-            } footer: {
-                Text("""
-                Plexamp walks a map of how tracks sound. Navidrome has no such map, so the \
-                way is found through what your server considers related to each end: \
-                tracks near the start, then near both, then near the destination.
-                """)
-            }
+            Group {
+                Section {
+                    SongRow(song: start, style: .withArtwork)
+                } header: {
+                    Text("From")
+                } footer: {
+                    Text("""
+                    Plexamp walks a map of how tracks sound. Navidrome has no such map, so the \
+                    way is found through what your server considers related to each end: \
+                    tracks near the start, then near both, then near the destination.
+                    """)
+                }
 
-            Section("To") {
-                ForEach(results) { song in
-                    Button {
-                        go(to: song)
-                    } label: {
-                        HStack {
-                            SongRow(song: song, style: .withArtwork)
-                            if building?.id == song.id { ProgressView() }
+                Section("To") {
+                    ForEach(results) { song in
+                        Button {
+                            go(to: song)
+                        } label: {
+                            HStack {
+                                SongRow(song: song, style: .withArtwork)
+                                if building?.id == song.id { ProgressView() }
+                            }
+                            .contentShape(Rectangle())
                         }
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .disabled(building != nil)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(building != nil)
                 }
             }
+            .glassRow()
         }
         .navigationTitle("Sonic Adventure")
         .searchable(text: $query, prompt: "Where to?")

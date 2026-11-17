@@ -69,38 +69,41 @@ struct ArtistListView: View {
 
     private var list: some View {
         List {
-            ForEach(shown) { index in
-                Section(index.name) {
-                    ForEach(index.artists) { artist in
-                        NavigationLink(value: Destination.artist(ArtistRef(artist))) {
-                            HStack(spacing: Metrics.itemSpacing) {
-                                ArtistArtwork(
-                                    id: artist.coverArt,
-                                    diameter: 40,
-                                    initials: artist.name.monogram
-                                )
+            Group {
+                ForEach(shown) { index in
+                    Section(index.name) {
+                        ForEach(index.artists) { artist in
+                            NavigationLink(value: Destination.artist(ArtistRef(artist))) {
+                                HStack(spacing: Metrics.itemSpacing) {
+                                    ArtistArtwork(
+                                        id: artist.coverArt,
+                                        diameter: 40,
+                                        initials: artist.name.monogram
+                                    )
 
-                                Text(artist.name)
-                                    .lineLimit(1)
+                                    Text(artist.name)
+                                        .lineLimit(1)
 
-                                Spacer(minLength: 8)
+                                    Spacer(minLength: 8)
 
-                                if let count = artist.albumCount {
-                                    Text("\(count)")
-                                        .font(.footnote.monospacedDigit())
-                                        .foregroundStyle(.tertiary)
+                                    if let count = artist.albumCount {
+                                        Text("\(count)")
+                                            .font(.footnote.monospacedDigit())
+                                            .foregroundStyle(.tertiary)
+                                    }
                                 }
                             }
-                        }
-                        .id(artist.id)
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            FavoriteSwipeButton(
-                                id: artist.id, kind: .artist, serverValue: artist.starred != nil
-                            )
+                            .id(artist.id)
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                FavoriteSwipeButton(
+                                    id: artist.id, kind: .artist, serverValue: artist.starred != nil
+                                )
+                            }
                         }
                     }
                 }
             }
+            .clearRow()
         }
         .listStyle(.plain)
         .playerClearance()

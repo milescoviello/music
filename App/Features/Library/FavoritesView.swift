@@ -16,58 +16,61 @@ struct FavoritesView: View {
 
     var body: some View {
         List {
-            // The desktop's Favourites had starred artists, and this did not.
-            if !artists.isEmpty {
-                Section("Artists") {
-                    ForEach(artists) { artist in
-                        NavigationLink(value: Destination.artist(ArtistRef(artist))) {
-                            HStack(spacing: Metrics.itemSpacing) {
-                                ArtistArtwork(id: artist.coverArt, diameter: 40, initials: artist.name.monogram)
-                                Text(artist.name).lineLimit(1)
+            Group {
+                // The desktop's Favourites had starred artists, and this did not.
+                if !artists.isEmpty {
+                    Section("Artists") {
+                        ForEach(artists) { artist in
+                            NavigationLink(value: Destination.artist(ArtistRef(artist))) {
+                                HStack(spacing: Metrics.itemSpacing) {
+                                    ArtistArtwork(id: artist.coverArt, diameter: 40, initials: artist.name.monogram)
+                                    Text(artist.name).lineLimit(1)
+                                }
                             }
-                        }
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            FavoriteSwipeButton(id: artist.id, kind: .artist, serverValue: artist.starred != nil)
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                FavoriteSwipeButton(id: artist.id, kind: .artist, serverValue: artist.starred != nil)
+                            }
                         }
                     }
                 }
-            }
 
-            if !albums.isEmpty {
-                Section("Albums") {
-                    ForEach(albums) { album in
-                        NavigationLink(value: Destination.album(AlbumRef(album))) {
-                            HStack(spacing: Metrics.itemSpacing) {
-                                ArtworkImage(
-                                    id: album.coverArt,
-                                    size: .thumb,
-                                    cornerRadius: Metrics.radiusThumb
-                                )
-                                .frame(width: Metrics.thumbRow, height: Metrics.thumbRow)
+                if !albums.isEmpty {
+                    Section("Albums") {
+                        ForEach(albums) { album in
+                            NavigationLink(value: Destination.album(AlbumRef(album))) {
+                                HStack(spacing: Metrics.itemSpacing) {
+                                    ArtworkImage(
+                                        id: album.coverArt,
+                                        size: .thumb,
+                                        cornerRadius: Metrics.radiusThumb
+                                    )
+                                    .frame(width: Metrics.thumbRow, height: Metrics.thumbRow)
 
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(album.name).lineLimit(1)
-                                    if let artist = album.artist {
-                                        Text(artist)
-                                            .font(.footnote)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(album.name).lineLimit(1)
+                                        if let artist = album.artist {
+                                            Text(artist)
+                                                .font(.footnote)
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                        }
                                     }
                                 }
                             }
+                            .albumFavorite(album)
                         }
-                        .albumFavorite(album)
                     }
                 }
-            }
 
-            if !songs.isEmpty {
-                Section("Songs") {
-                    ForEach(Array(songs.enumerated()), id: \.element.id) { index, _ in
-                        PlayableSongRow(songs: songs, index: index, source: "Favourites")
+                if !songs.isEmpty {
+                    Section("Songs") {
+                        ForEach(Array(songs.enumerated()), id: \.element.id) { index, _ in
+                            PlayableSongRow(songs: songs, index: index, source: "Favourites")
+                        }
                     }
                 }
             }
+            .clearRow()
         }
         .listStyle(.plain)
         .playerClearance()

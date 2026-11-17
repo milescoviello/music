@@ -149,6 +149,8 @@ struct ArtistDetailView: View {
         }
         .collapsingTitle(artist.name)
         .playerClearance()
+        // The artist's own colours behind the page, as on Linux.
+        .backdropCover(detail?.coverArt ?? artist.coverArt)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 FavoriteButton(

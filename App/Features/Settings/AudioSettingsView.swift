@@ -16,86 +16,89 @@ struct AudioSettingsView: View {
         @Bindable var autoplay = autoplay
 
         Form {
-            Section {
-                Toggle("Loudness Leveling", isOn: $audio.loudnessLeveling)
+            Group {
+                Section {
+                    Toggle("Loudness Leveling", isOn: $audio.loudnessLeveling)
 
-                Picker("Preamp", selection: $audio.preamp) {
-                    ForEach(LoudnessLeveling.preampOptions, id: \.self) { value in
-                        Text(preampLabel(value)).tag(value)
+                    Picker("Preamp", selection: $audio.preamp) {
+                        ForEach(LoudnessLeveling.preampOptions, id: \.self) { value in
+                            Text(preampLabel(value)).tag(value)
+                        }
                     }
-                }
-                .disabled(!audio.loudnessLeveling)
-
-                Toggle("Limiter", isOn: $audio.limiter)
                     .disabled(!audio.loudnessLeveling)
-            } header: {
-                Text("Loudness Leveling")
-            } footer: {
-                Text("""
-                Plays every track at a consistent volume, using the ReplayGain your \
-                server reads from each file. The preamp is how far above the −18 LUFS \
-                reference to aim; the limiter catches any peak that pushes past full \
-                scale. Tracks with no gain data play as they are.
-                """)
-            }
 
-            Section {
-                Toggle("Sweet Fades", isOn: $audio.sweetFades)
-                Toggle("Beat-Matched Fades", isOn: $audio.beatMatchedFades)
-                    .disabled(!audio.sweetFades)
-            } footer: {
-                Text("""
-                Crossfades between tracks, for as long as each pair's intro and outro \
-                allow — a long fade-out gets a long overlap, an abrupt ending almost none. \
-                An album played in order is always gapless.
-
-                Beat-Matched Fades lines up the beats of two tracks with close tempos, the \
-                way a DJ mixes, playing the incoming track at the outgoing one's tempo \
-                through the fade. It needs the sonic service's analysis of both tracks and \
-                a steady beat at the end of one and the start of the other; every other \
-                fade is a Sweet Fade as before.
-                """)
-            }
-
-            Section {
-                NavigationLink(value: Destination.equalizer) {
-                    LabeledContent("Equalizer", value: audio.equalizer ? audio.presetName : "Off")
+                    Toggle("Limiter", isOn: $audio.limiter)
+                        .disabled(!audio.loudnessLeveling)
+                } header: {
+                    Text("Loudness Leveling")
+                } footer: {
+                    Text("""
+                    Plays every track at a consistent volume, using the ReplayGain your \
+                    server reads from each file. The preamp is how far above the −18 LUFS \
+                    reference to aim; the limiter catches any peak that pushes past full \
+                    scale. Tracks with no gain data play as they are.
+                    """)
                 }
-            } footer: {
-                Text("Ten bands, with presets and your own saved curves.")
-            }
 
-            Section {
-                Toggle("Autoplay", isOn: $autoplay.isEnabled)
-                Picker("Album Direction", selection: $autoplay.albumDirection) {
-                    Text("Next Album").tag(AutoplayChoice.nextAlbum)
-                    Text("Previous Album").tag(AutoplayChoice.previousAlbum)
+                Section {
+                    Toggle("Sweet Fades", isOn: $audio.sweetFades)
+                    Toggle("Beat-Matched Fades", isOn: $audio.beatMatchedFades)
+                        .disabled(!audio.sweetFades)
+                } footer: {
+                    Text("""
+                    Crossfades between tracks, for as long as each pair's intro and outro \
+                    allow — a long fade-out gets a long overlap, an abrupt ending almost none. \
+                    An album played in order is always gapless.
+
+                    Beat-Matched Fades lines up the beats of two tracks with close tempos, the \
+                    way a DJ mixes, playing the incoming track at the outgoing one's tempo \
+                    through the fade. It needs the sonic service's analysis of both tracks and \
+                    a steady beat at the end of one and the start of the other; every other \
+                    fade is a Sweet Fade as before.
+                    """)
                 }
-                .disabled(!autoplay.isEnabled)
-            } header: {
-                Text("Autoplay")
-            } footer: {
-                Text("""
-                When the queue is about to run out, keep going with whatever is chosen at \
-                the bottom of Up Next — the next album, a radio, the same decade. Never \
-                with repeat on, and never for a station or a mix, which keep themselves going.
-                """)
-            }
 
-            Section {
-                Toggle("Skips Shape What Plays", isOn: Binding(
-                    get: { appState.skips.shapesWhatPlays },
-                    set: { appState.skips.shapesWhatPlays = $0 }
-                ))
-            } header: {
-                Text("Skips")
-            } footer: {
-                Text("""
-                Skips are always counted. With this on, a song skipped in its first 30 \
-                seconds also plays less in mixes, radio, Autoplay and shuffle, and two recent \
-                skips leave it out until it is played through or a few weeks pass.
-                """)
+                Section {
+                    NavigationLink(value: Destination.equalizer) {
+                        LabeledContent("Equalizer", value: audio.equalizer ? audio.presetName : "Off")
+                    }
+                } footer: {
+                    Text("Ten bands, with presets and your own saved curves.")
+                }
+
+                Section {
+                    Toggle("Autoplay", isOn: $autoplay.isEnabled)
+                    Picker("Album Direction", selection: $autoplay.albumDirection) {
+                        Text("Next Album").tag(AutoplayChoice.nextAlbum)
+                        Text("Previous Album").tag(AutoplayChoice.previousAlbum)
+                    }
+                    .disabled(!autoplay.isEnabled)
+                } header: {
+                    Text("Autoplay")
+                } footer: {
+                    Text("""
+                    When the queue is about to run out, keep going with whatever is chosen at \
+                    the bottom of Up Next — the next album, a radio, the same decade. Never \
+                    with repeat on, and never for a station or a mix, which keep themselves going.
+                    """)
+                }
+
+                Section {
+                    Toggle("Skips Shape What Plays", isOn: Binding(
+                        get: { appState.skips.shapesWhatPlays },
+                        set: { appState.skips.shapesWhatPlays = $0 }
+                    ))
+                } header: {
+                    Text("Skips")
+                } footer: {
+                    Text("""
+                    Skips are always counted. With this on, a song skipped in its first 30 \
+                    seconds also plays less in mixes, radio, Autoplay and shuffle, and two recent \
+                    skips leave it out until it is played through or a few weeks pass.
+                    """)
+                }
             }
+            .glassRow()
         }
         .navigationTitle("Playback")
     }

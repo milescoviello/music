@@ -12,45 +12,48 @@ struct StationsView: View {
 
     var body: some View {
         List {
-            Section("Stations") {
-                ForEach(StationsShelf.core) { station in
-                    StationRow(station: station)
+            Group {
+                Section("Stations") {
+                    ForEach(StationsShelf.core) { station in
+                        StationRow(station: station)
+                    }
                 }
-            }
 
-            Section("Mix Builders") {
-                NavigationLink(value: Destination.mixBuilder(.artists)) {
-                    Label("Artist Mix Builder", systemImage: Station.artistMix(ids: [], names: []).symbol)
+                Section("Mix Builders") {
+                    NavigationLink(value: Destination.mixBuilder(.artists)) {
+                        Label("Artist Mix Builder", systemImage: Station.artistMix(ids: [], names: []).symbol)
+                    }
+                    NavigationLink(value: Destination.mixBuilder(.albums)) {
+                        Label("Album Mix Builder", systemImage: Station.albumMix(ids: [], names: []).symbol)
+                    }
                 }
-                NavigationLink(value: Destination.mixBuilder(.albums)) {
-                    Label("Album Mix Builder", systemImage: Station.albumMix(ids: [], names: []).symbol)
-                }
-            }
 
-            // From the sonic analysis: what the music sounds like, not how it is tagged.
-            if sonic.isAvailable {
-                Section("Moods") {
-                    ForEach(Station.moodTags, id: \.self) { tag in
-                        StationRow(station: .mood(tag))
+                // From the sonic analysis: what the music sounds like, not how it is tagged.
+                if sonic.isAvailable {
+                    Section("Moods") {
+                        ForEach(Station.moodTags, id: \.self) { tag in
+                            StationRow(station: .mood(tag))
+                        }
+                    }
+                }
+
+                if !decades.isEmpty {
+                    Section("Decades") {
+                        ForEach(decades, id: \.self) { start in
+                            StationRow(station: .decade(start))
+                        }
+                    }
+                }
+
+                if !genres.isEmpty {
+                    Section("Genres") {
+                        ForEach(genres) { genre in
+                            StationRow(station: .genre(genre.value))
+                        }
                     }
                 }
             }
-
-            if !decades.isEmpty {
-                Section("Decades") {
-                    ForEach(decades, id: \.self) { start in
-                        StationRow(station: .decade(start))
-                    }
-                }
-            }
-
-            if !genres.isEmpty {
-                Section("Genres") {
-                    ForEach(genres) { genre in
-                        StationRow(station: .genre(genre.value))
-                    }
-                }
-            }
+            .glassRow()
         }
         .navigationTitle("Stations")
         .playerClearance()

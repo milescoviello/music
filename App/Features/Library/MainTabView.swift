@@ -58,6 +58,12 @@ struct MainTabView: View {
             }
         }
         .overlay(alignment: .bottom) { toast }
+        // The accent follows the playing song's cover, as on Linux; read here so the
+        // whole app redraws in it when the song changes.
+        .tint(Color.appTint)
+        .task(id: appState.player.currentSong?.coverArt) {
+            await CoverTint.shared.follow(appState.player.currentSong?.coverArt, artwork: appState.artwork)
+        }
         // Full screen over everything, the player included: watching it is the point.
         .fullScreenCover(item: watching) { video in
             VideoFullScreenView(watching: video)
@@ -158,6 +164,7 @@ struct MainTabView: View {
                     NavigationStack {
                         DownloadsView()
                             .musicDestinations()
+                            .pageBackdrop()
                     }
                 }
             }

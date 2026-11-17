@@ -32,71 +32,74 @@ struct VibePlaylistView: View {
 
     var body: some View {
         List {
-            Section {
-                TextField("late night drive, rainy sunday, gym", text: $vibe, axis: .vertical)
-                    .lineLimit(1...4)
+            Group {
+                Section {
+                    TextField("late night drive, rainy sunday, gym", text: $vibe, axis: .vertical)
+                        .lineLimit(1...4)
 
-                Stepper("\(trackCount) tracks", value: $trackCount, in: 10...50, step: 5)
+                    Stepper("\(trackCount) tracks", value: $trackCount, in: 10...50, step: 5)
 
-                if !vibe.isEmpty {
-                    LabeledContent("Will be called", value: proposedName)
-                        .font(.footnote)
-                    if nameIsTaken {
-                        Text("You already have a playlist with that name — a short suffix will be added so this one can be told apart.")
-                            .font(.caption)
+                    if !vibe.isEmpty {
+                        LabeledContent("Will be called", value: proposedName)
+                            .font(.footnote)
+                        if nameIsTaken {
+                            Text("You already have a playlist with that name — a short suffix will be added so this one can be told apart.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } header: {
+                    Text("The vibe")
+                } footer: {
+                    Text("Hermes searches the whole library — genre, year, length, whether you've ever played it — and creates the playlist on the server. It usually takes a few minutes.")
+                }
+
+                Section {
+                    Toggle("Keep this one server-side only", isOn: $keepServerSideOnly)
+                        .disabled(!appState.playlistSync.isEnabled)
+                } footer: {
+                    // Honest about the consequence: playlist sync is on by default, and a
+                    // FLAC playlist is not a small download.
+                    Text(syncFooter)
+                }
+
+                Section {
+                    Button {
+                        Task { await send() }
+                    } label: {
+                        if isSending {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                Text("Sending…")
+                            }
+                        } else {
+                            Label("Ask Hermes", systemImage: "sparkles")
+                        }
+                    }
+                    .disabled(vibe.trimmingCharacters(in: .whitespaces).isEmpty || isSending || !appState.hermes.isAvailable)
+
+                    if !appState.hermes.isAvailable {
+                        Text("Set the Hermes results address in Settings first.")
+                            .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
+
+                    if let error = appState.hermes.lastError {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
                 }
-            } header: {
-                Text("The vibe")
-            } footer: {
-                Text("Hermes searches the whole library — genre, year, length, whether you've ever played it — and creates the playlist on the server. It usually takes a few minutes.")
-            }
 
-            Section {
-                Toggle("Keep this one server-side only", isOn: $keepServerSideOnly)
-                    .disabled(!appState.playlistSync.isEnabled)
-            } footer: {
-                // Honest about the consequence: playlist sync is on by default, and a
-                // FLAC playlist is not a small download.
-                Text(syncFooter)
-            }
-
-            Section {
-                Button {
-                    Task { await send() }
-                } label: {
-                    if isSending {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Sending…")
+                if !appState.hermes.vibes.isEmpty {
+                    Section("Asked for") {
+                        ForEach(appState.hermes.vibes) { pending in
+                            VibeRow(pending: pending)
                         }
-                    } else {
-                        Label("Ask Hermes", systemImage: "sparkles")
-                    }
-                }
-                .disabled(vibe.trimmingCharacters(in: .whitespaces).isEmpty || isSending || !appState.hermes.isAvailable)
-
-                if !appState.hermes.isAvailable {
-                    Text("Set the Hermes results address in Settings first.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let error = appState.hermes.lastError {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.orange)
-                }
-            }
-
-            if !appState.hermes.vibes.isEmpty {
-                Section("Asked for") {
-                    ForEach(appState.hermes.vibes) { pending in
-                        VibeRow(pending: pending)
                     }
                 }
             }
+            .glassRow()
         }
         .navigationTitle("Make a Playlist")
         .playerClearance()

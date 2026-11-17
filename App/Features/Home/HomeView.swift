@@ -49,6 +49,7 @@ struct HomeView: View {
             }
             .navigationTitle("Home")
             .musicDestinations()
+            .pageBackdrop()
             .offlineBanner()
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -378,22 +379,25 @@ struct HomeEditorView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    ForEach(layout.order) { hub in
-                        Toggle(hub.title, isOn: Binding(
-                            get: { layout.isVisible(hub) },
-                            set: { layout.setVisible($0, hub) }
-                        ))
+                Group {
+                    Section {
+                        ForEach(layout.order) { hub in
+                            Toggle(hub.title, isOn: Binding(
+                                get: { layout.isVisible(hub) },
+                                set: { layout.setVisible($0, hub) }
+                            ))
+                        }
+                        .onMove { layout.move(fromOffsets: $0, toOffset: $1) }
+                    } footer: {
+                        Text("Drag to reorder. Shelves with nothing to show stay out of the way on their own.")
                     }
-                    .onMove { layout.move(fromOffsets: $0, toOffset: $1) }
-                } footer: {
-                    Text("Drag to reorder. Shelves with nothing to show stay out of the way on their own.")
-                }
 
-                Section {
-                    Button("Reset to Default") { layout = .default }
-                        .disabled(layout == .default)
+                    Section {
+                        Button("Reset to Default") { layout = .default }
+                            .disabled(layout == .default)
+                    }
                 }
+                .glassRow()
             }
             .environment(\.editMode, .constant(.active))
             .navigationTitle("Edit Home")

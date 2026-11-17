@@ -25,15 +25,18 @@ struct TracksView: View {
 
     var body: some View {
         List {
-            ForEach(songs.indices, id: \.self) { index in
-                PlayableSongRow(songs: songs, index: index, source: "Tracks")
-            }
+            Group {
+                ForEach(songs.indices, id: \.self) { index in
+                    PlayableSongRow(songs: songs, index: index, source: "Tracks")
+                }
 
-            if canLoadMore, !songs.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .task { await loadMore() }
+                if canLoadMore, !songs.isEmpty {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .task { await loadMore() }
+                }
             }
+            .clearRow()
         }
         .listStyle(.plain)
         .navigationTitle("Tracks")

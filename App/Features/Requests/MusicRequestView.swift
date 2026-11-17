@@ -20,74 +20,77 @@ struct MusicRequestView: View {
 
     var body: some View {
         Form {
-            if requests.isConfigured {
-                Section {
-                    TextField("Artist — Album", text: $text, axis: .vertical)
-                        .lineLimit(1...3)
-                        .focused($isFocused)
-                        .submitLabel(.send)
-                        .onSubmit(send)
-
-                    Button {
-                        send()
-                    } label: {
-                        HStack {
-                            Text("Send Request")
-                            Spacer()
-                            if requests.isSending { ProgressView() }
-                        }
-                    }
-                    .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty || requests.isSending)
-                } header: {
-                    Text("What do you want?")
-                } footer: {
-                    if let error = requests.lastError {
-                        Text(error).foregroundStyle(.red)
-                    } else if didSend {
-                        Text("Sent. This screen will say when it shows up in your library.")
-                            .foregroundStyle(Color.appTint)
-                    } else {
-                        Text("An artist and album is enough. Hermes checks the library first so it will not fetch something you already have.")
-                    }
-                }
-
-                if !requests.history.isEmpty {
+            Group {
+                if requests.isConfigured {
                     Section {
-                        ForEach(requests.history) { entry in
-                            RequestRow(entry: entry)
-                        }
-                    } header: {
-                        HStack {
-                            Text("Requests")
-                            Spacer()
-                            if requests.isWatchingAnything {
-                                Text("checking your library")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .textCase(nil)
+                        TextField("Artist — Album", text: $text, axis: .vertical)
+                            .lineLimit(1...3)
+                            .focused($isFocused)
+                            .submitLabel(.send)
+                            .onSubmit(send)
+
+                        Button {
+                            send()
+                        } label: {
+                            HStack {
+                                Text("Send Request")
+                                Spacer()
+                                if requests.isSending { ProgressView() }
                             }
                         }
+                        .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty || requests.isSending)
+                    } header: {
+                        Text("What do you want?")
                     } footer: {
-                        Text("The agent replies on its own channel, which this app cannot read — so instead it watches your library and tells you when the music actually turns up.")
-                    }
-
-                    Section {
-                        Button("Clear History", role: .destructive) {
-                            requests.clearHistory()
+                        if let error = requests.lastError {
+                            Text(error).foregroundStyle(.red)
+                        } else if didSend {
+                            Text("Sent. This screen will say when it shows up in your library.")
+                                .foregroundStyle(Color.appTint)
+                        } else {
+                            Text("An artist and album is enough. Hermes checks the library first so it will not fetch something you already have.")
                         }
                     }
-                }
-            } else {
-                Section {
-                    ContentUnavailableView(
-                        "Not Set Up",
-                        systemImage: "antenna.radiowaves.left.and.right.slash",
-                        description: Text(
-                            "Add the Hermes webhook address and secret in Settings to request music from here."
+
+                    if !requests.history.isEmpty {
+                        Section {
+                            ForEach(requests.history) { entry in
+                                RequestRow(entry: entry)
+                            }
+                        } header: {
+                            HStack {
+                                Text("Requests")
+                                Spacer()
+                                if requests.isWatchingAnything {
+                                    Text("checking your library")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .textCase(nil)
+                                }
+                            }
+                        } footer: {
+                            Text("The agent replies on its own channel, which this app cannot read — so instead it watches your library and tells you when the music actually turns up.")
+                        }
+
+                        Section {
+                            Button("Clear History", role: .destructive) {
+                                requests.clearHistory()
+                            }
+                        }
+                    }
+                } else {
+                    Section {
+                        ContentUnavailableView(
+                            "Not Set Up",
+                            systemImage: "antenna.radiowaves.left.and.right.slash",
+                            description: Text(
+                                "Add the Hermes webhook address and secret in Settings to request music from here."
+                            )
                         )
-                    )
+                    }
                 }
             }
+            .glassRow()
         }
         .navigationTitle("Request Music")
         .refreshable { await requests.refresh() }
@@ -202,64 +205,67 @@ struct MusicRequestSettingsView: View {
 
     var body: some View {
         Form {
-            Section {
-                TextField("http://192.168.1.148:8644/webhooks/music-request", text: $address)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
+            Group {
+                Section {
+                    TextField("http://192.168.1.148:8644/webhooks/music-request", text: $address)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
 
-                SecureField("HMAC secret", text: $secret)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+                    SecureField("HMAC secret", text: $secret)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
 
-                TextField("http://192.168.1.148:8645", text: $resultsAddress)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .keyboardType(.URL)
+                    TextField("http://192.168.1.148:8645", text: $resultsAddress)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
 
-                Button {
-                    test()
-                } label: {
-                    HStack {
-                        Text("Test Results Address")
-                        Spacer()
-                        if isTesting {
-                            ProgressView()
-                        } else if let testResult {
-                            Text(testResult)
-                                .font(.footnote)
-                                .foregroundStyle(testResult == "OK" ? .green : .red)
+                    Button {
+                        test()
+                    } label: {
+                        HStack {
+                            Text("Test Results Address")
+                            Spacer()
+                            if isTesting {
+                                ProgressView()
+                            } else if let testResult {
+                                Text(testResult)
+                                    .font(.footnote)
+                                    .foregroundStyle(testResult == "OK" ? .green : .red)
+                            }
+                        }
+                    }
+                    .disabled(resultsAddress.isEmpty || isTesting)
+                } header: {
+                    Text("Hermes Webhook")
+                } footer: {
+                    if let problem {
+                        Text(problem).foregroundStyle(.red)
+                    } else {
+                        Text("""
+                        The secret is kept in the Keychain on this phone. Requests are signed \
+                        with it, and the gateway rejects anything unsigned or older than five \
+                        minutes. The results address is where Hermes's answers are read from — \
+                        the webhook itself is one-way.
+                        """)
+                    }
+                }
+
+                Section {
+                    Button("Save") { save() }
+                        .disabled(address.isEmpty || secret.isEmpty)
+
+                    if requests.isConfigured {
+                        Button("Remove", role: .destructive) {
+                            requests.forget()
+                            address = ""
+                            secret = ""
                         }
                     }
                 }
-                .disabled(resultsAddress.isEmpty || isTesting)
-            } header: {
-                Text("Hermes Webhook")
-            } footer: {
-                if let problem {
-                    Text(problem).foregroundStyle(.red)
-                } else {
-                    Text("""
-                    The secret is kept in the Keychain on this phone. Requests are signed \
-                    with it, and the gateway rejects anything unsigned or older than five \
-                    minutes. The results address is where Hermes's answers are read from — \
-                    the webhook itself is one-way.
-                    """)
-                }
             }
-
-            Section {
-                Button("Save") { save() }
-                    .disabled(address.isEmpty || secret.isEmpty)
-
-                if requests.isConfigured {
-                    Button("Remove", role: .destructive) {
-                        requests.forget()
-                        address = ""
-                        secret = ""
-                    }
-                }
-            }
+            .glassRow()
         }
         .navigationTitle("Music Requests")
         .onAppear {

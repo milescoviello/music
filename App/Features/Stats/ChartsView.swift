@@ -32,51 +32,54 @@ struct ChartsView: View {
 
     var body: some View {
         List {
-            Section {
-                Picker("Span", selection: $spanRaw) {
-                    ForEach(ChartSpan.allCases) { span in
-                        Text(span.title).tag(span.rawValue)
+            Group {
+                Section {
+                    Picker("Span", selection: $spanRaw) {
+                        ForEach(ChartSpan.allCases) { span in
+                            Text(span.title).tag(span.rawValue)
+                        }
+                    }
+                    .pickerStyle(.menu)
+
+                    if span != .all {
+                        HStack {
+                            Button {
+                                period = shown.offset(by: -1)
+                            } label: {
+                                Image(systemName: "chevron.left")
+                            }
+                            .buttonStyle(.borderless)
+
+                            Spacer()
+                            Text(shown.title(hemisphere: hemisphere))
+                                .font(.headline)
+                            Spacer()
+
+                            Button {
+                                period = shown.offset(by: 1)
+                            } label: {
+                                Image(systemName: "chevron.right")
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(!shown.hasNext())
+                        }
+                    }
+
+                    Picker("Chart", selection: $kind) {
+                        ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section {
+                    switch kind {
+                    case .tracks: trackRows
+                    case .albums: albumRows
+                    case .artists: artistRows
                     }
                 }
-                .pickerStyle(.menu)
-
-                if span != .all {
-                    HStack {
-                        Button {
-                            period = shown.offset(by: -1)
-                        } label: {
-                            Image(systemName: "chevron.left")
-                        }
-                        .buttonStyle(.borderless)
-
-                        Spacer()
-                        Text(shown.title(hemisphere: hemisphere))
-                            .font(.headline)
-                        Spacer()
-
-                        Button {
-                            period = shown.offset(by: 1)
-                        } label: {
-                            Image(systemName: "chevron.right")
-                        }
-                        .buttonStyle(.borderless)
-                        .disabled(!shown.hasNext())
-                    }
-                }
-
-                Picker("Chart", selection: $kind) {
-                    ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
             }
-
-            Section {
-                switch kind {
-                case .tracks: trackRows
-                case .albums: albumRows
-                case .artists: artistRows
-                }
-            }
+            .glassRow()
         }
         .navigationTitle("Charts")
         .playerClearance()

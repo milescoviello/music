@@ -22,31 +22,34 @@ struct PlaylistListView: View {
     var body: some View {
         let split = arrangement.arranged(playlists)
         List {
-            // His main ones, first and in his own order. Swipe right or long-press to pin.
-            if !split.pinned.isEmpty {
-                Section("Pinned") {
-                    ForEach(split.pinned) { playlist in
+            Group {
+                // His main ones, first and in his own order. Swipe right or long-press to pin.
+                if !split.pinned.isEmpty {
+                    Section("Pinned") {
+                        ForEach(split.pinned) { playlist in
+                            row(playlist)
+                        }
+                        .onMove { arrangement.movePinned(from: $0, to: $1, shown: split.pinned) }
+                    }
+                }
+
+                Section {
+                    ForEach(split.rest) { playlist in
                         row(playlist)
                     }
-                    .onMove { arrangement.movePinned(from: $0, to: $1, shown: split.pinned) }
+                    // Moving one by hand makes the order his own: My Order in the sort menu.
+                    .onMove { arrangement.moveRest(from: $0, to: $1, shown: split.rest) }
+                } header: {
+                    if !split.pinned.isEmpty { Text("Playlists") }
+                } footer: {
+                    if !playlists.isEmpty {
+                        // Stated once, quietly: the server has no folder parameter for
+                        // playlists, so the library switch cannot apply here.
+                        Text("Playlists are shown from every library.")
+                    }
                 }
             }
-
-            Section {
-                ForEach(split.rest) { playlist in
-                    row(playlist)
-                }
-                // Moving one by hand makes the order his own: My Order in the sort menu.
-                .onMove { arrangement.moveRest(from: $0, to: $1, shown: split.rest) }
-            } header: {
-                if !split.pinned.isEmpty { Text("Playlists") }
-            } footer: {
-                if !playlists.isEmpty {
-                    // Stated once, quietly: the server has no folder parameter for
-                    // playlists, so the library switch cannot apply here.
-                    Text("Playlists are shown from every library.")
-                }
-            }
+            .clearRow()
         }
         .listStyle(.plain)
         .playerClearance()
@@ -295,41 +298,44 @@ struct PlaylistDetailView: View {
 
     var body: some View {
         List {
-            Section {
-                header
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-            }
+            Group {
+                Section {
+                    header
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                }
 
-            // Playlist order is the server's order; never re-sorted.
-            //
-            // The indices, not `Array(songs.enumerated())`: the same identities, without
-            // copying every song into a new array on each redraw, which for a smart
-            // playlist of the whole library is 28,000 of them.
-            ForEach(keyedRows, id: \.key) { row in
-                let index = row.index
-                let song = songs[index]
-                // Trailing swipe removes from the playlist here, rather than the generic
-                // "add to queue": in a playlist, removal is the action you actually want.
-                PlayableSongRow(
-                    songs: songs, index: index, source: name, selection: selection,
-                    onRemove: {
-                        // Gone from the screen at once; the server's answer then decides.
-                        if var shown = detail, shown.entry?.indices.contains(index) == true {
-                            shown.entry?.remove(at: index)
-                            detail = shown
+                // Playlist order is the server's order; never re-sorted.
+                //
+                // The indices, not `Array(songs.enumerated())`: the same identities, without
+                // copying every song into a new array on each redraw, which for a smart
+                // playlist of the whole library is 28,000 of them.
+                ForEach(keyedRows, id: \.key) { row in
+                    let index = row.index
+                    let song = songs[index]
+                    // Trailing swipe removes from the playlist here, rather than the generic
+                    // "add to queue": in a playlist, removal is the action you actually want.
+                    PlayableSongRow(
+                        songs: songs, index: index, source: name, selection: selection,
+                        onRemove: {
+                            // Gone from the screen at once; the server's answer then decides.
+                            if var shown = detail, shown.entry?.indices.contains(index) == true {
+                                shown.entry?.remove(at: index)
+                                detail = shown
+                            }
+                            Task {
+                                _ = await store.remove(song, shownAt: index, from: playlist.id)
+                                await load()
+                            }
                         }
-                        Task {
-                            _ = await store.remove(song, shownAt: index, from: playlist.id)
-                            await load()
-                        }
-                    }
-                )
+                    )
+                }
+                .onMove { offsets, destination in
+                    move(from: offsets, to: destination)
+                }
             }
-            .onMove { offsets, destination in
-                move(from: offsets, to: destination)
-            }
+            .clearRow()
         }
         .listStyle(.plain)
         .playerClearance()

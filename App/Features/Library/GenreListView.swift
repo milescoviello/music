@@ -8,33 +8,36 @@ struct GenreListView: View {
 
     var body: some View {
         List {
-            ForEach(genres) { genre in
-                NavigationLink(value: Destination.genre(genre.value)) {
-                    HStack {
-                        Text(genre.value)
-                        Spacer(minLength: 8)
-                        if let count = genre.albumCount {
-                            Text("\(count)")
-                                .font(.footnote.monospacedDigit())
-                                .foregroundStyle(.tertiary)
+            Group {
+                ForEach(genres) { genre in
+                    NavigationLink(value: Destination.genre(genre.value)) {
+                        HStack {
+                            Text(genre.value)
+                            Spacer(minLength: 8)
+                            if let count = genre.albumCount {
+                                Text("\(count)")
+                                    .font(.footnote.monospacedDigit())
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
+                        .frame(minHeight: Metrics.rowCategory)
                     }
-                    .frame(minHeight: Metrics.rowCategory)
-                }
-                .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    Button {
-                        startGenreRadio(genre.value)
-                    } label: {
-                        Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        Button {
+                            startGenreRadio(genre.value)
+                        } label: {
+                            Label("Radio", systemImage: "dot.radiowaves.left.and.right")
+                        }
+                        .tint(.appTint)
                     }
-                    .tint(.appTint)
-                }
-                .contextMenu {
-                    Button("Genre Radio", systemImage: "dot.radiowaves.left.and.right") {
-                        startGenreRadio(genre.value)
+                    .contextMenu {
+                        Button("Genre Radio", systemImage: "dot.radiowaves.left.and.right") {
+                            startGenreRadio(genre.value)
+                        }
                     }
                 }
             }
+            .clearRow()
         }
         .listStyle(.plain)
         .playerClearance()
@@ -143,17 +146,20 @@ private struct GenreSongsView: View {
 
     var body: some View {
         List {
-            ForEach(Array(songs.enumerated()), id: \.offset) { index, _ in
-                PlayableSongRow(songs: songs, index: index, source: genre)
-            }
+            Group {
+                ForEach(Array(songs.enumerated()), id: \.offset) { index, _ in
+                    PlayableSongRow(songs: songs, index: index, source: genre)
+                }
 
-            if canLoadMore, !songs.isEmpty {
-                // A sentinel rather than scroll-offset maths: `.task` on a lazily created
-                // row fires exactly when it is needed and cancels correctly.
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .task { await loadMore() }
+                if canLoadMore, !songs.isEmpty {
+                    // A sentinel rather than scroll-offset maths: `.task` on a lazily created
+                    // row fires exactly when it is needed and cancels correctly.
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .task { await loadMore() }
+                }
             }
+            .clearRow()
         }
         .listStyle(.plain)
         .playerClearance()

@@ -15,52 +15,55 @@ struct RediscoverView: View {
 
     var body: some View {
         List {
-            if !forgotten.isEmpty {
-                Section {
-                    // By id: a song played drops out, and the rows after it move up.
-                    ForEach(Array(forgotten.enumerated()), id: \.element.id) { index, song in
-                        PlayableSongRow(
-                            songs: forgotten,
-                            index: index,
-                            source: "Forgotten Favourites",
-                            trailing: model.lastPlayedText(for: song)
-                        )
+            Group {
+                if !forgotten.isEmpty {
+                    Section {
+                        // By id: a song played drops out, and the rows after it move up.
+                        ForEach(Array(forgotten.enumerated()), id: \.element.id) { index, song in
+                            PlayableSongRow(
+                                songs: forgotten,
+                                index: index,
+                                source: "Forgotten Favourites",
+                                trailing: model.lastPlayedText(for: song)
+                            )
+                        }
+                    } header: {
+                        Text("Forgotten Favourites")
+                    } footer: {
+                        Text("Starred, and least recently played. A favourite you have never played at all comes first.")
                     }
-                } header: {
-                    Text("Forgotten Favourites")
-                } footer: {
-                    Text("Starred, and least recently played. A favourite you have never played at all comes first.")
                 }
-            }
 
-            if !model.neverPlayed.isEmpty {
-                Section {
-                    ForEach(Array(model.neverPlayed.enumerated()), id: \.offset) { index, _ in
-                        PlayableSongRow(
-                            songs: model.neverPlayed,
-                            index: index,
-                            source: "Never Played"
-                        )
-                    }
+                if !model.neverPlayed.isEmpty {
+                    Section {
+                        ForEach(Array(model.neverPlayed.enumerated()), id: \.offset) { index, _ in
+                            PlayableSongRow(
+                                songs: model.neverPlayed,
+                                index: index,
+                                source: "Never Played"
+                            )
+                        }
 
-                    Button {
-                        Task { await model.reroll(appState: appState, scope: scope.scope) }
-                    } label: {
-                        Label("Show me another handful", systemImage: "arrow.triangle.2.circlepath")
+                        Button {
+                            Task { await model.reroll(appState: appState, scope: scope.scope) }
+                        } label: {
+                            Label("Show me another handful", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                    } header: {
+                        Text("Never Played")
+                    } footer: {
+                        // The figure is worth stating: it is the reason this screen exists.
+                        Text("Roughly 95% of this library has never been played once.")
                     }
-                } header: {
-                    Text("Never Played")
-                } footer: {
-                    // The figure is worth stating: it is the reason this screen exists.
-                    Text("Roughly 95% of this library has never been played once.")
                 }
-            }
 
-            // Dark until the app's own log is old enough. Nothing else can fill it: the
-            // server keeps only the *last* play of a track, never the history of plays,
-            // so "what you were playing a year ago today" is only answerable from here.
-            anniversarySection("A Year Ago Today", songs: model.yearAgo)
-            anniversarySection("A Month Ago", songs: model.monthAgo)
+                // Dark until the app's own log is old enough. Nothing else can fill it: the
+                // server keeps only the *last* play of a track, never the history of plays,
+                // so "what you were playing a year ago today" is only answerable from here.
+                anniversarySection("A Year Ago Today", songs: model.yearAgo)
+                anniversarySection("A Month Ago", songs: model.monthAgo)
+            }
+            .glassRow()
         }
         .listStyle(.insetGrouped)
         .playerClearance()

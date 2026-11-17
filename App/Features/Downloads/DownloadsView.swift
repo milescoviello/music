@@ -31,11 +31,14 @@ struct DownloadsView: View {
         let results = isSearching ? folders.search(query) : nil
 
         List {
-            if let results {
-                found(results)
-            } else {
-                library
+            Group {
+                if let results {
+                    found(results)
+                } else {
+                    library
+                }
             }
+            .clearRow()
         }
         .listStyle(.plain)
         .playerClearance()

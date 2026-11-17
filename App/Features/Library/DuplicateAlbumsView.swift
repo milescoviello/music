@@ -36,30 +36,33 @@ struct DuplicateAlbumsView: View {
 
     private func list(_ pairs: [SonicClient.DuplicateAlbum]) -> some View {
         List {
-            Section {
-                Text(summary(pairs)).font(.footnote).foregroundStyle(.secondary)
-            }
-            ForEach(pairs) { pair in
+            Group {
                 Section {
-                    ForEach(Array(pair.copies.enumerated()), id: \.element.id) { index, copy in
-                        NavigationLink(value: Destination.album(AlbumRef(id: copy.albumId, name: copy.name, artist: copy.artist))) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack {
-                                    Text("\(copy.library) · \(copy.format)").font(.subheadline.weight(.medium))
-                                    if index == 0 && !pair.alike {
-                                        Text("Weaker").font(.caption2.weight(.semibold)).foregroundStyle(.orange)
+                    Text(summary(pairs)).font(.footnote).foregroundStyle(.secondary)
+                }
+                ForEach(pairs) { pair in
+                    Section {
+                        ForEach(Array(pair.copies.enumerated()), id: \.element.id) { index, copy in
+                            NavigationLink(value: Destination.album(AlbumRef(id: copy.albumId, name: copy.name, artist: copy.artist))) {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    HStack {
+                                        Text("\(copy.library) · \(copy.format)").font(.subheadline.weight(.medium))
+                                        if index == 0 && !pair.alike {
+                                            Text("Weaker").font(.caption2.weight(.semibold)).foregroundStyle(.orange)
+                                        }
                                     }
+                                    Text(details(copy)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                                 }
-                                Text(details(copy)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                             }
                         }
+                    } header: {
+                        Text(pair.name)
+                    } footer: {
+                        Text(pair.alike ? "\(pair.artist) · the same in both" : pair.artist)
                     }
-                } header: {
-                    Text(pair.name)
-                } footer: {
-                    Text(pair.alike ? "\(pair.artist) · the same in both" : pair.artist)
                 }
             }
+            .glassRow()
         }
     }
 

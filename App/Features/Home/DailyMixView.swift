@@ -24,43 +24,46 @@ struct DailyMixView: View {
         Group {
             if let mix {
                 List {
-                    Section {
-                        header(mix)
-                            .listRowInsets(EdgeInsets())
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
+                    Group {
+                        Section {
+                            header(mix)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                        }
 
-                    ForEach(Array(mix.songs.enumerated()), id: \.offset) { index, _ in
-                        PlayableSongRow(songs: mix.songs, index: index, source: mix.title)
-                            // Fetching starts ten rows early rather than at the very
-                            // bottom, so the next batch is usually already there by the
-                            // time it is scrolled to. A spinner you actually wait on is
-                            // the thing being avoided here.
-                            .task(id: mix.songs.count) {
-                                guard index == max(0, mix.songs.count - 10) else { return }
+                        ForEach(Array(mix.songs.enumerated()), id: \.offset) { index, _ in
+                            PlayableSongRow(songs: mix.songs, index: index, source: mix.title)
+                                // Fetching starts ten rows early rather than at the very
+                                // bottom, so the next batch is usually already there by the
+                                // time it is scrolled to. A spinner you actually wait on is
+                                // the thing being avoided here.
+                                .task(id: mix.songs.count) {
+                                    guard index == max(0, mix.songs.count - 10) else { return }
+                                    appState.mixes.extend(
+                                        mixID: mixID, appState: appState, scope: mixScope
+                                    )
+                                }
+                        }
+
+                        // A mix is a station, not a 25-track list: the bottom asks for more of
+                        // the same, and when the recipe's pool is spent it carries on as radio
+                        // seeded from what is already here.
+                        if mix.isExhausted != true {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                Text("Adding more…")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .task {
                                 appState.mixes.extend(
                                     mixID: mixID, appState: appState, scope: mixScope
                                 )
                             }
-                    }
-
-                    // A mix is a station, not a 25-track list: the bottom asks for more of
-                    // the same, and when the recipe's pool is spent it carries on as radio
-                    // seeded from what is already here.
-                    if mix.isExhausted != true {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                            Text("Adding more…")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                        .task {
-                            appState.mixes.extend(
-                                mixID: mixID, appState: appState, scope: mixScope
-                            )
                         }
                     }
+                    .clearRow()
                 }
                 .listStyle(.plain)
         .playerClearance()

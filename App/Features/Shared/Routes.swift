@@ -59,88 +59,99 @@ extension View {
     /// row materialises, so links from rows that scrolled past silently do nothing.
     func musicDestinations() -> some View {
         navigationDestination(for: Destination.self) { destination in
-            switch destination {
-            case let .album(ref):
-                AlbumDetailView(album: ref)
-            case let .artist(ref):
-                ArtistDetailView(artist: ref)
-            case let .playlist(ref):
-                PlaylistDetailView(playlist: ref)
-            case let .genre(name):
-                GenreDetailView(genre: name)
-            case let .albums(sort):
-                AlbumListView(initialSort: sort)
-            case .artists:
-                ArtistListView()
-            case .playlists:
-                PlaylistListView()
-            case .genres:
-                GenreListView()
-            case .favorites:
-                FavoritesView()
-            case .downloads:
-                DownloadsView()
-            case let .downloadFolder(id):
-                DownloadFolderView(folderID: id)
-            case .settings:
-                SettingsView()
-            case .audioSettings:
-                AudioSettingsView()
-            case .equalizer:
-                EqualizerView()
-            case .streamingSettings:
-                StreamingSettingsView()
-            case .experienceSettings:
-                ExperienceSettingsView()
-            case .sonicSettings:
-                SonicSettingsView()
-            case let .requestMusic(prefill):
-                MusicRequestView(initialText: prefill)
-            case .requestSettings:
-                MusicRequestSettingsView()
-            case .offlineSettings:
-                OfflineSettingsView()
-            case .remoteControl:
-                RemotePlayersSettingsView()
-            case .diagnostics:
-                DiagnosticsView()
-            case .stats:
-                StatsView()
-            case let .dailyMix(id):
-                DailyMixView(mixID: id)
-            case .rediscover:
-                RediscoverView()
-            case let .decade(start):
-                AlbumListView(decade: start)
-            case .tripMode:
-                TripModeView()
-            case let .lyricSearch(prefill):
-                LyricSearchView(initialQuery: prefill)
-            case .vibePlaylist:
-                VibePlaylistView()
-            case .libraryHealth:
-                LibraryHealthView()
-            case .duplicateAlbums:
-                DuplicateAlbumsView()
-            case .dailyMixes:
-                DailyMixesView()
-            case .stations:
-                StationsView()
-            case let .mixBuilder(kind):
-                MixBuilderView(kind: kind)
-            case let .sonicAdventure(song):
-                SonicAdventureView(start: song)
-            case let .libraryFacet(facet):
-                LibraryFacetView(facet: facet)
-            case let .albumCollection(title, albums):
-                AlbumCollectionView(title: title, albums: albums)
-            case .charts:
-                ChartsView()
-            case .tracks:
-                TracksView()
-            case let .folder(ref):
-                FolderView(folder: ref)
-            }
+            DestinationPage(destination: destination)
+                // The cover's colours behind every pushed page, as behind the tab roots.
+                .pageBackdrop()
+        }
+    }
+}
+
+/// The page a destination opens.
+private struct DestinationPage: View {
+    let destination: Destination
+
+    var body: some View {
+        switch destination {
+        case let .album(ref):
+            AlbumDetailView(album: ref)
+        case let .artist(ref):
+            ArtistDetailView(artist: ref)
+        case let .playlist(ref):
+            PlaylistDetailView(playlist: ref)
+        case let .genre(name):
+            GenreDetailView(genre: name)
+        case let .albums(sort):
+            AlbumListView(initialSort: sort)
+        case .artists:
+            ArtistListView()
+        case .playlists:
+            PlaylistListView()
+        case .genres:
+            GenreListView()
+        case .favorites:
+            FavoritesView()
+        case .downloads:
+            DownloadsView()
+        case let .downloadFolder(id):
+            DownloadFolderView(folderID: id)
+        case .settings:
+            SettingsView()
+        case .audioSettings:
+            AudioSettingsView()
+        case .equalizer:
+            EqualizerView()
+        case .streamingSettings:
+            StreamingSettingsView()
+        case .experienceSettings:
+            ExperienceSettingsView()
+        case .sonicSettings:
+            SonicSettingsView()
+        case let .requestMusic(prefill):
+            MusicRequestView(initialText: prefill)
+        case .requestSettings:
+            MusicRequestSettingsView()
+        case .offlineSettings:
+            OfflineSettingsView()
+        case .remoteControl:
+            RemotePlayersSettingsView()
+        case .diagnostics:
+            DiagnosticsView()
+        case .stats:
+            StatsView()
+        case let .dailyMix(id):
+            DailyMixView(mixID: id)
+        case .rediscover:
+            RediscoverView()
+        case let .decade(start):
+            AlbumListView(decade: start)
+        case .tripMode:
+            TripModeView()
+        case let .lyricSearch(prefill):
+            LyricSearchView(initialQuery: prefill)
+        case .vibePlaylist:
+            VibePlaylistView()
+        case .libraryHealth:
+            LibraryHealthView()
+        case .duplicateAlbums:
+            DuplicateAlbumsView()
+        case .dailyMixes:
+            DailyMixesView()
+        case .stations:
+            StationsView()
+        case let .mixBuilder(kind):
+            MixBuilderView(kind: kind)
+        case let .sonicAdventure(song):
+            SonicAdventureView(start: song)
+        case let .libraryFacet(facet):
+            LibraryFacetView(facet: facet)
+        case let .albumCollection(title, albums):
+            AlbumCollectionView(title: title, albums: albums)
+        case .charts:
+            ChartsView()
+        case .tracks:
+            TracksView()
+        case let .folder(ref):
+            FolderView(folder: ref)
         }
     }
 }

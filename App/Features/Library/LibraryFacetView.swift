@@ -70,6 +70,7 @@ private struct GroupList: View {
             NavigationLink(value: Destination.albumCollection(title: group.name, albums: group.albums)) {
                 LabeledContent(group.name, value: "\(group.albums.count)")
             }
+            .glassRow()
         }
         .playerClearance()
         .overlay {
