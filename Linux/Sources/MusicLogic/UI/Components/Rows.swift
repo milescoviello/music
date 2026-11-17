@@ -168,17 +168,17 @@ final class AlbumCardView {
     /// Set by `bind(_ album:)`, for a menu that follows whichever album the card shows.
     private(set) var album: Album?
 
-    /// Five to a row of a wide window.
-    static let side: Int32 = 196
+    /// The phone's card width (`Metrics.cardWidth`).
+    static let side: Int32 = 160
 
     init(_ env: Env, side: Int32 = AlbumCardView.side) {
         let artwork = ArtworkView(env.app, size: .card, side: side, shape: .card)
         self.artwork = artwork
         let (title, subtitle) = (self.title, self.subtitle)
-        root = Box.vertical(spacing: 6) {
+        root = Box.vertical(spacing: 0) {
             artwork.root
-            title
-            subtitle
+            title.margins(top: 8)
+            subtitle.margins(top: 2)
         }
         root.size(width: side).halign(GTK_ALIGN_CENTER)
         title.maxWidthChars(1).hexpand()
@@ -265,23 +265,46 @@ enum Cards {
 /// A titled row of cards that scrolls sideways: Home's shelves, an artist's albums.
 @MainActor
 enum Shelf {
-    static func make(_ title: String, subtitle: String? = nil, more: (@MainActor () -> Void)? = nil, cards: [Widget]) -> Widget {
-        let header = Box.horizontal(spacing: 8) {
+    /// The phone's shelf: its header in the gutter, the cards scrolling sideways from edge
+    /// to edge with the gutter as their margin. `accessory` goes before See All.
+    static func make(
+        _ title: String,
+        subtitle: String? = nil,
+        more: (@MainActor () -> Void)? = nil,
+        accessory: Widget? = nil,
+        cards: [Widget]
+    ) -> Widget {
+        let header = Box.horizontal(spacing: 12) {
             Box.vertical(spacing: 0) {
-                Label(title, "shelf-title")
-                if let subtitle { Label(subtitle, "caption", "dim") }
+                Label(title, "shelf-title").xalign(0)
+                if let subtitle { Label(subtitle, "caption", "dim").xalign(0) }
             }.hexpand()
+            if let accessory { accessory }
             if let more { Button("See All", "flat", "see-all", action: more) }
+        }.margin(horizontal: 16, vertical: 0)
+        let row = Box.horizontal(spacing: 12).margin(horizontal: 16, vertical: 0)
+        row.valign(GTK_ALIGN_START)
+        for card in cards {
+            card.valign(GTK_ALIGN_START)
+            row.append(card)
         }
-        let row = Box.horizontal(spacing: 4)
-        for card in cards { row.append(card) }
         let scroller = ScrolledWindow(row, horizontal: GTK_POLICY_AUTOMATIC, vertical: GTK_POLICY_NEVER)
             .propagatesNaturalHeight()
+        gtk_scrolled_window_set_overlay_scrolling(scroller.widget.cast(), 1)
+        scroller.css("shelf-scroller")
         passesWheelToPage(scroller)
-        return Box.vertical(spacing: 8) {
+        return Box.vertical(spacing: 12) {
             header
             scroller
         }
+    }
+
+    /// A shelf's header alone, for one whose content is not cards (songs).
+    static func header(_ title: String, more: (@MainActor () -> Void)? = nil) -> Widget {
+        Box.horizontal(spacing: 12) {
+            Label(title, "shelf-title").xalign(0).hexpand()
+            if let more { Button("See All", "flat", "see-all", action: more) }
+        }.margin(horizontal: 16, vertical: 0)
     }
 
     /// A mouse wheel over a shelf scrolls the page, not the shelf. GTK turns an up-and-down

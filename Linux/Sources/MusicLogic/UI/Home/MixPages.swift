@@ -12,6 +12,17 @@ enum MixScope {
         app.scope.mixScope
     }
 
+    /// The phone's "Both" beside See All: which library the mixes come from, its own
+    /// choice apart from the browsing scope. Absent with one library.
+    static func button(_ app: AppState) -> Widget? {
+        guard app.scope.isSwitchable, let item = menuItem(app) else { return nil }
+        let id = UserDefaults.standard.object(forKey: key) as? Int ?? -1
+        let name = id == -1 ? "Both" : app.scope.folders.first { $0.id == id }?.name ?? "Both"
+        let button = MenuButton(icon: "", "flat", "see-all", "mix-scope") { Menu([[item]]) }
+        gtk_button_set_label(button.widget.cast(), name)
+        return button
+    }
+
     static func menuItem(_ app: AppState) -> Menu.Item? {
         guard app.scope.isSwitchable else { return nil }
         let id = UserDefaults.standard.object(forKey: key) as? Int ?? -1
@@ -54,7 +65,7 @@ enum MixPages {
             more.onScrolledIntoView { mixes.loadMore(appState: env.app, scope: MixScope.current(env.app)) }
             cards.append(more)
         }
-        return Shelf.make("Made for You", more: { env.open(.dailyMixes) }, cards: cards)
+        return Shelf.make("Made for You", more: { env.open(.dailyMixes) }, accessory: MixScope.button(env.app), cards: cards)
     }
 
     private static func card(_ env: Env, _ mix: DailyMixes.Mix) -> Widget {

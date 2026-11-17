@@ -55,6 +55,22 @@ final class Texture: @unchecked Sendable {
     /// The same object as a `GdkPaintable`, for `gtk_picture_set_paintable`.
     var paintable: OpaquePointer { pointer }
 
+    /// The middle square, for a fixed slot that crops a cover as the phone's `scaledToFill`
+    /// does rather than letterboxing it. A square image is returned as it is.
+    func squared() -> Texture {
+        let (w, h) = (width, height)
+        guard w != h, w > 0, h > 0 else { return self }
+        let side = min(w, h)
+        let (bytes, stride) = pixels()
+        let (x0, y0) = ((w - side) / 2, (h - side) / 2)
+        var out = [UInt8](repeating: 0, count: side * side * 4)
+        for row in 0..<side {
+            let source = (y0 + row) * stride + x0 * 4
+            out.replaceSubrange(row * side * 4 ..< (row + 1) * side * 4, with: bytes[source ..< source + side * 4])
+        }
+        return Texture(pixels: out, width: side, height: side)
+    }
+
     /// Premultiplied BGRA rows, top to bottom — `gdk_texture_download`'s format.
     func pixels() -> (bytes: [UInt8], stride: Int) {
         let stride = width * 4

@@ -139,7 +139,14 @@ private enum Canvas {
         switch self {
         case let .fixed(image):
             if let texture {
-                gtk_image_set_from_paintable(image.widget.cast(), texture.paintable)
+                // Cropped to its middle square: an image fits inside its square, which
+                // letterboxed every cover that is not square (a quarter of them).
+                // Kept alive across the call: Swift may release a temporary straight after
+                // its last use, which freed the cropped texture before GTK took its ref.
+                let square = texture.squared()
+                withExtendedLifetime(square) {
+                    gtk_image_set_from_paintable(image.widget.cast(), square.paintable)
+                }
             } else {
                 gtk_image_clear(image.widget.cast())
             }

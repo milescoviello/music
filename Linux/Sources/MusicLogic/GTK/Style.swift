@@ -410,8 +410,23 @@ enum Style {
     .caption { font-size: 12px; }
     .caption-heading { font-size: 12px; font-weight: 600; }
     .dim-label, .dim { color: var(--ios-secondary); opacity: 1; }
-    .shelf-title { font-size: 22px; font-weight: 700; letter-spacing: -0.2px; }
-    .see-all { color: var(--accent-color); font-weight: 400; font-size: 17px; }
+    .shelf-title { font-size: 20px; font-weight: 600; letter-spacing: -0.2px; }
+    button.see-all { color: var(--accent-color); font-weight: 400; font-size: 15px; padding: 0 4px; min-height: 0;
+                     background: none; box-shadow: none; }
+    button.see-all:hover { opacity: 0.75; }
+
+    /* Cards: the phone's, with no frame of their own. */
+    button.card-button { padding: 0; background: none; box-shadow: none; border-radius: 8px; font-weight: 400; }
+    button.card-button:hover { background: none; }
+    .card-button .artwork, gridview > child .artwork { box-shadow: none; }
+    .card-title { font-size: 15px; font-weight: 500; }
+    .card-title.semibold, .semibold-title .card-title { font-weight: 600; }
+    .card-subtitle { font-size: 12px; color: var(--ios-secondary); opacity: 1; }
+    .years-ago { font-size: 11px; font-weight: 500; }
+    .station-art { border-radius: 8px;
+                   background-image: linear-gradient(135deg, alpha(#fa475c, 0.55), alpha(#fa475c, 0.15)); }
+    .card-button image { color: #ffffff; }
+    .shelf-scroller > scrollbar { opacity: 0; }
     .row-value { color: var(--ios-secondary); }
 
     /* The navigation bar: clear over the page; glass circles and one glass capsule. */

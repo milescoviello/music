@@ -13,7 +13,7 @@ enum HomePage {
         let app = env.app
         let model = HomeModel()
         let shelves = Box.vertical(spacing: 28)
-        let body = Box.vertical(spacing: 0) { shelves }.margin(horizontal: 12, vertical: 18)
+        let body = Box.vertical(spacing: 0) { shelves }.margin(horizontal: 0, vertical: 12)
         body.keep(model)
 
         // Rebuilt at most once a fifth of a second: on a launch Home's data lands in a dozen
@@ -104,12 +104,7 @@ enum HomePage {
             ))
             return
         }
-        // Jump Back In leads Home wherever the layout has Recent Plays.
-        let hubs = layout.visible
-        if hubs.contains(.recentPlays), let tiles = HomeTiles.jumpBackIn(env, env.app.recentPlays.recent.origins) {
-            shelves.append(tiles)
-        }
-        for hub in hubs where hub != .recentPlays {
+        for hub in layout.visible {
             if let shelf = shelf(env, hub, model: model) { shelves.append(shelf) }
         }
     }
@@ -124,7 +119,7 @@ enum HomePage {
             guard !origins.isEmpty else { return nil }
             return Shelf.make("Recent Plays", cards: origins.map { origin in recentPlay(env, origin) })
         case .stations:
-            return HomeTiles.stations(env)
+            return stations(env)
         case .recentlyPlayed:
             return albums(env, "Recently Played", model.recentlyPlayed, more: .albums(.recent))
         case .recentlyAdded:
@@ -149,8 +144,8 @@ enum HomePage {
         case .favourites:
             guard !model.favoriteSongs.isEmpty else { return nil }
             return Box.vertical(spacing: 8) {
-                header("Favourites") { env.open(.favorites) }
-                SongList.make(env, model.favoriteSongs, source: "Favourites")
+                Shelf.header("Favourites") { env.open(.favorites) }
+                SongList.make(env, model.favoriteSongs, source: "Favourites").margin(horizontal: 16, vertical: 0)
             }
         case .forgottenFavourites:
             // Read here, so a play rebuilds the shelf without it.
@@ -158,29 +153,60 @@ enum HomePage {
             let songs = forgotten.remaining(after: app.history, limit: 3)
             guard !songs.isEmpty else { return nil }
             return Box.vertical(spacing: 8) {
-                header("Forgotten Favourites") { env.open(.rediscover) }
+                Shelf.header("Forgotten Favourites") { env.open(.rediscover) }
                 SongList.make(env, songs, source: "Forgotten Favourites") { song in
                     Rediscovery.lastPlayedText(forgotten.lastPlayed[song.id])
-                }
+                }.margin(horizontal: 16, vertical: 0)
             }
         case .onThisDay:
             guard !model.onThisDay.isEmpty else { return nil }
             return Shelf.make("On This Day", cards: model.onThisDay.map { entry in
-                let card = Box.vertical(spacing: 2) {
+                let card = Box.vertical(spacing: 4) {
                     Cards.album(env, entry.album)
-                    Label(entry.years == 1 ? "1 year ago today" : "\(entry.years) years ago today", "caption", "accent")
-                        .margin(horizontal: 6, vertical: 0).ellipsize().maxWidthChars(1)
-                }
+                    Label(entry.years == 1 ? "1 year ago today" : "\(entry.years) years ago today", "years-ago", "accent")
+                        .xalign(0).ellipsize().maxWidthChars(1)
+                }.size(width: AlbumCardView.side)
                 return card
             })
         }
     }
 
-    private static func header(_ title: String, more: @escaping @MainActor () -> Void) -> Widget {
-        Box.horizontal {
-            Label(title, "shelf-title").hexpand()
-            Button("See All", "flat", action: more)
+    /// The phone's Stations shelf: the four library stations and the two mix builders, as
+    /// cards of the tint's gradient with the station's symbol.
+    private static func stations(_ env: Env) -> Widget {
+        let app = env.app
+        func card(_ title: String, _ subtitle: String, _ symbol: String, station: Station?, action: @escaping @MainActor () -> Void) -> Widget {
+            let side: Int32 = 120
+            let icon = Icon(Symbol.icon(symbol), size: 40).halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_CENTER)
+            let spinner = Spinner().size(24).halign(GTK_ALIGN_CENTER).valign(GTK_ALIGN_CENTER)
+            let art = Overlay(Box.vertical(spacing: 0).css("station-art").size(width: side, height: side))
+            art.add(icon)
+            art.add(spinner)
+            spinner.isVisible = false
+            if let station {
+                art.observe {
+                    let starting = app.stations.starting == station
+                    spinner.isVisible = starting
+                    icon.isVisible = !starting
+                }
+            }
+            let box = Box.vertical(spacing: 0) {
+                art
+                Label(title, "card-title", "semibold").xalign(0).ellipsize().maxWidthChars(1).margins(top: 6)
+                Label(subtitle, "card-subtitle").xalign(0).lines(2).maxWidthChars(1).margins(top: 2)
+            }.size(width: side)
+            return Button(child: box, "card-button", "flat", action: action)
         }
+        var cards: [Widget] = [Station.library, .deepCuts, .timeTravel, .randomAlbum].map { station in
+            card(station.title, station.subtitle, station.symbol, station: station) { app.stations.play(station) }
+        }
+        cards.append(card("Artist Mix Builder", "Pick a few artists", Station.artistMix(ids: [], names: []).symbol, station: nil) {
+            env.open(.mixBuilder(.artists))
+        })
+        cards.append(card("Album Mix Builder", "Pick a few albums", Station.albumMix(ids: [], names: []).symbol, station: nil) {
+            env.open(.mixBuilder(.albums))
+        })
+        return Shelf.make("Stations", more: { env.open(.stations) }, cards: cards)
     }
 
     private static func albums(_ env: Env, _ title: String, _ albums: [Album], more: Destination) -> Widget? {
@@ -191,6 +217,7 @@ enum HomePage {
     private static func recentPlay(_ env: Env, _ origin: PlayOrigin) -> Widget {
         let card = AlbumCardView(env, side: 136)
         card.bind(title: origin.title, subtitle: origin.subtitle, cover: origin.coverArt)
+        card.root.css("semibold-title")
         return Button(child: card.root, "card-button", "flat") {
             switch origin {
             case let .album(id, name, artist, cover):
