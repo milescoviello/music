@@ -201,20 +201,23 @@ enum PlaylistPage {
         var songs: [Song] = []
         let selection = TrackSelection()
         let download = CollectionDownloadButton(env, groupID: playlist.id, groupName: playlist.name) { songs }
-        let menu = MenuButton(icon: "view-more-symbolic", "flat") {
+        let menu = MenuButton(icon: Symbol.icon("ellipsis.circle"), "flat") {
             var sections: [[Menu.Item]] = [Menus.queueItems(env, songs)]
-            sections.append([.action("Start Radio") {
-                guard let seed = songs.randomElement() else { return }
-                Task {
-                    let mix = await app.radio.mix(seed: seed, scope: app.scope.scope)
-                    app.startRadio(named: "\(playlist.name) Radio", songs: mix, station: .radio(seedIDs: songs.map(\.id), title: "\(playlist.name) Radio"))
-                }
-            }])
-            var cover: [Menu.Item] = [.action("Choose Cover…") {
+            sections.append([
+                .action("Start Radio") {
+                    guard let seed = songs.randomElement() else { return }
+                    Task {
+                        let mix = await app.radio.mix(seed: seed, scope: app.scope.scope)
+                        app.startRadio(named: "\(playlist.name) Radio", songs: mix, station: .radio(seedIDs: songs.map(\.id), title: "\(playlist.name) Radio"))
+                    }
+                },
+                .action("Select Tracks") { selection.begin() },
+            ])
+            var cover: [Menu.Item] = [.action("Choose Photo…") {
                 FilePicker.image(title: "Choose a Cover") { app.playlistArtwork.setImage(data: $0, for: playlist.id) }
             }]
             if app.playlistArtwork.hasCustomImage(for: playlist.id) {
-                cover.append(.action("Remove Cover", destructive: true) { app.playlistArtwork.removeImage(for: playlist.id) })
+                cover.append(.action("Remove Photo", destructive: true) { app.playlistArtwork.removeImage(for: playlist.id) })
             }
             sections.append(cover)
             if let match = app.playlistStore.playlists.first(where: { $0.id == playlist.id }) {
@@ -222,10 +225,13 @@ enum PlaylistPage {
             }
             return Menu(sections)
         }
+        let done = Button("Done", "flat") { selection.end() }
+        done.observe { done.isVisible = selection.isActive }
         let page = Page.make(playlist.name, content: loader.bin, heading: false) { bar in
+            bar.showsTitle(false)
+            bar.start(done)
             bar.end(menu)
             bar.end(download.root)
-            bar.end(selection.button())
         }
 
         var current = playlist
@@ -266,6 +272,7 @@ enum PlaylistPage {
         // Without the server, Play and Shuffle start the songs on this computer.
         let playable = isSaved ? app.playableHere(songs) : songs
         let artwork = ArtworkView(app, size: .full, side: 200, shape: .player)
+        artwork.root.css("detail-art")
         artwork.root.observe {
             _ = app.playlistArtwork.generation
             artwork.show(detail.coverArt ?? playlist.coverArt, playlistID: playlist.id, fallback: playlist.name)
@@ -274,20 +281,22 @@ enum PlaylistPage {
         if let count = detail.songCount { subtitle.append("\(count) songs") }
         if let duration = detail.duration { subtitle.append(duration.asLongDuration) }
 
-        let header = Box.horizontal(spacing: 24) {
+        // The phone's header: the cover centred over the name, its description and count.
+        let header = Box.vertical(spacing: 12) {
             artwork.root
-            Box.vertical(spacing: 6) {
-                Label(playlist.name, "hero-title").wrap().xalign(0)
-                if let comment = detail.comment, !comment.isEmpty { Label(comment, "dim").wrap() }
-                Label(subtitle.joined(separator: " · "), "caption", "dim")
-                Box.horizontal(spacing: 8) {
-                    Button("Play", icon: "media-playback-start-symbolic", "suggested-action", "pill") { env.play(playable, source: playlist.name) }
-                    Button("Shuffle", icon: "media-playlist-shuffle-symbolic", "pill", "glass-pill") { env.play(playable, source: playlist.name, shuffled: true) }
-                }.margins(top: 12)
-            }.valign(GTK_ALIGN_END).hexpand()
-        }
-        let body = Box.vertical(spacing: 18) {
-            Widths.stacking(header, cover: artwork.root)
+            Box.vertical(spacing: 4) {
+                Label(playlist.name, "detail-title").xalign(0.5).wrap().justify(GTK_JUSTIFY_CENTER)
+                if let comment = detail.comment, !comment.isEmpty {
+                    Label(comment, "detail-artist").xalign(0.5).wrap().justify(GTK_JUSTIFY_CENTER)
+                }
+                Label(subtitle.joined(separator: " · "), "detail-meta").xalign(0.5)
+            }
+            PlayShuffle.make(
+                play: { env.play(playable, source: playlist.name) },
+                shuffle: { env.play(playable, source: playlist.name, shuffled: true) }
+            ).margin(horizontal: 16, vertical: 0)
+        }.margins(top: 8, bottom: 16)
+        let body = Box.vertical(spacing: 0) {
             header
         }
         body.append(selection.bar(env, all: { songs }, source: playlist.name))
@@ -316,7 +325,7 @@ enum PlaylistPage {
                 body.append(ScrolledWindow(list.view).size(height: 600).vexpand())
             }
         } else {
-            let list = ListBox()
+            let list = PlainList.list()
             for (index, song) in songs.enumerated() {
                 let row = SongRowView(env, style: .artwork)
                 row.bind(song)
@@ -336,7 +345,7 @@ enum PlaylistPage {
             if songs.isEmpty { list.placeholder(Label("This playlist is empty.", "dim").margin(24)) }
             body.append(list)
         }
-        return body.margin(horizontal: 12, vertical: 24)
+        return body
     }
 
     /// A playlist's own actions for the song at `index`, first in its rows' menus.
