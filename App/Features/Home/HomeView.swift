@@ -30,7 +30,12 @@ struct HomeView: View {
                         }
                         .padding(.top, 60)
                     } else {
-                        ForEach(layout.visible) { hub in
+                        // Jump Back In leads Home wherever the layout has Recent Plays, as on
+                        // Linux.
+                        if layout.visible.contains(.recentPlays) {
+                            JumpBackIn()
+                        }
+                        ForEach(layout.visible.filter { $0 != .recentPlays }) { hub in
                             shelf(hub)
                         }
 
@@ -108,7 +113,7 @@ struct HomeView: View {
         switch hub {
         case .madeForYou: mixShelf
         case .recentPlays: RecentPlaysShelf()
-        case .stations: StationsShelf()
+        case .stations: StationTiles()
         case .recentlyPlayed: albumShelf("Recently Played", model.recentlyPlayed, sort: .recent)
         case .recentlyAdded: albumShelf("Recently Added", model.recentlyAdded, sort: .newest)
         case .newReleases: NewReleasesShelf()
@@ -349,7 +354,8 @@ struct ShelfHeader<Accessory: View>: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(title)
-                .font(.title3.weight(.semibold))
+                .font(.title2.weight(.bold))
+                .tracking(-0.3)
             Spacer()
             accessory()
             if let seeAll {

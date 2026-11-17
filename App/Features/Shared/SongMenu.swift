@@ -165,20 +165,22 @@ struct RatingStars: View {
     @Environment(UserStateStore.self) private var userState
 
     let song: Song
+    /// Small, in a line of text, as the Linux player's codec line has them.
+    var compact = false
 
     var body: some View {
         let current = userState.rating(id: song.id, serverValue: song.userRating)
 
-        HStack(spacing: 10) {
+        HStack(spacing: compact ? 0 : 10) {
             ForEach(1...5, id: \.self) { value in
                 Button {
                     userState.setRating(song, to: value, current: current)
                 } label: {
                     Image(systemName: value <= current ? "star.fill" : "star")
-                        .font(.system(size: 18))
+                        .font(.system(size: compact ? 11 : 18))
                         .foregroundStyle(value <= current ? Color.appTint : .secondary)
                         .contentShape(Rectangle())
-                        .frame(width: 28, height: 32)
+                        .frame(width: compact ? 16 : 28, height: compact ? 28 : 32)
                 }
                 .buttonStyle(.plain)
             }

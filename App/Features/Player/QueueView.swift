@@ -20,7 +20,7 @@ struct QueueView: View {
     @State private var isLoadingRelated = false
 
     private enum Tab: String, CaseIterable {
-        case earlier = "Earlier"
+        case earlier = "Back To"
         case upNext = "Up Next"
         /// Plexamp's, and the desktop's: tracks like the one playing, following it.
         case related = "Related"
@@ -74,13 +74,28 @@ struct QueueView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Picker("Queue", selection: $tab) {
-                ForEach(Tab.allCases, id: \.self) { tab in
-                    Text(tab.rawValue).tag(tab)
+            // The Linux player's tabs: small capitals, the chosen one white and
+            // underlined.
+            HStack(spacing: 18) {
+                ForEach(Tab.allCases, id: \.self) { candidate in
+                    Button {
+                        tab = candidate
+                    } label: {
+                        Text(candidate.rawValue.uppercased())
+                            .font(.caption2.weight(.bold))
+                            .tracking(0.5)
+                            .foregroundStyle(.white.opacity(tab == candidate ? 1 : 0.55))
+                            .padding(.vertical, 8)
+                            .overlay(alignment: .bottom) {
+                                if tab == candidate {
+                                    Rectangle().fill(.white).frame(height: 2)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(tab == candidate ? [.isSelected] : [])
                 }
             }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 300)
 
             Spacer(minLength: 0)
 

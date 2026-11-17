@@ -104,6 +104,12 @@ struct NowPlayingView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if let song = player.currentSong {
+                // The Linux player's order: the seekbar under the cover, then the three
+                // centred lines and the codec line with the stars and the heart in it.
+                resumeStrip
+                unreachableStrip
+                PlayerSeekBar()
+
                 // The title block is its own drag surface in *every* mode, including
                 // queue and lyrics. It is the natural place to grab from and it never
                 // scrolls, so nothing competes for the gesture here.
@@ -114,19 +120,6 @@ struct NowPlayingView: View {
                 .contentShape(Rectangle())
                 .gesture(dismissDrag)
 
-                // Artwork mode only, and deliberately its own row *outside*
-                // `PlayerSeekBar`: that view exists to contain the 4 Hz elapsed tick, and
-                // putting the stars inside it would repaint them four times a second.
-                // Rating happens while listening, which is why it belongs here and not
-                // only in a list's context menu.
-                if mode == .artwork {
-                    RatingStars(song: song)
-                        .padding(.top, 6)
-                }
-
-                resumeStrip
-                unreachableStrip
-                PlayerSeekBar()
                 transport
                 volumeRow
                 bottomRow
@@ -477,99 +470,66 @@ struct NowPlayingView: View {
             .matchedGeometryEffect(id: "artwork", in: modeNamespace)
     }
 
+    /// The Linux player's three lines, centred: the artist, the title in bold, the album
+    /// and its year dimmer. The artist and album lead to their pages, the title to what
+    /// the song is about.
     private func metadata(_ song: Song) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                // The title opens what the song is about: "what is this one about" is the question
-                // a song playing raises, and the dimmed mark says the title answers it.
+        VStack(spacing: 1) {
+            // Tappable, because "who is this" is the most common next question and
+            // the menu is two taps away.
+            //
+            // A **jump**, not a push: pushing inside the player leaves you on an
+            // artist page with no tab bar and no player bar, because the player is a
+            // layer above both. `Navigator` closes the player and opens it in Library
+            // instead, where the chrome is.
+            if let artist = song.artist {
                 Button {
-                    aboutSong = song
+                    guard let artistId = song.artistId else { return }
+                    appState.navigator.open(.artist(ArtistRef(id: artistId, name: artist)))
                 } label: {
-                    HStack(spacing: 6) {
-                        Text(song.title)
-                            .font(.title3.weight(.bold))
-                            .lineLimit(1)
-                        Image(systemName: "info.circle")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.45))
-                    }
+                    Text(artist)
+                        .font(.headline)
+                        .lineLimit(1)
                 }
                 .buttonStyle(.plain)
-                .accessibilityHint("Shows what the song is about")
-
-                // Tappable, because "who is this" is the most common next question and
-                // the menu is two taps away.
-                //
-                // A **jump**, not a push: pushing inside the player leaves you on an
-                // artist page with no tab bar and no player bar, because the player is a
-                // layer above both. `Navigator` closes the player and opens it in Library
-                // instead, where the chrome is.
-                if let artist = song.artist {
-                    if let artistId = song.artistId {
-                        Button {
-                            appState.navigator.open(
-                                .artist(ArtistRef(id: artistId, name: artist))
-                            )
-                        } label: {
-                            artistLabel(artist)
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        artistLabel(artist)
-                    }
-                }
-
-                // The album, on screen rather than two taps into a menu — "what record is
-                // this from" is the other question this screen gets asked.
-                if let album = song.album {
-                    if let albumId = song.albumId {
-                        Button {
-                            appState.navigator.open(.album(AlbumRef(
-                                id: albumId,
-                                name: album,
-                                artist: song.artist,
-                                coverArt: song.coverArt
-                            )))
-                        } label: {
-                            albumLabel(album, isLink: true)
-                        }
-                        .buttonStyle(.plain)
-                    } else {
-                        albumLabel(album, isLink: false)
-                    }
-                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
 
-            FavoriteButton(id: song.id, kind: .song, serverValue: song.isFavorite)
-                .font(.title3)
-                .frame(width: 36, height: 36)
+            // The title opens what the song is about: "what is this one about" is the
+            // question a song playing raises.
+            Button {
+                aboutSong = song
+            } label: {
+                Text(song.title)
+                    .font(.headline.weight(.heavy))
+                    .lineLimit(1)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows what the song is about")
+
+            // The album, on screen rather than two taps into a menu, with its year.
+            if let album = song.album {
+                Button {
+                    guard let albumId = song.albumId else { return }
+                    appState.navigator.open(.album(AlbumRef(
+                        id: albumId,
+                        name: album,
+                        artist: song.artist,
+                        coverArt: song.coverArt
+                    )))
+                } label: {
+                    Text(album + (song.year.map { " (\($0))" } ?? ""))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+            }
         }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
         .padding(.horizontal, 24)
-        .padding(.top, Metrics.itemSpacing)
+        .padding(.top, 6)
         .contentShape(Rectangle())
-    }
-
-    private func artistLabel(_ artist: String) -> some View {
-        Text(artist)
-            .font(.title3)
-            .foregroundStyle(.white.opacity(0.7))
-            .lineLimit(1)
-    }
-
-    /// Quieter than the artist and marked with a chevron when it goes somewhere, so the
-    /// two lines do not read as equally important.
-    private func albumLabel(_ album: String, isLink: Bool) -> some View {
-        HStack(spacing: 4) {
-            Text(album)
-                .font(.subheadline)
-                .lineLimit(1)
-            if isLink {
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-            }
-        }
-        .foregroundStyle(.white.opacity(0.5))
     }
 
     /// Shown for a few seconds when playback started part-way through a long track.
@@ -799,58 +759,38 @@ private struct PlayerDetailLine: View {
 
     private var player: PlaybackController { appState.player }
 
+    /// The Linux player's codec line: the format, the track's stars and the heart, then
+    /// the rest of what is worth knowing -- the rate, downloaded, plays, where in the
+    /// queue, the Guest DJ, the speed, a sleep timer.
     var body: some View {
+        let parts = qualityText(song).components(separatedBy: " · ")
         HStack(spacing: 6) {
-            if downloads.isDownloaded(song.id) {
-                Label("Downloaded", systemImage: "arrow.down.circle.fill")
-                    .labelStyle(.iconOnly)
-                    .foregroundStyle(Color.appTint)
-            }
-
-            Text(qualityText(song))
-
-            if let count = song.playCount, count > 0 {
-                Text("·")
-                Text("\(count) \(count == 1 ? "play" : "plays")")
-            }
-
-            if player.queue.order.count > 1 {
-                Text("·")
-                Text("\(player.queue.position + 1) of \(player.queue.order.count)")
-                    .monospacedDigit()
-            }
-
-            if let dj = guestDJ.dj {
-                Text("·")
-                Label(dj.name, systemImage: "sparkles")
-                    .foregroundStyle(Color.appTint)
-            }
-
-            if player.speed != 1 {
-                Text("·")
-                Text(String(format: "%.1f×", player.speed))
-                    .monospacedDigit()
-                    .foregroundStyle(Color.appTint)
-            }
-
-            if let label = sleepTimer.label {
-                Text("·")
-                Label(label, systemImage: "moon.fill")
-                    .foregroundStyle(Color.appTint)
-            }
-
-            if appState.screenAwake.isEnabled {
-                Text("·")
-                Label("Screen on", systemImage: "sun.max.fill")
-                    .foregroundStyle(Color.appTint)
-            }
-
+            Spacer(minLength: 0)
+            Text(parts.first ?? "")
+            RatingStars(song: song, compact: true)
+            FavoriteButton(id: song.id, kind: .song, serverValue: song.isFavorite)
+                .font(.footnote)
+                .frame(width: 24, height: 28)
+            Text(details(Array(parts.dropFirst())))
+                .lineLimit(1)
             Spacer(minLength: 0)
         }
         .font(.caption2)
-        .foregroundStyle(.white.opacity(0.55))
-        .padding(.horizontal, 24)
-        .padding(.top, 5)
+        .foregroundStyle(.white.opacity(0.6))
+        .padding(.horizontal, 16)
+        .padding(.top, 2)
+    }
+
+    private func details(_ quality: [String]) -> String {
+        var rest = quality
+        if downloads.isDownloaded(song.id) { rest.append("Downloaded") }
+        if let count = song.playCount, count > 0 { rest.append("\(count) \(count == 1 ? "play" : "plays")") }
+        if player.queue.order.count > 1 { rest.append("\(player.queue.position + 1) of \(player.queue.order.count)") }
+        if let dj = guestDJ.dj { rest.append("✦ \(dj.name)") }
+        if player.speed != 1 { rest.append(String(format: "%.1f×", player.speed)) }
+        if let label = sleepTimer.label { rest.append("☾ \(label)") }
+        if appState.screenAwake.isEnabled { rest.append("☀ Screen on") }
+        return rest.joined(separator: " · ")
     }
 
     /// "FLAC 24/96", "MP3 320 kbps". For lossless the depth and rate are the useful
