@@ -9,6 +9,7 @@ enum WidgetControl {
     enum Action: Sendable {
         case toggle, next, previous
         case mix(Int)
+        case playlist(String)
     }
 
     static var handler: (@MainActor (Action) async -> Void)?
@@ -69,6 +70,28 @@ struct PlayWidgetMixIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         await WidgetControl.run(.mix(number))
+        return .result()
+    }
+}
+
+/// One of the pinned playlists the Now Playing widget shows when nothing is playing: opens
+/// the app, which plays it.
+struct PlayWidgetPlaylistIntent: AppIntent {
+    static let title: LocalizedStringResource = "Play a Pinned Playlist"
+    static let isDiscoverable = false
+    static let openAppWhenRun = true
+
+    @Parameter(title: "Playlist")
+    var id: String
+
+    init() {}
+
+    init(id: String) {
+        self.id = id
+    }
+
+    func perform() async throws -> some IntentResult {
+        await WidgetControl.run(.playlist(id))
         return .result()
     }
 }

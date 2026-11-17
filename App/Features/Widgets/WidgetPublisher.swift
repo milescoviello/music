@@ -53,6 +53,23 @@ final class WidgetPublisher {
         store(next, reloading: "MadeForYou")
     }
 
+    /// The pinned playlists, which Now Playing shows when nothing is playing: up to four,
+    /// in his order, each with its cover -- his own chosen image where there is one.
+    func pinned(_ playlists: [Playlist], artwork: ArtworkStore, custom: PlaylistArtwork) async {
+        guard AppGroup.container != nil else { return }
+        let shown = Array(playlists.prefix(4))
+        let listed = shown.map { WidgetSnapshot.Pinned(id: $0.id, name: $0.name) }
+        guard listed != snapshot.pinned else { return }
+        for (index, playlist) in shown.enumerated() {
+            var image = custom.image(for: playlist.id)
+            if image == nil { image = await artwork.image(for: playlist.coverArt, size: .thumb) }
+            WidgetSnapshot.setImage(image.flatMap { Self.jpeg($0, side: 200) }, WidgetSnapshot.pinnedCoverName(index + 1))
+        }
+        var next = snapshot
+        next.pinned = listed
+        store(next, reloading: "NowPlaying")
+    }
+
     private func store(_ next: WidgetSnapshot, reloading kind: String) {
         snapshot = next
         snapshot.updated = .now

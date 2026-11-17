@@ -18,6 +18,7 @@ struct SnapshotEntry: TimelineEntry {
     let snapshot: WidgetSnapshot?
     let cover: Data?
     let mixCovers: [Int: Data]
+    var pinnedCovers: [Int: Data] = [:]
 }
 
 struct SnapshotProvider: TimelineProvider {
@@ -42,8 +43,12 @@ struct SnapshotProvider: TimelineProvider {
         for mix in snapshot?.mixes ?? [] {
             covers[mix.number] = WidgetSnapshot.image(WidgetSnapshot.mixCoverName(mix.number))
         }
+        var pinned: [Int: Data] = [:]
+        for number in (snapshot?.pinned ?? []).indices.map({ $0 + 1 }) {
+            pinned[number] = WidgetSnapshot.image(WidgetSnapshot.pinnedCoverName(number))
+        }
         return SnapshotEntry(date: .now, snapshot: snapshot, cover: WidgetSnapshot.image(WidgetSnapshot.coverName),
-                             mixCovers: covers)
+                             mixCovers: covers, pinnedCovers: pinned)
     }
 }
 
@@ -76,7 +81,7 @@ struct NowPlayingWidget: Widget {
             NowPlayingView(entry: entry)
         }
         .configurationDisplayName("Now Playing")
-        .description("The song playing, with play, pause and skip.")
+        .description("The song playing, with play, pause and skip; your pinned playlists when nothing is.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryRectangular])
     }
 }
@@ -91,8 +96,12 @@ struct NowPlayingView: View {
         Group {
             switch family {
             case .accessoryRectangular: lockScreen
+            // Nothing playing: the pinned playlists, a tap from playing, rather than a
+            // blank cover. The medium one keeps a line to resume what was paused.
+            case .systemMedium where showsPinned: pinnedMedium
             case .systemMedium: medium
-            default: small
+            default:
+                if snapshot?.title == nil && !pinned.isEmpty { pinnedSmall } else { small }
             }
         }
         .containerBackground(for: .widget) {
@@ -102,6 +111,67 @@ struct NowPlayingView: View {
                 Color.black
             }
         }
+    }
+
+    private var pinned: [WidgetSnapshot.Pinned] { snapshot?.pinned ?? [] }
+
+    private var showsPinned: Bool { snapshot?.isPlaying != true && !pinned.isEmpty }
+
+    private func pinnedButton(_ playlist: WidgetSnapshot.Pinned, number: Int, named: Bool) -> some View {
+        Button(intent: PlayWidgetPlaylistIntent(id: playlist.id)) {
+            VStack(alignment: .leading, spacing: 3) {
+                Cover(data: entry.pinnedCovers[number], corner: 8).aspectRatio(1, contentMode: .fit)
+                if named {
+                    Text(playlist.name).font(.caption2.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Four covers, two by two.
+    private var pinnedSmall: some View {
+        let shown = Array(pinned.prefix(4).enumerated())
+        return VStack(spacing: 8) {
+            ForEach([0, 2], id: \.self) { start in
+                HStack(spacing: 8) {
+                    ForEach(shown.filter { $0.offset >= start && $0.offset < start + 2 }, id: \.offset) { item in
+                        pinnedButton(item.element, number: item.offset + 1, named: false)
+                    }
+                    if shown.count < start + 2 { Color.clear.frame(maxWidth: .infinity) }
+                }
+            }
+        }
+    }
+
+    /// What was paused, to resume, over the pinned playlists in a row.
+    private var pinnedMedium: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                if let title = snapshot?.title {
+                    Text(title).font(.caption.weight(.semibold)).lineLimit(1)
+                    if let artist = snapshot?.artist {
+                        Text(artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    playButton.font(.body)
+                } else {
+                    Text("Pinned").font(.headline)
+                    Spacer(minLength: 0)
+                }
+            }
+            HStack(alignment: .top, spacing: 10) {
+                ForEach(Array(pinned.prefix(4).enumerated()), id: \.offset) { item in
+                    pinnedButton(item.element, number: item.offset + 1, named: true)
+                }
+                // Fewer than four keep their covers the size of four.
+                ForEach(0..<(4 - min(4, pinned.count)), id: \.self) { _ in
+                    Color.clear.frame(maxWidth: .infinity)
+                }
+            }
+        }
+        .foregroundStyle(.white)
     }
 
     private var titleText: String { snapshot?.title ?? (AppGroup.container == nil ? "Open Music" : "Nothing playing") }

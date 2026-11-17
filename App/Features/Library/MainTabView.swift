@@ -10,6 +10,10 @@ struct MainTabView: View {
 
     private var navigator: Navigator { appState.navigator }
 
+    private var pinnedPlaylists: [Playlist] {
+        appState.playlistArrangement.arranged(playlistStore.playlists).pinned
+    }
+
     /// A YouTube result from search, full screen until it is closed.
     private var watching: Binding<VideoClient.Video?> {
         Binding(
@@ -63,6 +67,10 @@ struct MainTabView: View {
         .tint(Color.appTint)
         .task(id: appState.player.currentSong?.coverArt) {
             await CoverTint.shared.follow(appState.player.currentSong?.coverArt, artwork: appState.artwork)
+        }
+        // What the Now Playing widget offers when nothing is playing.
+        .task(id: pinnedPlaylists.map { $0.id + $0.name }) {
+            await WidgetPublisher.shared.pinned(pinnedPlaylists, artwork: appState.artwork, custom: appState.playlistArtwork)
         }
         // Full screen over everything, the player included: watching it is the point.
         .fullScreenCover(item: watching) { video in

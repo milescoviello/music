@@ -11,17 +11,28 @@ struct WidgetSnapshot: Codable, Sendable, Equatable {
         var subtitle: String
     }
 
+    /// A pinned playlist, shown when nothing is playing: a tap plays it.
+    struct Pinned: Codable, Sendable, Equatable {
+        var id: String
+        var name: String
+    }
+
     var title: String?
     var artist: String?
     var album: String?
     var isPlaying: Bool = false
     var mixes: [Mix] = []
+    /// Optional, so a snapshot written before there were any still decodes.
+    var pinned: [Pinned]?
     var updated: Date = .now
 
     static let fileName = "widget.json"
     static let coverName = "widget-cover.jpg"
 
     static func mixCoverName(_ number: Int) -> String { "widget-mix-\(number).jpg" }
+
+    /// By place, from 1, as the mixes' are.
+    static func pinnedCoverName(_ number: Int) -> String { "widget-pinned-\(number).jpg" }
 
     static func load() -> WidgetSnapshot? {
         guard let url = AppGroup.container?.appendingPathComponent(fileName),

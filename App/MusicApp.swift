@@ -29,6 +29,10 @@ struct MusicApp: App {
             case .next: appState.player.next()
             case .previous: appState.player.previous()
             case let .mix(number): _ = await appState.quickPlay(.madeForYou, mix: number)
+            case let .playlist(id):
+                await appState.playlistStore.loadIfNeeded()
+                guard let target = appState.playlistStore.playlists.first(where: { $0.id == id }) else { return }
+                _ = await appState.play(target, shuffled: false)
             }
         }
     }
