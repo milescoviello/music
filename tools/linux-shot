@@ -54,13 +54,13 @@ dbus-run-session -- bash -s "$binary" "$data" "$config" "$width" "$height" "$wai
 binary=$1 data=$2 config=$3 width=$4 height=$5 wait=$6; shift 6
 socket=music-shot-$$
 kwin_wayland --virtual --no-lockscreen --socket "$socket" \
-    --width $((width * 2)) --height $((height * 2)) --scale 2 >/dev/null 2>&1 &
+    --width "$width" --height "$height" --scale 2 >/dev/null 2>&1 &
 kwin=$!
 for _ in $(seq 50); do [[ -S $XDG_RUNTIME_DIR/$socket ]] && break; sleep 0.1; done
 while [[ $# -gt 0 ]]; do
     route=$1 out=$2; shift 2
     WAYLAND_DISPLAY=$socket GDK_BACKEND=wayland XDG_DATA_HOME=$data XDG_CONFIG_HOME=$config \
-        MUSIC_READONLY=1 MUSIC_OPEN=$route "$binary" >/dev/null 2>&1 &
+        GDK_DEBUG=no-portals MUSIC_READONLY=1 MUSIC_OPEN=$route "$binary" >/dev/null 2>&1 &
     app=$!
     sleep "$wait"
     WAYLAND_DISPLAY=$socket QT_QPA_PLATFORM=wayland spectacle -b -n -f -o "$out" >/dev/null 2>&1
@@ -68,4 +68,10 @@ while [[ $# -gt 0 ]]; do
     [[ -s $out ]] && echo "$out" || echo "no shot for $route" >&2
 done
 kill "$kwin" 2>/dev/null; wait "$kwin" 2>/dev/null
+# Anything D-Bus started for this session (the a11y registry, a portal) outlives it and
+# holds the caller's pipe open: end every process on this bus.
+for p in $(pgrep -u "$USER"); do
+    grep -qzx "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" "/proc/$p/environ" 2>/dev/null \
+        && [[ $p != $$ ]] && kill "$p" 2>/dev/null
+done
 EOF
