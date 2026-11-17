@@ -54,9 +54,13 @@ public enum MusicApplication {
             self.shell = shell
             shell.present()
             // After the window, which a pairing code is shown over.
-            RemotePairingPrompt.install()
-            RemoteControlServer.shared.volume = ({ OutputVolume.shared.level }, { OutputVolume.shared.level = $0 })
-            RemoteControlServer.shared.start(app: state, advertiser: Avahi())
+            if ReadOnly.isOn {
+                ShotRoute.open(ProcessInfo.processInfo.environment["MUSIC_OPEN"], app: state, shell: shell)
+            } else {
+                RemotePairingPrompt.install()
+                RemoteControlServer.shared.volume = ({ OutputVolume.shared.level }, { OutputVolume.shared.level = $0 })
+                RemoteControlServer.shared.start(app: state, advertiser: Avahi())
+            }
             if let command = pendingCommand {
                 pendingCommand = nil
                 run(command)

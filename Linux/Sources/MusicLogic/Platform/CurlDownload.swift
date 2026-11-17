@@ -193,6 +193,7 @@ enum CurlFetch {
 
     static func data(for request: URLRequest, timeout: TimeInterval) async throws -> (Data, URLResponse) {
         guard let url = request.url else { throw URLError(.badURL) }
+        if ReadOnly.refuses(request) { throw URLError(.cancelled) }
         let answer = Answer()
         let (status, finalURL) = try await withTaskCancellationHandler {
             try await CurlDownload.onOwnThread { try perform(request, url: url, into: answer, timeout: timeout) }

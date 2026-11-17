@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# Screenshot the Linux app without touching the desktop it runs on.
+#
+#   tools/linux-shot [-s WxH] [-w seconds] [--fresh] route out.png [route out.png ...]
+#
+# Runs the debug build in a hidden KWin (virtual framebuffer, its own D-Bus session) on a
+# copy of the app's data, in read-only mode: it reads the server and sends it nothing
+# (`ReadOnly.swift`), doesn't advertise itself as a remote, and doesn't auto-download.
+# The copy is a btrfs reflink, so it costs no space; `--fresh` makes it again.
+# Size is in logical pixels, drawn at scale 2. Default 440x956, the iPhone's own.
+set -euo pipefail
+
+size=440x956 wait=8 fresh=0
+while [[ $# -gt 0 && $1 == -* ]]; do
+    case $1 in
+        -s) size=$2; shift 2 ;;
+        -w) wait=$2; shift 2 ;;
+        --fresh) fresh=1; shift ;;
+        *) echo "unknown option $1" >&2; exit 2 ;;
+    esac
+done
+[[ $# -ge 2 && $(( $# % 2 )) -eq 0 ]] || { sed -n 4,5p "$0"; exit 2; }
+
+repo=$(cd "$(dirname "$0")/.." && pwd)
+binary=$repo/.build/debug/music
+# On the same btrfs as the real data, or the reflink copy fails.
+state=${XDG_CACHE_HOME:-$HOME/.cache}/music-shot
+data=$state/data config=$state/config
+width=${size%x*} height=${size#*x}
+
+if [[ $fresh == 1 || ! -d $data/com.milescoviello.Music ]]; then
+    rm -rf "$state"
+    mkdir -p "$data" "$config"
+    cp -a --reflink=always "$HOME/.local/share/com.milescoviello.Music" "$data/"
+    rm -rf "$data/com.milescoviello.Music/Outbox"
+    [[ -d $HOME/.config/gtk-4.0 ]] && cp -a "$HOME/.config/gtk-4.0" "$config/"
+    cp "$HOME/.config/music.plist" "$config/music.plist"
+fi
+
+python3 -I - "$config/music.plist" "$width" "$height" <<'EOF'
+import plistlib, sys
+path, w, h = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+with open(path, "rb") as f:
+    p = plistlib.load(f)
+p.update({"playlistSync.enabled": False, "downloads.mostPlayed.wanted": False,
+          "window.width": w, "window.height": h, "window.maximized": True})
+with open(path, "wb") as f:
+    plistlib.dump(p, f)
+EOF
+
+shift_pairs=("$@")
+export LD_LIBRARY_PATH=$HOME/.local/lib/swift-compat
+dbus-run-session -- bash -s "$binary" "$data" "$config" "$width" "$height" "$wait" "${shift_pairs[@]}" <<'EOF'
+binary=$1 data=$2 config=$3 width=$4 height=$5 wait=$6; shift 6
+socket=music-shot-$$
+kwin_wayland --virtual --no-lockscreen --socket "$socket" \
+    --width $((width * 2)) --height $((height * 2)) --scale 2 >/dev/null 2>&1 &
+kwin=$!
+for _ in $(seq 50); do [[ -S $XDG_RUNTIME_DIR/$socket ]] && break; sleep 0.1; done
+while [[ $# -gt 0 ]]; do
+    route=$1 out=$2; shift 2
+    WAYLAND_DISPLAY=$socket GDK_BACKEND=wayland XDG_DATA_HOME=$data XDG_CONFIG_HOME=$config \
+        MUSIC_READONLY=1 MUSIC_OPEN=$route "$binary" >/dev/null 2>&1 &
+    app=$!
+    sleep "$wait"
+    WAYLAND_DISPLAY=$socket QT_QPA_PLATFORM=wayland spectacle -b -n -f -o "$out" >/dev/null 2>&1
+    kill "$app" 2>/dev/null; wait "$app" 2>/dev/null
+    [[ -s $out ]] && echo "$out" || echo "no shot for $route" >&2
+done
+kill "$kwin" 2>/dev/null; wait "$kwin" 2>/dev/null
+EOF
