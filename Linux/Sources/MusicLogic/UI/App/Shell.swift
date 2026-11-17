@@ -174,7 +174,7 @@ final class Shell {
         main.top(RemoteQueueBar.make(app))
         main.top(offlineBanner())
 
-        let player = NowPlaying(app: app, shell: self)
+        let player = PhonePlayer(app: app, env: navigation.env)
         let sheet = PlayerLayer(content: main, player: player.root)
         self.sheet = sheet
         sheet.onOpenChanged { [app] open in
@@ -229,7 +229,12 @@ final class Shell {
     private func takeNavigationRequests() {
         let requests = app.navigator.takeRequests()
         guard !requests.isEmpty, let navigation else { return }
-        if app.navigator.wantsLibraryTab { app.navigator.didSelectLibraryTab() }
+        // A jump out of the player opens in Library, as on the phone, where the way back is
+        // ordinary navigation.
+        if app.navigator.wantsLibraryTab {
+            app.navigator.didSelectLibraryTab()
+            navigation.switchTo(.library)
+        }
         for destination in requests { navigation.push(destination) }
     }
 

@@ -473,5 +473,52 @@ enum Style {
 
     popover > contents, popover > arrow { background-color: alpha(#252527, 0.97); }
     popover > contents { border-radius: 16px; }
+
+    /* The phone's player. */
+    .phone-player { color: #ffffff; }
+    .np-wash { background-color: alpha(#000000, 0.45); }
+    .np-cover-frame { margin: 6px 24px 0 24px; }
+    .phone-player .artwork.player { border-radius: 12px; box-shadow: 0 12px 28px alpha(#000000, 0.5);
+                                    transition: transform 350ms cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+    .phone-player .artwork.player.paused { transform: scale(0.86); }
+    button.np-top-button { min-width: 44px; min-height: 44px; padding: 0; -gtk-icon-size: 20px;
+                           color: alpha(#ffffff, 0.8); background: none; box-shadow: none; }
+    button.np-top-button:hover { background-color: alpha(#ffffff, 0.08); }
+    .np-source-heading { font-size: 11px; font-weight: 600; color: alpha(#ffffff, 0.5); }
+    .np-source { font-size: 12px; font-weight: 500; color: alpha(#ffffff, 0.85); }
+    button.np-plain { background: none; box-shadow: none; padding: 0 2px; min-height: 0; border-radius: 6px; }
+    button.np-plain:hover { background-color: alpha(#ffffff, 0.06); }
+    .np-title { font-size: 20px; font-weight: 700; }
+    .np-info { color: alpha(#ffffff, 0.45); }
+    .np-artist { font-size: 20px; color: alpha(#ffffff, 0.7); }
+    .np-album { font-size: 15px; color: alpha(#ffffff, 0.5); }
+    button.np-heart-big { min-width: 36px; min-height: 36px; padding: 0; -gtk-icon-size: 24px; color: #ffffff;
+                          background: none; box-shadow: none; }
+    button.np-heart-big.filled { color: var(--accent-color); }
+    .np-detail { font-size: 11px; color: alpha(#ffffff, 0.55); }
+    .np-detail.accent { color: var(--accent-color); }
+    button.np-star-big { min-width: 34px; min-height: 34px; padding: 0; -gtk-icon-size: 24px;
+                         color: alpha(#ffffff, 0.55); background: none; box-shadow: none; }
+    button.np-star-big.filled { color: var(--accent-color); }
+    button.np-side, button.np-skip, button.np-skip-seconds, button.np-play-circle, button.np-mode {
+        padding: 0; color: #ffffff; background: none; box-shadow: none; }
+    button.np-side { min-width: 44px; min-height: 44px; -gtk-icon-size: 22px; }
+    button.np-side.active { color: var(--accent-color); }
+    button.np-skip { min-width: 52px; min-height: 52px; -gtk-icon-size: 32px; }
+    button.np-skip-seconds { min-width: 44px; min-height: 44px; -gtk-icon-size: 24px; }
+    button.np-play-circle { min-width: 68px; min-height: 68px; -gtk-icon-size: 68px; }
+    button.np-side:hover, button.np-skip:hover, button.np-skip-seconds:hover, button.np-mode:hover {
+        background-color: alpha(#ffffff, 0.08); border-radius: 9999px; }
+    button.np-play-circle:hover { filter: brightness(0.9); }
+    .np-speaker { color: alpha(#ffffff, 0.5); }
+    .phone-player .time { font-size: 12px; color: alpha(#ffffff, 0.6); opacity: 1; font-feature-settings: "tnum"; }
+    scale.np-volume trough { min-height: 6px; border-radius: 3px; background-color: alpha(#ffffff, 0.22); }
+    scale.np-volume highlight { background-color: var(--accent-bg-color); border-radius: 3px; min-height: 6px; }
+    scale.np-volume slider { min-width: 38px; min-height: 24px; margin: -9px -6px; border-radius: 12px;
+                             background-color: #ffffff; box-shadow: 0 2px 6px alpha(#000000, 0.3); border: none; }
+    .np-bottom-row { margin: 10px 20px 6px 20px; }
+    button.np-mode, .np-bottom-row button.np-small { min-height: 44px; -gtk-icon-size: 24px;
+        color: alpha(#ffffff, 0.6); background: none; box-shadow: none; }
+    button.np-mode.selected, .np-bottom-row button.np-small.active { color: var(--accent-color); }
     """
 }

@@ -137,8 +137,9 @@ final class SeekBar {
             canvas.opacity(duration > 0 ? 1 : 0.35)
             return
         }
-        // Rather than "0:00", which reads as a bug — and was one.
-        remainingLabel.text = duration > 0 ? "-" + Int(max(duration - position, 0)).asDuration : "--:--"
+        // What is left, as the phone shows it (no minus sign); "--:--" rather than "0:00",
+        // which reads as a bug — and was one.
+        remainingLabel.text = duration > 0 ? Int(max(duration - position, 0)).asDuration : "--:--"
         canvas.opacity(duration > 0 ? 1 : 0.35)
     }
 

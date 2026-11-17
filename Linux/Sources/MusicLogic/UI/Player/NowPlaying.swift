@@ -654,7 +654,7 @@ final class NowPlaying {
     /// click is Change Video. Under it, why the cover shows when Video is chosen.
     /// `showVideo` brings the picture forward: choosing Video from the lyrics or the
     /// visualiser is asking to see it.
-    private static func videoSwitch(
+    static func videoSwitch(
         _ app: AppState,
         showVideo: @escaping @MainActor () -> Void,
         changeVideo: @escaping @MainActor () -> Void
@@ -714,7 +714,7 @@ final class NowPlaying {
 
     /// The song's video where the cover goes, with a button and a double click for full
     /// screen.
-    private static func videoPane(_ app: AppState, fullScreen: @escaping @MainActor () -> Void) -> Widget {
+    static func videoPane(_ app: AppState, fullScreen: @escaping @MainActor () -> Void) -> Widget {
         let surface = VideoSurfaceView(app)
         let full = Button(icon: "view-fullscreen-symbolic", "circular", "np-video-full") { fullScreen() }
         full.tooltip("Full Screen")
@@ -932,7 +932,7 @@ final class NowPlaying {
 
     /// Shown for a few seconds when playback started part-way through a long track, with
     /// the way back to the start.
-    private static func resumeStrip(_ app: AppState) -> Widget {
+    static func resumeStrip(_ app: AppState) -> Widget {
         let player = app.player
         let label = Label("", "caption")
         let strip = Box.horizontal(spacing: 10) {
@@ -959,7 +959,7 @@ final class NowPlaying {
 
     /// Shown while the track playing could not be fetched because the server did not
     /// answer: why it stopped, and the way to try again.
-    private static func unreachableStrip(_ app: AppState) -> Widget {
+    static func unreachableStrip(_ app: AppState) -> Widget {
         let player = app.player
         let label = Label("", "caption")
         let retry = Button("Try Again", "flat", "caption-heading") { player.play() }

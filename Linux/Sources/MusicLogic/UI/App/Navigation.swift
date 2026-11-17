@@ -90,6 +90,13 @@ final class Navigation {
         }
     }
 
+    /// A tab, left as it was: where a jump lands before pushing its page.
+    func switchTo(_ section: Shell.Section) {
+        guard histories[section] != nil, section != self.section else { return }
+        self.section = section
+        show()
+    }
+
     func goBack() {
         guard var history = histories[section], history.count > 1 else { return }
         let dropped = history.removeLast()

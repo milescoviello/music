@@ -11,7 +11,7 @@ enum PlayOn {
 
     /// The player's button, tinted while another computer is being played to.
     static func button(_ env: Env) -> Widget {
-        let button = Button(icon: "video-display-symbolic", "flat", "np-small")
+        let button = Button(icon: Symbol.icon("desktopcomputer"), "flat", "np-small")
         button.tooltip("Play On")
         button.onClicked { present(env) }
         button.observe {
