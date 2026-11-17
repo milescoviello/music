@@ -1,8 +1,9 @@
 import CGtk
 import Foundation
 
-/// The play queue, Plexamp's way: three tabs, BACK TO what already played, UP NEXT, and
-/// RELATED tracks to the one playing — Plexamp's queue under or beside its player.
+/// The play queue, the phone's `QueueView`: Earlier, Up Next and Related in a segmented
+/// picker, Edit and the queue's menu beside it, the songs as plain rows (a right-click is
+/// the phone's long press; dragging moves one, as Edit's handles do there).
 /// Autoplay's choices sit at the end of Up Next, shown as what they are, with the songs
 /// the selected one will play listed under them.
 @MainActor
@@ -11,15 +12,16 @@ final class QueuePane {
         // Remembered by number, so Lyrics, which came later, comes last here.
         case backTo, upNext, related, lyrics
 
-        /// In the order the tabs show.
-        static let shown: [Tab] = [.lyrics, .backTo, .upNext, .related]
+        /// In the order the phone's picker shows them. The lyrics are the player's own
+        /// mode there, not a tab of the queue.
+        static let shown: [Tab] = [.backTo, .upNext, .related]
 
         var title: String {
             switch self {
-            case .lyrics: return "LYRICS"
-            case .backTo: return "BACK TO"
-            case .upNext: return "UP NEXT"
-            case .related: return "RELATED"
+            case .lyrics: return "Lyrics"
+            case .backTo: return "Earlier"
+            case .upNext: return "Up Next"
+            case .related: return "Related"
             }
         }
     }
@@ -29,8 +31,8 @@ final class QueuePane {
     private let pages = Stack(transition: GTK_STACK_TRANSITION_TYPE_NONE)
     private var tabButtons: [Tab: ToggleButton] = [:]
     private var tab: Tab
-    private let backList = ListBox(boxed: false)
-    private let upNextList = ListBox(boxed: false)
+    private let backList = PlainList.list()
+    private let upNextList = PlainList.list()
     private let relatedBox = Box.vertical(spacing: 6)
     private let empty = Label("", "dim").xalign(0.5).justify(GTK_JUSTIFY_CENTER).wrap()
     private let backEmpty = Label("Earlier tracks in the play queue\nwill show up here", "dim").xalign(0.5).justify(GTK_JUSTIFY_CENTER).wrap()
@@ -47,17 +49,41 @@ final class QueuePane {
     init(env: Env) {
         self.env = env
         tab = Tab(rawValue: UserDefaults.standard.integer(forKey: Self.tabKey)) ?? .upNext
-        if UserDefaults.standard.object(forKey: Self.tabKey) == nil { tab = .upNext }
+        if UserDefaults.standard.object(forKey: Self.tabKey) == nil || tab == .lyrics { tab = .upNext }
 
-        let bar = Box.horizontal(spacing: 0).homogeneous().css("queue-tabs")
+        let picker = Box.horizontal(spacing: 0).homogeneous().css("segmented")
         var first: ToggleButton?
         for candidate in Tab.shown {
-            let button = ToggleButton(candidate.title, "flat", "queue-tab")
+            let button = ToggleButton(candidate.title, "segment")
             if let first { button.group(with: first) }
             first = first ?? button
             tabButtons[candidate] = button
-            bar.append(button)
+            picker.append(button)
         }
+        // The queue's own menu: a queue built by hand is the one thing that exists nowhere
+        // else, so it gets a way out to a playlist.
+        let player = env.player
+        let menu = MenuButton(icon: Symbol.icon("ellipsis.circle"), "flat", "np-top-button") { [env] in
+            Menu([[
+                .action("Save Play Queue as Playlist…", enabled: !player.queue.tracks.isEmpty) {
+                    let songs = player.queue.order.compactMap { player.queue.tracks.indices.contains($0) ? player.queue.tracks[$0] : nil }
+                    Menus.newPlaylist(env, songs, suggested: player.queue.sourceDescription)
+                },
+                .action("Clear Play Queue", destructive: true, enabled: player.queue.hasUpNext || player.queue.position > 0) {
+                    Dialogs.alert(
+                        "Clear Play Queue?",
+                        body: "The track playing keeps playing.",
+                        responses: [("cancel", "Cancel", ADW_RESPONSE_DEFAULT), ("clear", "Clear Play Queue", ADW_RESPONSE_DESTRUCTIVE)]
+                    ) { if $0 == "clear" { player.clearQueue() } }
+                },
+            ]])
+        }
+        menu.tooltip("Queue Options")
+        let bar = Box.horizontal(spacing: 12) {
+            picker.size(width: 300, height: -1)
+            Spacer()
+            menu
+        }.margin(horizontal: 24, vertical: 4)
 
         let (backList, upNextList, empty, backEmpty, autoplay, relatedBox) =
             (self.backList, self.upNextList, self.empty, self.backEmpty, self.autoplay, self.relatedBox)
@@ -93,7 +119,6 @@ final class QueuePane {
         tabButtons[tab]?.isActive = true
         show(tab)
 
-        let player = env.player
         root.observe {
             _ = player.queue
             _ = player.currentSong?.id
@@ -143,7 +168,7 @@ final class QueuePane {
     /// Plexamp's queue row: the cover, the title, the artist with the track's stars, and
     /// a menu at the end.
     private func row(_ song: Song, actions: [Menu.Item], marked: Bool) -> Widget {
-        let artwork = ArtworkView(env.app, size: .thumb, side: 37, shape: .thumb)
+        let artwork = ArtworkView(env.app, size: .thumb, side: 40, shape: .thumb)
         artwork.show(song.coverArt, fallback: song.album ?? song.title)
         // The stars follow the rating from the row's own observer. Read while the queue
         // was built, every rating anywhere rebuilt the whole queue.
@@ -155,30 +180,26 @@ final class QueuePane {
             stars.isVisible = rating > 0
         }
         let subtitle = Box.horizontal(spacing: 6) {
-            Label(song.artist ?? "", "queue-artist").ellipsize()
+            Label([song.artist, song.album].compactMap { $0 }.joined(separator: " — "), "plain-subtitle").ellipsize().xalign(0)
             stars
         }
         let env = env
-        let menu = MenuButton(icon: "view-more-symbolic", "flat", "circular", "queue-more") {
-            var sections = Menus.song(env, song, showsNavigation: false, showsQueueItems: false).sections
-            if !actions.isEmpty { sections.insert(actions, at: 0) }
-            sections.append(Menus.navigationItems(env, song, jumps: true))
-            return Menu(sections)
-        }
-        menu.valign(GTK_ALIGN_CENTER)
-        let line = Box.horizontal(spacing: 10) {
-            artwork.root
-            Box.vertical(spacing: 1) {
-                Label(song.title, "queue-title").ellipsize().xalign(0)
+        let body = Box.horizontal(spacing: 8) {
+            Box.vertical(spacing: 2) {
+                Label(song.title, "plain-title").ellipsize().xalign(0)
                 subtitle
             }.hexpand().valign(GTK_ALIGN_CENTER)
-        }
+        }.css("plain-row-body")
+        body.size(width: -1, height: 62)
         if marked {
             // Plexamp marks the Guest DJ's picks, so its taste can be told from yours.
-            line.append(Icon("starred-symbolic", size: 12).css("accent").tooltip("Picked by \(env.app.guestDJ.dj?.name ?? "the DJ")").valign(GTK_ALIGN_CENTER))
+            body.append(Icon(Symbol.icon("sparkles"), size: 13).css("accent").tooltip("Picked by \(env.app.guestDJ.dj?.name ?? "the DJ")").valign(GTK_ALIGN_CENTER))
         }
-        line.append(menu)
-        line.css("queue-row")
+        let line = Box.horizontal(spacing: 12) {
+            artwork.root.valign(GTK_ALIGN_CENTER)
+            body.hexpand()
+        }
+        line.css("queue-row", "plain-row")
         line.contextMenu { [env] in
             var sections = Menus.song(env, song, showsNavigation: false, showsQueueItems: false).sections
             if !actions.isEmpty { sections.insert(actions, at: 0) }

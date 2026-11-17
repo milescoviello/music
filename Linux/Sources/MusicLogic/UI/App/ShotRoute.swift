@@ -49,6 +49,8 @@ enum ShotRoute {
         } else if route.hasPrefix("search:") {
             shell.select(.search)
             shell.navigation?.searchEntry?.text = String(route.dropFirst(7))
+        } else if route.hasPrefix("player:"), let mode = PhonePlayer.Mode(rawValue: String(route.dropFirst(7))) {
+            shell.player?.open(mode)
         } else if route == "player" {
             app.navigator.showsPlayer = true
         } else if let section = Shell.Section(rawValue: route) {

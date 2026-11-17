@@ -629,6 +629,10 @@ enum Style {
     scale.np-volume slider { min-width: 38px; min-height: 24px; margin: -9px -6px; border-radius: 12px;
                              background-color: #ffffff; box-shadow: 0 2px 6px alpha(#000000, 0.3); border: none; }
     .np-bottom-row { margin: 10px 20px 6px 20px; }
+    .phone-player .plain-row-body { border-bottom-color: alpha(#ffffff, 0.12); }
+    .phone-player .plain-subtitle { color: alpha(#ffffff, 0.6); }
+    .phone-player .segmented { background-color: alpha(#ffffff, 0.12); }
+    .phone-player list.plain-list > row:hover { background-color: alpha(#ffffff, 0.06); }
     button.np-mode, .np-bottom-row button.np-small { min-height: 44px; -gtk-icon-size: 24px;
         color: alpha(#ffffff, 0.6); background: none; box-shadow: none; }
     button.np-mode.selected, .np-bottom-row button.np-small.active { color: var(--accent-color); }

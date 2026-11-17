@@ -45,6 +45,8 @@ final class Shell {
     private let root = Bin()
     private(set) var navigation: Navigation?
     private var sheet: PlayerLayer?
+    /// The full player, for what opens it showing one of its modes.
+    private(set) var player: PhonePlayer?
     private var builtFor: AppState.Phase?
     var section: Section { navigation?.section ?? .home }
 
@@ -175,6 +177,7 @@ final class Shell {
         main.top(offlineBanner())
 
         let player = PhonePlayer(app: app, env: navigation.env)
+        self.player = player
         let sheet = PlayerLayer(content: main, player: player.root)
         self.sheet = sheet
         sheet.onOpenChanged { [app] open in
