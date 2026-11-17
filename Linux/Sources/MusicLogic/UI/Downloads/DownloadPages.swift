@@ -12,11 +12,12 @@ enum DownloadsPage {
         let app = env.app
         let store = app.downloadFolders
         let entry = SearchEntry(placeholder: "Albums, Playlists, Songs")
-        let content = Box.vertical(spacing: 18)
+        entry.css("ios-search").margin(horizontal: 16, vertical: 0)
+        let content = Box.vertical(spacing: 0)
         let body = Box.vertical(spacing: 18) {
             entry
             content
-        }.margin(horizontal: 12, vertical: 18)
+        }.margins(top: 4, bottom: 18)
 
         func fill() {
             content.removeAll()
@@ -39,8 +40,8 @@ enum DownloadsPage {
                 if !results.albums.isEmpty { content.append(section(env, "Albums", folders.sorted(results.albums, by: sort, ascending: ascending))) }
                 if !results.playlists.isEmpty { content.append(section(env, "Playlists", folders.sorted(results.playlists, by: sort, ascending: ascending))) }
                 if !results.songs.isEmpty {
-                    content.append(Label("Songs", "heading"))
-                    content.append(SongList.make(env, results.songs, source: "Downloads"))
+                    content.append(PlainList.header("Songs"))
+                    content.append(SongList.make(env, results.songs, source: "Downloads").margin(horizontal: 16, vertical: 0))
                 }
                 return
             }
@@ -48,9 +49,9 @@ enum DownloadsPage {
             var totals = [folders.totalBytes.asFileSize]
             if folders.totalDuration > 0 { totals.append(folders.totalDuration.asLongDuration) }
             let summary = Box.vertical(spacing: 2) {
-                Label("\(folders.songs.count) \(folders.songs.count == 1 ? "track" : "tracks")", "heading")
-                Label(totals.joined(separator: " – "), "caption", "dim")
-            }
+                Label("\(folders.songs.count) \(folders.songs.count == 1 ? "track" : "tracks")", "heading").xalign(0)
+                Label(totals.joined(separator: " – "), "plain-subtitle").xalign(0)
+            }.margins(top: 0, bottom: 14, start: 16, end: 16)
             if !app.reachability.isOnline { summary.append(Label("Offline — playing from this computer", "caption", "accent")) }
             content.append(summary)
 
@@ -68,7 +69,7 @@ enum DownloadsPage {
         }
         body.onMap { store.activate() }
 
-        let menu = MenuButton(icon: "view-more-symbolic", "flat") {
+        let menu = MenuButton(icon: Symbol.icon("ellipsis.circle"), "flat") {
             let folders = store.folders
             let defaults = UserDefaults.standard
             let sort = DownloadFolders.Sort(rawValue: defaults.string(forKey: sortKey) ?? "") ?? .addedAt
@@ -102,16 +103,17 @@ enum DownloadsPage {
                 }],
             ])
         }
-        return Page.make("Downloads", content: body) { bar in bar.end(menu) }
+        // The phone's title sits small in the bar here: its search field is always out.
+        return Page.make("Downloads", content: body, heading: false) { bar in bar.end(menu) }
     }
 
     private static func section(_ env: Env, _ title: String, _ folders: [DownloadFolders.Folder]) -> Widget {
-        let list = ListBox()
+        let list = PlainList.list()
         for folder in folders {
             list.append(DownloadFolderRow.make(env, folder)) { env.open(.downloadFolder(folder.id)) }
         }
-        return Box.vertical(spacing: 8) {
-            Label(title, "heading")
+        return Box.vertical(spacing: 0) {
+            PlainList.header(title)
             list
         }
     }
@@ -188,14 +190,8 @@ enum DownloadFolderRow {
         } else {
             detail = "\(folder.byteCount.asFileSize) · \(folder.duration.asLongDuration)"
         }
-        let row = Box.horizontal(spacing: 12) {
-            cover
-            Box.vertical(spacing: 2) {
-                Label(folder.name).ellipsize()
-                Label(folder.artist ?? folder.trackCountText, "caption", "dim").ellipsize()
-                Label(detail, "caption", folder.isDownloading ? "accent" : "dimmer", "numeric").ellipsize()
-            }.valign(GTK_ALIGN_CENTER).hexpand()
-        }.margin(horizontal: 12, vertical: 6)
+        let row = PlainList.row(leading: cover, title: folder.name, subtitle: folder.artist ?? folder.trackCountText,
+                                detail: detail, minHeight: 94)
         return row.contextMenu { DownloadsPage.menu(env, folder) }
     }
 }

@@ -11,27 +11,30 @@ enum PlaylistList {
         let app = env.app
         let store = app.playlistStore
         let arrangement = app.playlistArrangement
-        let pinnedHeading = Label("Pinned", "heading")
-        let pinnedList = ListBox()
-        let restHeading = Label("Playlists", "heading")
-        let list = ListBox()
-        let footer = Label("Playlists are shown from every library. Drag one to move it.", "caption", "dim")
-        let body = Box.vertical(spacing: 12) {
+        let pinnedHeading = PlainList.header("Pinned")
+        let pinnedList = PlainList.list()
+        let restHeading = PlainList.header("Playlists")
+        let list = PlainList.list()
+        let footer = PlainList.footer("Playlists are shown from every library.")
+        let body = Box.vertical(spacing: 0) {
             pinnedHeading
             pinnedList
             restHeading
             list
             footer
-        }.margin(horizontal: 12, vertical: 24)
+        }
+        // Edit shows the handles, as on the phone; a row can be dragged either way.
+        let editing = Observed(false)
 
         list.observe {
             let playlists = store.playlists
             let loading = store.isLoading
             _ = app.playlistArtwork.generation
+            let arranging = editing.value
             let split = arrangement.arranged(playlists)
             pinnedList.removeAll()
             for (index, playlist) in split.pinned.enumerated() {
-                let line = row(env, playlist).draggable("pinned:\(index)").onDrop { text in
+                let line = row(env, playlist, arranging: arranging).draggable("pinned:\(index)").onDrop { text in
                     guard let from = Self.dropped(text, prefix: "pinned:"), from != index else { return false }
                     arrangement.movePinned(from: IndexSet(integer: from), to: from < index ? index + 1 : index, shown: split.pinned)
                     return true
@@ -41,7 +44,7 @@ enum PlaylistList {
             list.removeAll()
             for (index, playlist) in split.rest.enumerated() {
                 // Moving one by hand makes the order his own: My Order in the sort menu.
-                let line = row(env, playlist).draggable("rest:\(index)").onDrop { text in
+                let line = row(env, playlist, arranging: arranging).draggable("rest:\(index)").onDrop { text in
                     guard let from = Self.dropped(text, prefix: "rest:"), from != index else { return false }
                     arrangement.moveRest(from: IndexSet(integer: from), to: from < index ? index + 1 : index, shown: split.rest)
                     return true
@@ -54,14 +57,29 @@ enum PlaylistList {
             if playlists.isEmpty {
                 list.placeholder(loading
                     ? Spinner().size(24).margin(24)
-                    : StatusPage(icon: "view-list-symbolic", title: "No Playlists", description: "Click + to make one, or add songs from any list.").compact())
+                    : StatusPage(icon: Symbol.icon("music.note.list"), title: "No Playlists", description: "Click + to make one, or add songs from any list.").compact())
             }
             footer.isVisible = !playlists.isEmpty
         }
         Task { await store.refreshIfStale() }
 
+        let edit = Button("Edit", "flat")
+        edit.onClicked {
+            editing.value.toggle()
+            edit.label = editing.value ? "Done" : "Edit"
+        }
+        edit.observe { edit.isSensitive = store.playlists.count >= 2 }
+
+        body.keep(editing)
         return Page.make("Playlists", content: body) { bar in
-            bar.end(MenuButton(icon: "view-sort-descending-symbolic", "flat") {
+            bar.start(edit)
+            bar.end(MenuButton(icon: Symbol.icon("plus"), "flat") {
+                Menu([[
+                    .action("New Playlist…") { Menus.newPlaylist(env, [], suggested: "") },
+                    .action("Ask Hermes for One…") { env.open(.vibePlaylist) },
+                ]])
+            }.tooltip("New Playlist"))
+            bar.end(MenuButton(icon: Symbol.icon("arrow.up.arrow.down"), "flat") {
                 Menu([[
                     .choice(
                         "Sort",
@@ -72,13 +90,6 @@ enum PlaylistList {
                     },
                 ]])
             }.tooltip("Sort Playlists"))
-            bar.end(MenuButton(icon: "list-add-symbolic", "flat") {
-                Menu([[
-                    .action("New Playlist…") { Menus.newPlaylist(env, [], suggested: "") },
-                    .action("Ask Hermes for One…") { env.open(.vibePlaylist) },
-                ]])
-            })
-            bar.end(Button(icon: "view-refresh-symbolic", "flat") { Task { await store.load() } }.tooltip("Refresh"))
         }
     }
 
@@ -88,19 +99,17 @@ enum PlaylistList {
         return Int(text.dropFirst(prefix.count))
     }
 
-    private static func row(_ env: Env, _ playlist: Playlist) -> Widget {
+    private static func row(_ env: Env, _ playlist: Playlist, arranging: Bool = false) -> Widget {
         let artwork = ArtworkView(env.app, size: .thumb, side: 56, shape: .thumb)
         artwork.show(playlist.coverArt, playlistID: playlist.id, fallback: playlist.name)
         var parts: [String] = []
         if let count = playlist.songCount { parts.append("\(count) songs") }
         if let duration = playlist.duration { parts.append(duration.asLongDuration) }
-        let row = Box.horizontal(spacing: 12) {
-            artwork.root
-            Box.vertical(spacing: 2) {
-                Label(playlist.name).ellipsize()
-                Label(parts.joined(separator: " · "), "caption", "dim")
-            }.valign(GTK_ALIGN_CENTER).hexpand()
-        }.margin(horizontal: 12, vertical: 6)
+        let handle = arranging ? Icon(Symbol.icon("line.3.horizontal"), size: 20).css("row-chevron") : nil
+        let row = PlainList.row(
+            leading: artwork.root, title: playlist.name, subtitle: parts.joined(separator: " · "),
+            trailing: handle, chevron: !arranging, minHeight: 94
+        )
         return row.contextMenu { menu(env, playlist) }
     }
 

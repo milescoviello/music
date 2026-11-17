@@ -68,6 +68,7 @@ enum SymbolTable {
         "infinity": "infinity",
         "info.circle": "info",
         "iphone.radiowaves.left.and.right": "device-mobile-speaker",
+        "line.3.horizontal": "list",
         "line.3.horizontal.decrease": "funnel-simple",
         "list.bullet": "list-bullets",
         "list.bullet.indent": "text-indent",

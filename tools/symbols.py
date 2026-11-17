@@ -66,7 +66,7 @@ MAP = {
     "airplay.audio": "speaker-hifi", "square.grid.2x2": "squares-four", "list.number": "list-numbers",
     "clock": "clock", "magnifyingglass.circle": "magnifying-glass", "arrow.left": "arrow-left",
     "arrow.right": "arrow-right", "sidebar.left": "sidebar-simple", "rectangle.portrait.and.arrow.right": "sign-out",
-    "power": "power", "bolt": "lightning", "dial.medium": "gauge", "eye": "eye", "eye.slash": "eye-slash",
+    "power": "power", "bolt": "lightning", "line.3.horizontal": "list", "dial.medium": "gauge", "eye": "eye", "eye.slash": "eye-slash",
 }
 
 def main(package):

@@ -480,11 +480,30 @@ enum Style {
     row.activatable .title, row .title { font-size: 17px; }
     row .subtitle { font-size: 15px; color: var(--ios-secondary); opacity: 1; }
     row .row-icon { -gtk-icon-size: 22px; min-width: 28px; }
-    row .row-chevron { color: var(--ios-tertiary); opacity: 1; }
+    .row-chevron, row .row-chevron { color: alpha(#ebebf5, 0.42); opacity: 1; }
     preferencesgroup > box > box.header .title, preferencesgroup .heading {
         font-size: 17px; font-weight: 600; color: var(--ios-secondary); }
     preferencesgroup > box > box.header { margin: 0 16px 6px 16px; }
     preferencesgroup .description { font-size: 13px; color: var(--ios-secondary); }
+
+    /* The phone's search field: a grey capsule. */
+    entry.ios-search, searchentry.ios-search { background-color: var(--ios-fill); border-radius: 9999px;
+        min-height: 44px; padding: 0 14px; box-shadow: none; font-size: 17px; }
+    entry.ios-search image, searchentry.ios-search image { color: var(--ios-secondary); -gtk-icon-size: 18px; }
+    searchentry.ios-search text placeholder, entry.ios-search text placeholder { color: var(--ios-secondary); }
+
+    /* Plain lists: rows straight on the page, the separator from the text on. */
+    list.plain-list { background: none; }
+    list.plain-list > row { padding: 0; background: none; border: none; }
+    list.plain-list > row:hover { background-color: alpha(#ffffff, 0.04); }
+    list.plain-list > row:focus-visible { box-shadow: inset 0 0 0 2px alpha(var(--accent-color), 0.5); }
+    .plain-row { padding-left: 16px; }
+    .plain-row-body { border-bottom: 1px solid var(--ios-separator); margin-right: 16px; padding-right: 6px; }
+    .plain-title { font-size: 17px; }
+    .plain-subtitle { font-size: 13px; color: var(--ios-secondary); }
+    .plain-detail { font-size: 12px; color: var(--ios-tertiary); }
+    .list-section-header { font-size: 17px; font-weight: 600; color: var(--ios-secondary); margin: 18px 16px 4px 16px; }
+    .list-footer { font-size: 13px; color: var(--ios-secondary); margin: 10px 16px; }
 
     popover > contents, popover > arrow { background-color: alpha(#252527, 0.97); }
     popover > contents { border-radius: 16px; }
