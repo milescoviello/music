@@ -346,8 +346,11 @@ final class NowPlaying {
         case .sideBySide:
             posterSize = (h / 2.5).rounded() * z
             block = height
-            // A video is as tall as the cover and as wide as 16:9 makes it, within its half.
-            wide = showsVideo ? min(posterSize * 16 / 9, width / 2 - 4 * m * z) : posterSize
+            // A video is as tall as the cover and as wide as 16:9 makes it, within its half;
+            // the visualiser spans the half at the cover's height, as it spans the window
+            // in portrait -- held to the cover's square it drew only a handful of bars.
+            wide = showsVideo ? min(posterSize * 16 / 9, width / 2 - 4 * m * z)
+                : mode == .visualizer ? width / 2 - 2 * m * z : posterSize
             volume.isVisible = true
             toolbar.isVisible = false
             playerBox.orientation(GTK_ORIENTATION_VERTICAL)
@@ -1115,9 +1118,9 @@ final class NowPlaying {
                 .tooltip("Close Player")
         }
         let app = app
-        let lyrics = modeButton(.lyrics, "format-justify-left-symbolic", "Lyrics")
+        let lyrics = modeButton(.lyrics, "music-lyrics-symbolic", "Lyrics")
         let visualizer = modeButton(.visualizer, "music-waveform-symbolic", "Visualizer")
-        let sideLyrics = modeButton(.lyrics, "format-justify-left-symbolic", "Lyrics")
+        let sideLyrics = modeButton(.lyrics, "music-lyrics-symbolic", "Lyrics")
         let sideVisualizer = modeButton(.visualizer, "music-waveform-symbolic", "Visualizer")
         modeButtons = [.lyrics: lyrics, .visualizer: visualizer]
         sideModeButtons = [.lyrics: sideLyrics, .visualizer: sideVisualizer]

@@ -268,7 +268,7 @@ final class LyricsPane {
     private func showMissing(stack: Stack, songID: String) {
         let find = Button("Find Lyrics", "suggested-action", "pill").halign(GTK_ALIGN_CENTER)
         let page = StatusPage(
-            icon: "format-justify-left-symbolic", title: "No Lyrics",
+            icon: "music-lyrics-symbolic", title: "No Lyrics",
             description: "There are no lyrics for this track.", child: find
         )
         status.child = page

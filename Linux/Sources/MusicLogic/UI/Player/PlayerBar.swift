@@ -52,7 +52,7 @@ final class PlayerBar {
             seek
         }.valign(GTK_ALIGN_CENTER).margin(horizontal: 16, vertical: 0)
 
-        let lyrics = Button(icon: "format-justify-left-symbolic", "flat", "circular") { nowPlaying.open(.lyrics) }
+        let lyrics = Button(icon: "music-lyrics-symbolic", "flat", "circular") { nowPlaying.open(.lyrics) }
         let queue = Button(icon: "view-list-symbolic", "flat", "circular") { nowPlaying.openQueue() }
         lyrics.tooltip("Lyrics")
         queue.tooltip("Up Next")

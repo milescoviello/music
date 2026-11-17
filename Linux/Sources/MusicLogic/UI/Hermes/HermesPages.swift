@@ -220,7 +220,7 @@ enum HermesPages {
 
         func show(_ matches: [LyricMatch]) async {
             guard !matches.isEmpty else {
-                results.set { StatusPage(icon: "format-justify-left-symbolic", title: "No Lyrics Matched", description: "Nothing on file contains that line.").compact() }
+                results.set { StatusPage(icon: "music-lyrics-symbolic", title: "No Lyrics Matched", description: "Nothing on file contains that line.").compact() }
                 return
             }
             var songs: [String: Song] = [:]

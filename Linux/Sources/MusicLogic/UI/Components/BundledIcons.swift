@@ -65,6 +65,10 @@ enum BundledIcons {
         // A luggage label, for record labels.
         "music-tag-symbolic":
             "M1 2a1 1 0 0 1 1-1h5.6a1 1 0 0 1 .7.3l6.4 6.4a1 1 0 0 1 0 1.4l-5.6 5.6a1 1 0 0 1-1.4 0L1.3 8.3A1 1 0 0 1 1 7.6ZM4.5 3.2a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 1 0 0-2.6Z",
+        // A speech bubble with a quotation mark, for lyrics: the phone's quote.bubble,
+        // drawn here, since Apple's symbols may only be used on its own platforms.
+        "music-lyrics-symbolic":
+            "M3.5 2H12.5A2.5 2.5 0 0 1 15 4.5V9.5A2.5 2.5 0 0 1 12.5 12H7.5L4 15V12H3.5A2.5 2.5 0 0 1 1 9.5V4.5A2.5 2.5 0 0 1 3.5 2ZM3.5 3.3A1.2 1.2 0 0 0 2.3 4.5V9.5A1.2 1.2 0 0 0 3.5 10.7H5.3V12.2L7 10.7H12.5A1.2 1.2 0 0 0 13.7 9.5V4.5A1.2 1.2 0 0 0 12.5 3.3ZM5.00 6.00A1.3 1.3 0 1 1 7.60 6.00C7.60 7.47 6.75 8.37 5.40 8.82L5.17 8.26C5.85 7.92 6.25 7.35 6.35 7.30A1.3 1.3 0 0 1 5.00 6.00ZM8.40 6.00A1.3 1.3 0 1 1 11.00 6.00C11.00 7.47 10.15 8.37 8.80 8.82L8.57 8.26C9.25 7.92 9.65 7.35 9.75 7.30A1.3 1.3 0 0 1 8.40 6.00Z",
         // Bars of a waveform, for sonic analysis.
         "music-waveform-symbolic":
             "M1 6h2v4H1ZM4.5 3h2v10h-2ZM8 1h2v14H8ZM11.5 4h2v8h-2ZM14.5 6.5H16v3h-1.5Z",
