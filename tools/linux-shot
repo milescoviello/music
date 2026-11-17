@@ -23,7 +23,7 @@ done
 [[ $# -ge 2 && $(( $# % 2 )) -eq 0 ]] || { sed -n 4,5p "$0"; exit 2; }
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
-binary=$repo/.build/debug/music
+binary=${MUSIC_SHOT_BINARY:-$repo/.build/debug/music}
 # On the same btrfs as the real data, or the reflink copy fails.
 state=${XDG_CACHE_HOME:-$HOME/.cache}/music-shot
 data=$state/data config=$state/config
