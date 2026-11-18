@@ -214,7 +214,11 @@ class Service:
             name = names.most_common(1)[0][0]
         if not name.strip():
             return None
-        return self.record_about.answer("artist", artist_id, name, refresh=refresh)
+        # a few of the artist's most played songs, to tell them from a namesake on Genius
+        theirs = sorted((t for t in self.songs.values() if artist_id in (t.artist_id, t.track_artist_id)),
+                        key=lambda t: -t.plays)
+        titles = tuple(dict.fromkeys(t.title for t in theirs if t.title))[:3]
+        return self.record_about.answer("artist", artist_id, name, refresh=refresh, titles=titles)
 
     def _index_lyrics(self, track_id: str, song, text: str) -> None:
         """Lyrics just written, into the search at once rather than at the next pass."""

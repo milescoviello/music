@@ -103,9 +103,11 @@ class RecordAbout:
 
     # MARK: - The answer
 
-    def answer(self, kind: str, item_id: str, name: str, artist: str = "", refresh: bool = False) -> dict:
-        """kind "album" (name = the album, artist = its album artist) or "artist" (name = the artist)."""
-        found = self._found(kind, item_id, name, artist, refresh)
+    def answer(self, kind: str, item_id: str, name: str, artist: str = "", refresh: bool = False,
+               titles: tuple = ()) -> dict:
+        """kind "album" (name = the album, artist = its album artist) or "artist" (name = the artist; `titles` = a few
+        of its songs, which a Genius artist page of that name must have to count as this artist's)."""
+        found = self._found(kind, item_id, name, artist, refresh, titles)
         summary = self.summary(kind, item_id)
         answer = {"id": item_id, "kind": kind, "title": name, "artist": artist if kind == "album" else name,
                   **found, "summary": summary and {k: summary[k] for k in ("text", "basis")}}
@@ -130,7 +132,7 @@ class RecordAbout:
         basis = "songs" if kind == "album" and stored.get("basis") == "songs" else "sources"
         return {"text": text.strip(), "basis": basis, "links": links}
 
-    def _found(self, kind: str, item_id: str, name: str, artist: str, refresh: bool) -> dict:
+    def _found(self, kind: str, item_id: str, name: str, artist: str, refresh: bool, titles: tuple = ()) -> dict:
         with self._db() as db:
             row = db.execute("select at, found, data from about where kind = ? and id = ?", (kind, item_id)).fetchone()
         now = self._clock()
@@ -141,7 +143,7 @@ class RecordAbout:
                 return json.loads(data) if data else {}
         with self._lock:
             try:
-                fetched = self.fetch(kind, name, artist)
+                fetched = self.fetch(kind, name, artist, titles)
                 state = 1 if fetched["sections"] else 0
             except OSError as error:   # urllib's errors are OSErrors
                 log.warning("%s about %s: %s", kind, item_id, error)
@@ -159,9 +161,9 @@ class RecordAbout:
     def _get(self, url: str, query: dict, agent: str) -> object:
         return get_json(self._open, url, query, agent)
 
-    def fetch(self, kind: str, name: str, artist: str = "") -> dict:
+    def fetch(self, kind: str, name: str, artist: str = "", titles: tuple = ()) -> dict:
         sections, links, extra = [], [], {}
-        genius = self.genius_album(name, artist) if kind == "album" else self.genius_artist(name)
+        genius = self.genius_album(name, artist) if kind == "album" else self.genius_artist(name, titles)
         if genius:
             text, url, released = genius
             if text:
@@ -200,9 +202,11 @@ class RecordAbout:
             return (text if text != "?" else ""), album.get("url") or hits[0].get("url"), album.get("release_date_for_display")
         return None
 
-    def genius_artist(self, name: str) -> tuple[str, str, None] | None:
-        for hit in self._genius_hits("artist", name):
-            if not same_name(hit.get("name"), name):
+    def genius_artist(self, name: str, titles: tuple = ()) -> tuple[str, str, None] | None:
+        """The artist's Genius page: same name, and, when some of the artist's songs are known, one of them found
+        under that page's artist (two singers called Lisa are not one artist)."""
+        for hit in [h for h in self._genius_hits("artist", name) if same_name(h.get("name"), name)][:3]:
+            if titles and not self._has_song(hit["id"], name, titles):
                 continue
             found = ((self._get(f"{GENIUS}/artists/{hit['id']}", {"text_format": "plain"}, BROWSER) or {})
                      .get("response") or {}).get("artist")
@@ -211,6 +215,13 @@ class RecordAbout:
             text = ((found.get("description") or {}).get("plain") or "").strip()
             return (text if text != "?" else ""), found.get("url") or hit.get("url"), None
         return None
+
+    def _has_song(self, artist_id, name: str, titles: tuple) -> bool:
+        for title in list(titles)[:3]:
+            for song in self._genius_hits("song", f"{title} {name}"):
+                if (song.get("primary_artist") or {}).get("id") == artist_id:
+                    return True
+        return False
 
     def _article(self, page: str, lang: str) -> tuple[str, list] | None:
         """(title after redirects, sections) of one page; None when there is no such page."""

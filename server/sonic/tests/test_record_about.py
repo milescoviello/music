@@ -115,6 +115,16 @@ class Answers(unittest.TestCase):
         sections = self.about(Web(pages)).answer("artist", "ar", "Low Orbit Choir")["sections"]
         self.assertEqual([s["source"] for s in sections], ["Genius"])
 
+    def test_a_namesake_without_the_artists_songs_is_not_the_artist(self):
+        pages = artist_pages()
+        pages["https://genius.com/api/search/song"] = {"response": {"sections": [{"type": "song", "hits": [
+            {"type": "song", "result": {"id": 9, "title": "Paper Moons", "primary_artist": {"id": 44, "name": "Low Orbit Choir"}}}]}]}}
+        answer = self.about(Web(pages)).answer("artist", "ar", "Low Orbit Choir", titles=("Paper Moons",))
+        self.assertNotIn("Genius", [s["source"] for s in answer["sections"]])   # page 3, song by artist 44
+        pages["https://genius.com/api/search/song"]["response"]["sections"][0]["hits"][0]["result"]["primary_artist"]["id"] = 3
+        answer = self.about(Web(pages)).answer("artist", "ar2", "Low Orbit Choir", titles=("Paper Moons",))
+        self.assertEqual(answer["sections"][0]["source"], "Genius")
+
     def test_part_of_a_duos_name_is_not_the_duo(self):
         self.assertFalse(same_name("Hart", "Hart & Vale"))
         self.assertTrue(same_name("Zvyozdny Sad (band)", "Звёздный сад (Zvyozdny Sad)"))
