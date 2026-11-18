@@ -40,26 +40,14 @@ enum SongAboutPage {
         })
 
         if let summary = about.summary {
-            let inside = Box.vertical(spacing: 8) {
-                heading("What it's about")
-                Label(summary.text).wrap().selectable()
-                Label(summary.isReadingOfLyrics
-                      ? "Claude's reading of the lyrics: nothing has been written about this song."
-                      : "Written by Claude from the sources below.", "caption", "dim").wrap()
-            }.margin(14)
-            box.append(Box.vertical { inside }.css("card"))
+            box.append(summaryCard("What it's about", summary.text,
+                                   credit: summary.isReadingOfLyrics
+                                       ? "Claude's reading of the lyrics: nothing has been written about this song."
+                                       : "Written by Claude from the sources below."))
         }
 
-        if !about.sections.isEmpty {
-            let sections = Box.vertical(spacing: 16)
-            sections.append(heading("Background"))
-            for section in about.sections {
-                sections.append(Box.vertical(spacing: 4) {
-                    Label("\(section.source) · \(section.heading)", "caption-heading", "dim").wrap()
-                    Label(section.text).wrap().selectable()
-                })
-            }
-            box.append(sections)
+        if let background = background(about.sections) {
+            box.append(background)
         }
 
         if !about.notes.isEmpty {
@@ -75,20 +63,52 @@ enum SongAboutPage {
             box.append(notes)
         }
 
-        let links = about.links.compactMap { link in link.url.map { (link.name, $0) } }
-        if !links.isEmpty {
-            let row = Box.horizontal(spacing: 8)
-            for (name, url) in links {
-                row.append(Button(name, icon: "adw-external-link-symbolic", "flat", "pill") {
-                    g_app_info_launch_default_for_uri(url, nil, nil)
-                })
-            }
-            box.append(row)
+        if let links = links(about.links) {
+            box.append(links)
         }
         return box
     }
 
-    private static func heading(_ title: String) -> Label {
+    // MARK: - Parts shared with album and artist pages (`RecordAboutPage`)
+
+    /// Claude's summary in its card, saying whose words they are and what they rest on.
+    static func summaryCard(_ title: String, _ text: String, credit: String) -> Widget {
+        let inside = Box.vertical(spacing: 8) {
+            heading(title)
+            Label(text).wrap().selectable()
+            Label(credit, "caption", "dim").wrap()
+        }.margin(14)
+        return Box.vertical { inside }.css("card")
+    }
+
+    /// The passages quoted from Genius and Wikipedia, each under where it came from; nil when there are none.
+    static func background(_ quoted: [SongAbout.Section]) -> Widget? {
+        guard !quoted.isEmpty else { return nil }
+        let sections = Box.vertical(spacing: 16)
+        sections.append(heading("Background"))
+        for section in quoted {
+            sections.append(Box.vertical(spacing: 4) {
+                Label("\(section.source) · \(section.heading)", "caption-heading", "dim").wrap()
+                Label(section.text).wrap().selectable()
+            })
+        }
+        return sections
+    }
+
+    /// The pages themselves, as buttons that open them; wraps when a summary's own sources make many.
+    static func links(_ all: [SongAbout.Link]) -> Widget? {
+        let links = all.compactMap { link in link.url.map { (link.name, $0) } }
+        guard !links.isEmpty else { return nil }
+        let row = FlowBox(spacing: 8)
+        for (name, url) in links {
+            row.append(Button(name, icon: "adw-external-link-symbolic", "flat", "pill") {
+                g_app_info_launch_default_for_uri(url, nil, nil)
+            })
+        }
+        return row
+    }
+
+    static func heading(_ title: String) -> Label {
         Label(title.uppercased(), "caption-heading", "dim")
     }
 }

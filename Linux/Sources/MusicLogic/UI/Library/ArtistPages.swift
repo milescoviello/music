@@ -263,9 +263,11 @@ enum ArtistPage {
                 showPopular(env, popular, artist: artist, in: popularBox, visible: popularStep)
             }
 
-            async let about = try? client.artistInfo(id: id, similarCount: 15)
+            async let artistInfo = try? client.artistInfo(id: id, similarCount: 15)
             async let found = try? client.search(query: artist.name, artistCount: 0, albumCount: 0, songCount: 200)
-            let info = await about
+            async let record = app.sonic.about(artist: id, name: artist.name)
+            let info = await artistInfo
+            let about: SongAbout? = if case .about(let written) = await record { written } else { nil }
             let sonic = await app.sonic.similarArtists(to: id) ?? []
             let own = Set((detail?.album ?? []).map(\.id))
             let appearsOn = LibraryFacets.appearsOn(await found?.songs ?? [], artistID: id, excluding: own)
@@ -278,7 +280,10 @@ enum ArtistPage {
             if !similar.isEmpty {
                 shelves.append(Shelf.make("Similar Artists", cards: similar.map { Cards.artist(env, $0, side: 96) }))
             }
-            if let biography = info?.plainBiography {
+            // Who the artist is; else the server agents' biography, when they have one.
+            if let about, let group = RecordAboutPage.group(about, kind: .artist, title: artist.name) {
+                shelves.append(group)
+            } else if let biography = info?.plainBiography {
                 shelves.append(PreferencesGroup("About") { Label(biography, "dim").wrap().selectable().margin(12) })
             }
         }

@@ -442,6 +442,21 @@ struct SonicClient: Sendable {
         try await getIfPresent("v1/tracks/\(songID)/about", refresh ? ["refresh": "1"] : [:], as: SongAbout.self, timeout: 30)
     }
 
+    /// An album page's About, as `about(songID:)`. The name and artist name an album the service has not read yet.
+    func about(albumID: String, name: String, artist: String?, refresh: Bool = false) async throws -> SongAbout? {
+        var query = ["name": name]
+        if let artist, !artist.isEmpty { query["artist"] = artist }
+        if refresh { query["refresh"] = "1" }
+        return try await getIfPresent("v1/albums/\(albumID)/about", query, as: SongAbout.self, timeout: 30)
+    }
+
+    /// An artist page's About, as `about(songID:)`.
+    func about(artistID: String, name: String, refresh: Bool = false) async throws -> SongAbout? {
+        var query = ["name": name]
+        if refresh { query["refresh"] = "1" }
+        return try await getIfPresent("v1/artists/\(artistID)/about", query, as: SongAbout.self, timeout: 30)
+    }
+
     // MARK: - Lyrics for a song with none
 
     private struct LyricsFind: Encodable {

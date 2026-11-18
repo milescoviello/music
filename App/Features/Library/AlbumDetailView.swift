@@ -10,6 +10,8 @@ struct AlbumDetailView: View {
     @State private var selection = SongSelection()
     @State private var error: String?
     @State private var review: String?
+    /// What the album is about, from the companion service: Claude's summary and the Genius and Wikipedia pages.
+    @State private var about: SongAbout?
     @State private var moreByArtist: [Album] = []
     @State private var sonicallySimilar: [Album] = []
     /// The similar albums that are singles, by album id, with their one song.
@@ -50,8 +52,15 @@ struct AlbumDetailView: View {
                     }
                 }
 
-                // Plexamp's album review, when the server's agents have one.
-                if let review {
+                // What the album is about (`RecordAboutSection`); else Plexamp's album review, when the
+                // server's agents have one.
+                if let about, about.preview(of: .album) != nil {
+                    Section("About This Album") {
+                        RecordAboutSection(about: about, kind: .album, title: album.name,
+                                           byline: album.artist ?? detail?.artist)
+                            .listRowSeparator(.hidden)
+                    }
+                } else if let review {
                     Section("About This Album") {
                         VStack(alignment: .leading, spacing: 6) {
                             Text(review)
@@ -263,11 +272,16 @@ struct AlbumDetailView: View {
 
         let client = appState.client
         async let info = try? client.albumInfo(id: id)
+        let sonic = appState.sonic
+        let name = detail?.name ?? album.name
+        let artistName = album.artist ?? detail?.artist
+        async let record = sonic.about(album: id, name: name, artist: artistName)
         if let artistID = detail?.artistId,
            let artist = try? await client.artistDetail(id: artistID) {
             moreByArtist = SearchRanking.moreBy(artist.albums, than: Album(id: id, name: detail?.name ?? "", artist: detail?.artist))
         }
         review = await info?.plainNotes
+        if case .about(let found) = await record { about = found }
         let similar = await appState.sonic.similarAlbumsWithSingles(to: id) ?? []
         sonicallySimilar = similar.map(\.album)
         similarSingles = Dictionary(similar.compactMap { pair in pair.single.map { (pair.album.id, $0) } }) { first, _ in first }

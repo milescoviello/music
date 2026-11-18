@@ -167,6 +167,7 @@ enum AlbumPage {
         Task { @MainActor in
             let client = app.client
             async let info = try? client.albumInfo(id: album.id)
+            async let record = app.sonic.about(album: album.id, name: detail.name, artist: artist)
             async let similarAlbums = app.sonic.similarAlbumsWithSingles(to: album.id, limit: 6)
             async let duplicates = DuplicatesCache.albums(app)
             var more: [Album] = []
@@ -174,6 +175,7 @@ enum AlbumPage {
                 more = SearchRanking.moreBy(artist.albums, than: Album(id: album.id, name: detail.name, artist: detail.artist))
             }
             let review = await info?.plainNotes
+            let about: SongAbout? = if case .about(let found) = await record { found } else { nil }
             let similar = await similarAlbums
             let pair = await duplicates?.first { $0.copies.contains { $0.albumId == album.id } }
             guard alive.isAlive else { return }
@@ -217,7 +219,10 @@ enum AlbumPage {
                 }
                 similarPanel.isVisible = true
             }
-            if let review {
+            // What the album is about; else the server agents' review, when they have one.
+            if let about, let group = RecordAboutPage.group(about, kind: .album, title: album.name, byline: artist) {
+                extras.append(group)
+            } else if let review {
                 extras.append(PreferencesGroup("About This Album") {
                     Label(review, "dim").wrap().selectable().margin(12)
                 })

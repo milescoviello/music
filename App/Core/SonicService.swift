@@ -79,8 +79,22 @@ final class SonicService {
 
     /// The About sheet's content. Asks even before the analysis has started: it needs the service, not its index.
     func about(_ song: Song, refresh: Bool = false) async -> AboutAnswer {
+        await answer { try await client.about(songID: song.id, refresh: refresh) }
+    }
+
+    /// An album page's About section.
+    func about(album id: String, name: String, artist: String?) async -> AboutAnswer {
+        await answer { try await client.about(albumID: id, name: name, artist: artist) }
+    }
+
+    /// An artist page's About section.
+    func about(artist id: String, name: String) async -> AboutAnswer {
+        await answer { try await client.about(artistID: id, name: name) }
+    }
+
+    private func answer(_ ask: () async throws -> SongAbout?) async -> AboutAnswer {
         do {
-            guard let about = try await client.about(songID: song.id, refresh: refresh) else { return .unknown }
+            guard let about = try await ask() else { return .unknown }
             return .about(about)
         } catch {
             return .unreachable

@@ -4,6 +4,7 @@ keeps the in-memory index current for the HTTP layer."""
 from __future__ import annotations
 
 import json
+from collections import Counter
 import logging
 import sqlite3
 import threading
@@ -21,6 +22,7 @@ from .config import ANALYSIS_VERSION, MODEL_NAME, MODEL_URL, Config
 from .index import Index, bucket_levels, stored_levels
 from .lyrics import LyricIndex
 from .about import SongAbout
+from .record_about import RecordAbout
 from .words import Readings, Translations
 from .radar import Radar
 from .shows import Shows
@@ -42,6 +44,7 @@ class Service:
                            self.radar.artists, config.data_dir / "shows.json")
         self.word_timings = WordTimings(config.data_dir / "word-timings.db")
         self.song_about = SongAbout(config.data_dir)
+        self.record_about = RecordAbout(config.data_dir)
         # The library's songs at the last pass, for what a song is without a copy of the
         # database: title, artist, album, length.
         self.songs: dict = {}
@@ -190,6 +193,28 @@ class Service:
         except (OSError, ValueError, AttributeError):
             pass
         return self.song_about.answer(track_id, song.title, song.artist, song.album, language, refresh)
+
+    def album_about(self, album_id: str, refresh: bool = False, name: str = "", artist: str = "") -> dict | None:
+        """What the album is about (`record_about`): its Genius and Wikipedia background and the summary written
+        ahead of time. Named as the library names it; the app's names only for an album newer than the last pass."""
+        tracks = [track for track in self.songs.values() if track.album_id == album_id]
+        if tracks:
+            name = tracks[0].album
+            artist = Counter(t.album_artist or t.artist for t in tracks).most_common(1)[0][0]
+        if not name.strip():
+            return None
+        return self.record_about.answer("album", album_id, name, artist, refresh)
+
+    def artist_about(self, artist_id: str, refresh: bool = False, name: str = "") -> dict | None:
+        """Who the artist is (`record_about`), as `album_about`. An album artist's id, or a track artist's."""
+        names = Counter(t.album_artist for t in self.songs.values() if t.artist_id == artist_id and t.album_artist)
+        if not names:
+            names = Counter(t.artist for t in self.songs.values() if t.track_artist_id == artist_id and t.artist)
+        if names:
+            name = names.most_common(1)[0][0]
+        if not name.strip():
+            return None
+        return self.record_about.answer("artist", artist_id, name, refresh=refresh)
 
     def _index_lyrics(self, track_id: str, song, text: str) -> None:
         """Lyrics just written, into the search at once rather than at the next pass."""

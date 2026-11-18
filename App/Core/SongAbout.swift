@@ -3,6 +3,9 @@ import Foundation
 /// What a song is about, for the About sheet: a few sentences written ahead of time, background quoted from the
 /// song's Genius and Wikipedia pages, and Genius's notes on lines of the lyrics. From the companion service
 /// (`server/sonic/sonic/about.py`), which looks a song up the first time it is asked about.
+///
+/// An album's or an artist's About (`record_about.py`) is the same answer without the notes: `title` is the album
+/// or the artist, and `preview(of:)` is what their page shows before "Sources" opens the rest.
 struct SongAbout: Decodable, Equatable, Sendable {
     struct Summary: Decodable, Equatable, Sendable {
         var text: String
@@ -11,6 +14,8 @@ struct SongAbout: Decodable, Equatable, Sendable {
         var basis: String
 
         var isReadingOfLyrics: Bool { basis == "lyrics" }
+        /// An album with nothing written about it, summed up from its songs' own pages and lyrics.
+        var isReadingOfSongs: Bool { basis == "songs" }
     }
 
     /// A passage quoted from one of the song's pages: Genius's About, or a section of its Wikipedia article.
@@ -81,4 +86,35 @@ struct SongAbout: Decodable, Equatable, Sendable {
         links = try c.decodeIfPresent([Link].self, forKey: .links) ?? []
         unavailable = try c.decodeIfPresent(Bool.self, forKey: .unavailable) ?? false
     }
+}
+
+// MARK: - Albums and artists
+
+enum RecordKind: String, Sendable {
+    case album, artist
+}
+
+extension SongAbout {
+    /// The About section of an album or artist page: Claude's summary, else the first passage quoted from its
+    /// Genius or Wikipedia page; `credit` says whose words they are.
+    struct Preview: Equatable, Sendable {
+        var text: String
+        var credit: String
+    }
+
+    func preview(of kind: RecordKind) -> Preview? {
+        if let summary {
+            return Preview(text: summary.text, credit: summary.isReadingOfSongs && kind == .album
+                           ? "Claude's reading of its songs: nothing has been written about this album."
+                           : "Written by Claude from the sources.")
+        }
+        guard let first = sections.first else { return nil }
+        return Preview(text: first.text, credit: "From \(first.source).")
+    }
+
+    /// Anything behind "Sources": a quoted passage or a page to open.
+    var hasSources: Bool { !sections.isEmpty || links.contains { $0.url != nil } }
+
+    /// "Released July 17, 2015", for under an album's title in the sheet.
+    var releasedLine: String? { released.map { "Released \($0)" } }
 }

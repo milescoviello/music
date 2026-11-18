@@ -105,6 +105,21 @@ def _sections(extract: str) -> list[tuple[str, str, str]]:
     return [(h, p, t) for h, p, t in out if t]
 
 
+def get_json(open_url, url: str, query: dict, agent: str) -> object:
+    """One answer from Genius or Wikipedia; None for a 404."""
+    request = urllib.request.Request(f"{url}?{urllib.parse.urlencode(query)}", headers={"User-Agent": agent})
+    try:
+        with open_url(request, timeout=15) as reply:
+            return json.load(reply)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise
+    except ValueError as error:
+        # A challenge page instead of an answer: a failure, asked again within the hour, never "nothing found".
+        raise OSError(f"not JSON from {url}") from error
+
+
 def _cap(text: str, limit: int) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text.strip())
     if len(text) <= limit:
@@ -193,17 +208,7 @@ class SongAbout:
     # MARK: - Looking it up
 
     def _get(self, url: str, query: dict, agent: str) -> object:
-        request = urllib.request.Request(f"{url}?{urllib.parse.urlencode(query)}", headers={"User-Agent": agent})
-        try:
-            with self._open(request, timeout=15) as reply:
-                return json.load(reply)
-        except urllib.error.HTTPError as error:
-            if error.code == 404:
-                return None
-            raise
-        except ValueError as error:
-            # A challenge page instead of an answer: a failure, asked again within the hour, never "nothing found".
-            raise OSError(f"not JSON from {url}") from error
+        return get_json(self._open, url, query, agent)
 
     def fetch(self, title: str, artist: str, language: str | None = None, album: str = "") -> dict:
         sections, notes, links, extra = [], [], [], {}

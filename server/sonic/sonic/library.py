@@ -35,6 +35,7 @@ class LibraryTrack:
     plays: int
     # Changes when the audio does: what decides that a track needs analysing again.
     fingerprint: str
+    album_artist: str = ""   # its name, for what an album or artist page is about
 
 
 def audio_fingerprint(suffix, rate, depth, channels, duration) -> str:
@@ -112,6 +113,7 @@ def _read(connection: sqlite3.Connection, config: Config) -> list[LibraryTrack]:
     # threw away 17,000 analyses that way. Format, rate, depth, channels and the length to
     # the millisecond change with any real replacement of the audio.
     audio = [c if c in columns else "''" for c in ("suffix", "sample_rate", "bit_depth", "channels")]
+    album_artist_name = "mf.album_artist" if "album_artist" in columns else "''"
 
     root = "l.path" if has_libraries else "''"
     join = "join library l on l.id = mf.library_id" if has_libraries else ""
@@ -126,12 +128,13 @@ def _read(connection: sqlite3.Connection, config: Config) -> list[LibraryTrack]:
     tracks = []
     for row in connection.execute(f"""
         select mf.id, {root}, mf.path, mf.album_id, mf.{album_artist}, mf.artist_id, mf.title, mf.artist,
-               mf.album, mf.duration, mf.year, {", ".join("mf." + c if c != "''" else c for c in audio)}
+               mf.album, mf.duration, mf.year, {", ".join("mf." + c if c != "''" else c for c in audio)},
+               {album_artist_name}
         from media_file mf {join}
         where 1 = 1 {missing}
     """):
         (track_id, library_root, relative, album_id, album_artist_id, artist_id, title, artist,
-         album, duration, year, suffix, rate, depth, channels) = row
+         album, duration, year, suffix, rate, depth, channels, album_artist_name) = row
         navidrome_path = f"{library_root.rstrip('/')}/{relative}" if library_root else relative
         local = config.local_path(navidrome_path)
         if local is None:
@@ -140,6 +143,6 @@ def _read(connection: sqlite3.Connection, config: Config) -> list[LibraryTrack]:
             id=track_id, path=local, album_id=album_id or "", artist_id=album_artist_id or artist_id or "",
             track_artist_id=artist_id or "", title=title or "", artist=artist or "", album=album or "",
             duration=float(duration or 0), year=int(year or 0), plays=plays.get(track_id, 0),
-            fingerprint=audio_fingerprint(suffix, rate, depth, channels, duration),
+            fingerprint=audio_fingerprint(suffix, rate, depth, channels, duration), album_artist=album_artist_name or "",
         ))
     return tracks

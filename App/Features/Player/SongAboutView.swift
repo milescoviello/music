@@ -61,40 +61,18 @@ struct SongAboutView: View {
     @ViewBuilder
     private func content(_ about: SongAbout) -> some View {
         if let summary = about.summary {
-            VStack(alignment: .leading, spacing: 8) {
-                heading("What it's about")
-                Text(summary.text)
-                    .font(.body)
-                // Whose words these are, and what they rest on.
-                Text(summary.isReadingOfLyrics
-                     ? "Claude's reading of the lyrics: nothing has been written about this song."
-                     : "Written by Claude from the sources below.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary.opacity(0.6), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            // Whose words these are, and what they rest on.
+            AboutSummaryCard(heading: "What it's about", text: summary.text,
+                             credit: summary.isReadingOfLyrics
+                                ? "Claude's reading of the lyrics: nothing has been written about this song."
+                                : "Written by Claude from the sources below.")
         }
 
-        if !about.sections.isEmpty {
-            VStack(alignment: .leading, spacing: 18) {
-                heading("Background")
-                ForEach(about.sections) { section in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(section.source) · \(section.heading)")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                        Text(section.text)
-                            .font(.callout)
-                    }
-                }
-            }
-        }
+        AboutBackground(sections: about.sections)
 
         if !about.notes.isEmpty {
             VStack(alignment: .leading, spacing: 16) {
-                heading("Notes on the lyrics")
+                AboutHeading(title: "Notes on the lyrics")
                 ForEach(about.notes) { note in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(note.fragment)
@@ -114,24 +92,7 @@ struct SongAboutView: View {
             }
         }
 
-        if !about.links.isEmpty {
-            HStack(spacing: 18) {
-                ForEach(about.links) { link in
-                    if let address = link.url, let url = URL(string: address) {
-                        Link(destination: url) {
-                            Label(link.name, systemImage: "arrow.up.right.square")
-                        }
-                        .font(.subheadline)
-                    }
-                }
-            }
-        }
-    }
-
-    private func heading(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.caption.weight(.bold))
-            .foregroundStyle(.secondary)
+        AboutLinks(links: about.links)
     }
 
     @ViewBuilder

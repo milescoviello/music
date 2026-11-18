@@ -31,6 +31,8 @@ struct ArtistDetailView: View {
     @State private var sonicallySimilar: [Artist] = []
     @State private var appearsOn: [Album] = []
     @State private var isBiographyExpanded = false
+    /// Who the artist is, from the companion service: Claude's summary and the Genius and Wikipedia pages.
+    @State private var about: SongAbout?
 
     var body: some View {
         ScrollView {
@@ -129,7 +131,14 @@ struct ArtistDetailView: View {
                     }
                 }
 
-                if let biography = info?.plainBiography {
+                if let about, about.preview(of: .artist) != nil {
+                    VStack(alignment: .leading, spacing: Metrics.headerToContent) {
+                        Text("About")
+                            .font(.title3.weight(.semibold))
+                        RecordAboutSection(about: about, kind: .artist, title: artist.name)
+                    }
+                    .padding(.horizontal, Metrics.gutter)
+                } else if let biography = info?.plainBiography {
                     VStack(alignment: .leading, spacing: Metrics.headerToContent) {
                         Text("About")
                             .font(.title3.weight(.semibold))
@@ -348,9 +357,12 @@ struct ArtistDetailView: View {
         // Biography, similar artists, and the albums this artist only guests on — the
         // last found by searching for the name and keeping the tracks that credit them on
         // someone else's album.
-        async let about = try? client.artistInfo(id: id, similarCount: 15)
+        async let artistInfo = try? client.artistInfo(id: id, similarCount: 15)
         async let found = try? client.search(query: name, artistCount: 0, albumCount: 0, songCount: 200)
-        info = await about
+        let sonic = appState.sonic
+        async let record = sonic.about(artist: id, name: name)
+        info = await artistInfo
+        if case .about(let written) = await record { about = written }
         sonicallySimilar = await appState.sonic.similarArtists(to: id) ?? []
         let own = Set((detail?.album ?? []).map(\.id))
         appearsOn = LibraryFacets.appearsOn(await found?.songs ?? [], artistID: id, excluding: own)

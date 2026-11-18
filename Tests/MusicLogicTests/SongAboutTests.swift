@@ -38,6 +38,45 @@ struct SongAboutTests {
         #expect(!about.isEmpty)
     }
 
+    @Test func anAlbumPageShowsTheSummaryElseTheFirstPassage() throws {
+        let written = try JSONDecoder().decode(SongAbout.self, from: Data(#"""
+        {"id":"al","kind":"album","title":"Currents","artist":"Tame Impala","released":"July 17, 2015",
+         "summary":{"text":"About change.","basis":"sources"},
+         "sections":[{"source":"Genius","heading":"About","text":"A warm sonic wave.","url":"https://genius.com/a"}],
+         "links":[{"name":"Genius","url":"https://genius.com/a"}]}
+        """#.utf8))
+        #expect(written.preview(of: .album) == .init(text: "About change.", credit: "Written by Claude from the sources."))
+        #expect(written.releasedLine == "Released July 17, 2015")
+        #expect(written.hasSources)
+
+        let quoted = try JSONDecoder().decode(SongAbout.self, from: Data(#"""
+        {"id":"ar","kind":"artist","title":"Panchiko",
+         "sections":[{"source":"Wikipedia","heading":"Overview","text":"A band from Nottingham.","url":null}],"links":[]}
+        """#.utf8))
+        #expect(quoted.preview(of: .artist) == .init(text: "A band from Nottingham.", credit: "From Wikipedia."))
+        #expect(quoted.hasSources)
+
+        let nothing = try JSONDecoder().decode(SongAbout.self, from: Data(#"{"id":"x","sections":[],"links":[]}"#.utf8))
+        #expect(nothing.preview(of: .album) == nil)
+        #expect(!nothing.hasSources)
+    }
+
+    @Test func anAlbumSummedUpFromItsSongsSaysSo() throws {
+        let about = try JSONDecoder().decode(SongAbout.self, from: Data(#"""
+        {"id":"al","summary":{"text":"Songs about the sea.","basis":"songs"}}
+        """#.utf8))
+        #expect(about.preview(of: .album)?.credit == "Claude's reading of its songs: nothing has been written about this album.")
+        #expect(!about.hasSources)
+    }
+
+    @Test func albumAndArtistAddresses() {
+        let client = SonicClient(configuration: .default)
+        #expect(client.url("v1/albums/al/about", ["name": "Currents"])?.absoluteString
+            == "http://192.168.1.148:8650/v1/albums/al/about?name=Currents")
+        #expect(client.url("v1/artists/ar/about", ["name": "Кино"])?.absoluteString
+            == "http://192.168.1.148:8650/v1/artists/ar/about?name=%D0%9A%D0%B8%D0%BD%D0%BE")
+    }
+
     @Test func theAddressIsTheServices() {
         #expect(SonicClient(configuration: .default).url("v1/tracks/abc/about", ["refresh": "1"])?.absoluteString
             == "http://192.168.1.148:8650/v1/tracks/abc/about?refresh=1")
