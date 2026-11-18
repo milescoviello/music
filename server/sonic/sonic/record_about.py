@@ -28,8 +28,8 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from . import lrclib
-from .about import (BROWSER, DISAMBIGUATION, FAIL_RETRY, GENIUS, KEEP, NONE_RETRY, WIKIPEDIA, _cap, _names,
-                    _sections, get_json, plain, same_artist)
+from .about import (BROWSER, DISAMBIGUATION, FAIL_RETRY, GENIUS, KEEP, NONE_RETRY, SONG_WORDS, WIKIPEDIA, _cap,
+                    _names, _sections, get_json, plain, same_artist)
 
 log = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ ALBUM_WANTED = re.compile(r"background|recording|production|writing|written|comp
                           r"title|artwork|packaging|inspiration|development|content|style|reception|legacy|"
                           r"история|запис|背景|制作|音楽性", re.I)
 ALBUM_UNWANTED = re.compile(r"track ?list|personnel|chart|certif|release history|reference|external|see also|notes|"
-                            r"accolade|ranking|sales|commercial|tour|video|credit|year-end|weekly|bonus|edition", re.I)
+                            r"accolade|ranking|sales|commercial|tour|video|credit|year-end|weekly|bonus|edition|участники|клип", re.I)
 # An artist's: their story and their sound; not discographies, members tables, awards or private and legal life.
 ARTIST_WANTED = re.compile(r"history|background|early|career|formation|biography|origin|style|influence|artistry|"
                            r"legacy|image|sound|\d{4}|история|経歴|来歴|音楽性", re.I)
@@ -274,13 +274,19 @@ class RecordAbout:
             return None
 
         def fits(title, parts, opening):
-            if not plain(title).startswith(plain(clean)) or not ALBUM_WORDS.search(opening[:600]) \
+            album_word = ALBUM_WORDS.search(opening[:600])
+            if not plain(title).startswith(plain(clean)) or not album_word \
                     or not any(n in plain(opening[:800]) for n in _names(artist)):
+                return None
+            # The title track's page ("«Группа крови» — песня ... из одноимённого альбома"): a song first, the album after.
+            song_word = SONG_WORDS.search(opening[:album_word.start()])
+            if song_word:
                 return None
             return self._keep(parts, ALBUM_WANTED, ALBUM_UNWANTED)
 
         for lang in _languages(f"{name} {artist}"):
-            titles = [f"{clean} ({artist} album)", f"{clean} (album)", f"{clean} (EP)", clean] if lang == "en" else [clean]
+            titles = ([f"{clean} ({artist} album)", f"{clean} (album)", f"{clean} (EP)", clean] if lang == "en" else
+                      [f"{clean} ({ {'ru': 'альбом', 'ja': 'アルバム', 'ko': '앨범'}[lang]})", clean])
             found = self._first(lang, titles, f'"{clean}" {artist}' + (" album" if lang == "en" else ""), fits)
             if found:
                 return found

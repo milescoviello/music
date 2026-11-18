@@ -101,6 +101,13 @@ class Answers(unittest.TestCase):
         sections = self.about(Web(pages)).answer("album", "al", "Currents", "Tame Impala")["sections"]
         self.assertEqual([s["source"] for s in sections], ["Genius"])
 
+    def test_the_title_tracks_page_is_not_the_album(self):
+        pages = album_pages()
+        pages["https://en.wikipedia.org/w/api.php?action=query&prop=extracts"] = {"query": {"pages": {"1": {
+            "title": "Currents", "extract": '"Currents" is a song by Tame Impala from their album of the same name.'}}}}
+        sections = self.about(Web(pages)).answer("album", "al", "Currents", "Tame Impala")["sections"]
+        self.assertEqual([s["source"] for s in sections], ["Genius"])
+
     def test_a_namesake_who_is_no_musician_is_not_the_artist(self):
         pages = artist_pages()
         pages["https://en.wikipedia.org/w/api.php?action=query&prop=extracts"] = {"query": {"pages": {"1": {
