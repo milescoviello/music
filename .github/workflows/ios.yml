@@ -39,9 +39,9 @@ jobs:
               run: swift test --disable-sandbox
 
     # The app's own tests (AppTests/, the `MusicTests` target): PlaybackController and
-    # whatever else needs iOS frameworks, hosted in the app in the VM's simulator. On the
-    # Pro Max, not the iPhone 17 Pro used for driving the app by hand: hosted tests run
-    # inside the app and save what they play, which showed up there as "Track b".
+    # whatever else needs iOS frameworks, hosted in the app in the VM's simulator. They
+    # share the iPhone 17 Pro with hand-driven testing: the VM's 8 GB cannot boot a second
+    # simulator alongside it (tried 11-17), so the tests' saved queue can show up there.
     app-tests:
         runs-on: [self-hosted, music-vm]
         timeout-minutes: 20
@@ -49,12 +49,17 @@ jobs:
         steps:
             - uses: actions/checkout@v5
 
+            # Booted and settled first: a simulator's first boot runs a data migration, and a
+            # test runner launched into that fails with "Mach error -308 (server died)".
+            - name: Boot the test simulator
+              run: xcrun simctl bootstatus 'iPhone 17 Pro' -b
+
             - name: Test the app in the simulator
               run: |
                   xcodebuild test \
                     -project Music.xcodeproj \
                     -scheme Music \
-                    -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+                    -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
                     CODE_SIGN_STYLE=Manual \
                     CODE_SIGN_IDENTITY="-" \
                     DEVELOPMENT_TEAM=""
