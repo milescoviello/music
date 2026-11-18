@@ -48,6 +48,7 @@ struct DownloadsView: View {
             placement: .navigationBarDrawer(displayMode: .always),
             prompt: "Albums, Playlists, Songs"
         )
+        .searchInputAsTyped()
         .toolbar {
             if !folders.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) { menu }

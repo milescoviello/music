@@ -112,7 +112,7 @@ struct OfflineSettingsView: View {
 
                     if let scan {
                         if let count = scan.count {
-                            LabeledContent("Tracks", value: "\(count)")
+                            LabeledContent("Tracks", value: count.formatted())
                         }
                         if let last = scan.lastScanAt {
                             LabeledContent(

@@ -591,10 +591,21 @@ struct SavedQueue: Codable, PayloadKeyed, Sendable {
 /// network request that produced the string.
 /// A copy of the app run to check it (`MUSIC_TEST_COPY=1`: the .148 sandbox, the test
 /// laptop) keeps its hands off what the real devices share: it uploads no queue (each
-/// time one did, it replaced the queue the phone was playing), sends no taste and counts
-/// no plays.
+/// time one did, it replaced the queue the phone was playing), sends no taste, counts
+/// no plays and leaves no resume points.
+///
+/// The iOS simulator is always one -- it is the build VM's copy, signed in to the real
+/// server, and on 11-17 a session there replaced the saved queue -- unless it is run with
+/// `MUSIC_TEST_COPY=0` to try the syncing itself.
 enum TestCopy {
-    static let isOn = ProcessInfo.processInfo.environment["MUSIC_TEST_COPY"] == "1"
+    static let isOn: Bool = {
+        let setting = ProcessInfo.processInfo.environment["MUSIC_TEST_COPY"]
+        #if targetEnvironment(simulator)
+        return setting != "0"
+        #else
+        return setting == "1"
+        #endif
+    }()
 }
 
 enum ServerDate {
@@ -820,6 +831,16 @@ extension Int64 {
     var asFileSize: String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
+        return formatter.string(fromByteCount: self)
+    }
+
+    /// The track cache's sizes. Its limit is chosen in binary megabytes (1 GB is
+    /// 1,024 MB), which `asFileSize` counts in thousands as Files does -- the 1 GB choice
+    /// read "1.07 GB". The limit and what is in use are both shown this way, so a full
+    /// cache reads as exactly its limit.
+    var asCacheSize: String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .binary
         return formatter.string(fromByteCount: self)
     }
 }

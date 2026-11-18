@@ -64,10 +64,10 @@ struct StreamingSettingsView: View {
                     }
                     Picker("Cache Size", selection: $settings.policy.cacheMegabytes) {
                         ForEach(StreamingPolicy.cacheSizeOptions, id: \.self) { megabytes in
-                            Text(Int64(megabytes * 1_024 * 1_024).asFileSize).tag(megabytes)
+                            Text((Int64(megabytes) * 1_024 * 1_024).asCacheSize).tag(megabytes)
                         }
                     }
-                    LabeledContent("In Use", value: cache.totalBytes.asFileSize)
+                    LabeledContent("In Use", value: cache.totalBytes.asCacheSize)
 
                     Button("Delete Caches", role: .destructive) {
                         isConfirmingDelete = true
@@ -113,7 +113,7 @@ struct StreamingSettingsView: View {
         }
         .navigationTitle("Streaming & Caching")
         .confirmationDialog(
-            "Delete \(cache.totalBytes.asFileSize) of cached tracks?",
+            "Delete \(cache.totalBytes.asCacheSize) of cached tracks?",
             isPresented: $isConfirmingDelete,
             titleVisibility: .visible
         ) {

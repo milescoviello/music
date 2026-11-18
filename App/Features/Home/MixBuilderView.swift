@@ -65,6 +65,7 @@ struct MixBuilderView: View {
         }
         .navigationTitle(kind == .artists ? "Artist Mix Builder" : "Album Mix Builder")
         .searchable(text: $query, prompt: kind == .artists ? "Artists" : "Albums")
+        .searchInputAsTyped()
         .task(id: query) { await search() }
         .playerClearance()
         .overlay {
@@ -240,6 +241,7 @@ struct SonicAdventureView: View {
         }
         .navigationTitle("Sonic Adventure")
         .searchable(text: $query, prompt: "Where to?")
+        .searchInputAsTyped()
         .task(id: query) { await search() }
         .playerClearance()
     }

@@ -31,6 +31,9 @@ struct LibraryScopeMenu: View {
                         .font(.caption2)
                 }
             }
+            // Without these VoiceOver read the symbols' names: "books.vertical, Go Down".
+            .accessibilityLabel("Library")
+            .accessibilityValue(store.scope.shortName)
         }
     }
 }

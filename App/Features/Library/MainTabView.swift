@@ -43,6 +43,7 @@ struct MainTabView: View {
                     // -- the bar was covering the bottom of some screens.
                     .tabViewBottomAccessory {
                         MiniPlayerBar(showsPlayer: showsPlayer, isSystemAccessory: true)
+                            .accessibilityHidden(navigator.showsPlayer)
                     }
             } else {
                 tabs
@@ -57,6 +58,7 @@ struct MainTabView: View {
         .overlay {
             if navigator.showsPlayer {
                 NowPlayingView(onDismiss: { navigator.showsPlayer = false })
+                    .accessibilityAddTraits(.isModal)
                     .transition(.move(edge: .bottom))
                     .zIndex(2)
             }
@@ -189,15 +191,23 @@ struct MainTabView: View {
     /// bar is already part of the safe area, so the bar lands directly above it and
     /// every scroll view in that tab gets the extra bottom inset. Applied to the
     /// `TabView` it renders underneath the tab bar instead.
+    ///
+    /// Also where the tab is hidden from VoiceOver while the player is up. The player is
+    /// an overlay, so the screen under it stays in the accessibility tree, and VoiceOver
+    /// walked straight off the player into a page that could not be seen. It has to be
+    /// here, in each tab: each one is hosted by its own controller, and the same modifier
+    /// on the `TabView` never reached inside them.
     @ViewBuilder
     private func hosted<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         if #available(iOS 26.0, *) {
             content()
+                .accessibilityHidden(navigator.showsPlayer)
         } else {
             content()
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     MiniPlayerBar(showsPlayer: showsPlayer)
                 }
+                .accessibilityHidden(navigator.showsPlayer)
         }
     }
 }

@@ -32,16 +32,8 @@ final class DailyMixes {
         /// Set once a mix has stopped producing anything new, so a list can stop asking.
         var isExhausted: Bool?
 
-        /// Up to four covers, for the tiled card. Distinct albums, so a mix that happens
-        /// to open with three tracks off one record still looks like a mix.
-        var covers: [String] {
-            var seen: [String] = []
-            for art in songs.compactMap(\.coverArt) where !seen.contains(art) {
-                seen.append(art)
-                if seen.count == 4 { break }
-            }
-            return seen
-        }
+        /// Up to four covers, for the tiled card: see `MixEngine.covers`.
+        var covers: [String] { MixEngine.covers(of: songs) }
     }
 
     /// Below this a "mix" is a short playlist. Twelve rather than fifteen because the

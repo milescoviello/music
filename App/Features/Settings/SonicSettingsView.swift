@@ -13,7 +13,7 @@ struct SonicSettingsView: View {
             Group {
                 Section {
                     if let status = sonic.status {
-                        LabeledContent("Analysed", value: "\(status.analysed) of \(status.tracks)")
+                        LabeledContent("Analysed", value: "\(status.analysed.formatted()) of \(status.tracks.formatted())")
                         if status.analysed < status.tracks {
                             ProgressView(value: Double(status.analysed), total: Double(max(status.tracks, 1)))
                         }

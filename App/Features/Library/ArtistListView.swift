@@ -109,6 +109,7 @@ struct ArtistListView: View {
         .playerClearance()
         .navigationTitle("Artists")
         .searchable(text: $filter, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Filter artists")
+        .searchInputAsTyped()
         .toolbar { ToolbarItem(placement: .topBarTrailing) { LibraryScopeMenu() } }
         .overlay {
             if isLoading, indexes.isEmpty {

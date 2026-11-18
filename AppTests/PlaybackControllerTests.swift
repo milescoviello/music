@@ -16,9 +16,25 @@ final class PlaybackControllerTests: XCTestCase {
         }
     }
 
+    /// Each test's queue file goes in a folder of its own. These run inside the app, and
+    /// the default store is the app's real one: every CI run used to leave "Track a/b/c"
+    /// behind as the queue the simulator's app restored at its next launch.
+    private var folder: URL!
+
+    override func setUpWithError() throws {
+        folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PlaybackControllerTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: folder)
+    }
+
     private func make() -> (PlaybackController, FakeOutput) {
         let output = FakeOutput()
-        return (PlaybackController(output: output), output)
+        let store = PlaybackQueueStore(directory: folder)
+        return (PlaybackController(output: output, store: store), output)
     }
 
     func testPlayStartsAtTheChosenTrack() {

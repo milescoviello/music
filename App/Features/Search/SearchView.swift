@@ -78,6 +78,7 @@ struct SearchView: View {
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: "Artists, Albums, Songs"
             )
+            .searchInputAsTyped()
             // `.searchScopes` rather than the toolbar menu used elsewhere: it is the
             // control iOS already puts under a search field, and a second menu beside
             // the field would be one affordance too many. Same store either way.

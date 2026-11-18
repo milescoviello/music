@@ -357,4 +357,26 @@ enum MixEngine {
         }
         return chosen
     }
+
+    /// Up to four covers for a mix's tiled card. Distinct albums, so a mix that happens
+    /// to open with three tracks off one record still looks like a mix.
+    ///
+    /// Told apart by album, not by cover id: with the art embedded in the files,
+    /// Navidrome gives every track its own id (`mf-…`), so two tracks off one record were
+    /// two "different" covers of the same picture. By name as well as by id, since this
+    /// library holds twin copies of some albums under two ids.
+    static func covers(of songs: [Song], limit: Int = 4) -> [String] {
+        var albums: Set<String> = []
+        var covers: [String] = []
+        for song in songs {
+            guard let art = song.coverArt, !covers.contains(art) else { continue }
+            let name = song.album.map { "\($0.lowercased())|\(artistKey(song.artist))" }
+            let keys = [song.albumId, name].compactMap { $0 }
+            guard keys.allSatisfy({ !albums.contains($0) }) else { continue }
+            albums.formUnion(keys)
+            covers.append(art)
+            if covers.count == limit { break }
+        }
+        return covers
+    }
 }

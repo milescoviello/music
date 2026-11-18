@@ -789,6 +789,7 @@ actor SubsonicClient {
         positionMilliseconds: Int,
         comment: String? = nil
     ) async throws {
+        guard !TestCopy.isOn else { return }
         try await perform(
             "createBookmark.view",
             query: [
@@ -800,6 +801,7 @@ actor SubsonicClient {
     }
 
     func deleteBookmark(id: String) async throws {
+        guard !TestCopy.isOn else { return }
         try await perform("deleteBookmark.view", query: ["id": id])
     }
 

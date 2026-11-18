@@ -72,7 +72,7 @@ struct ChangeVideoSheet: View {
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: "Search YouTube or paste a link"
             )
-            .autocorrectionDisabled()
+            .searchInputAsTyped()
             .textInputAutocapitalization(.never)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

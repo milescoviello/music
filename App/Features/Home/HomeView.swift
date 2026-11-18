@@ -78,6 +78,7 @@ struct HomeView: View {
                     } label: {
                         Image(systemName: "gearshape")
                     }
+                    .accessibilityLabel("Settings and Edit Home")
                 }
             }
             .sheet(isPresented: $isEditingLayout) {
@@ -220,9 +221,17 @@ struct HomeView: View {
                     }
                 }
             } label: {
-                Text(mixFolderID == -1 ? "Both" : mixScope.shortName)
-                    .font(.subheadline)
+                // A chevron, as on the toolbar's library menu: a bare "Both" beside
+                // "See All" read as one phrase, "Both See All".
+                HStack(spacing: 3) {
+                    Text(mixFolderID == -1 ? "Both" : mixScope.shortName)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                }
+                .font(.subheadline)
             }
+            .accessibilityLabel("Mixes from")
+            .accessibilityValue(mixFolderID == -1 ? "Both Libraries" : mixScope.shortName)
         }
     }
 

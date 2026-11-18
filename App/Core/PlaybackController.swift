@@ -106,7 +106,10 @@ final class PlaybackController {
 
     private let session = AudioSessionCoordinator()
     private let nowPlaying = NowPlayingCenter()
-    private let store = PlaybackQueueStore(directory: Paths.root, legacyURL: Paths.queue)
+    /// Where the queue is kept between launches: the app's own folder, or a throwaway one
+    /// for the tests, which run inside the app and were writing their made-up queues over
+    /// the one it restores at launch.
+    private let store: PlaybackQueueStore
     private let tracker = PlayTracker()
     private weak var appState: AppState?
 
@@ -218,8 +221,12 @@ final class PlaybackController {
     /// out in a few minutes; an outage is left paused rather than resumed an hour later.
     private static let retryDelays: [Double] = [5, 15, 30, 60, 120]
 
-    init(output: any AudioOutput = QueuePlayerOutput()) {
+    init(
+        output: any AudioOutput = QueuePlayerOutput(),
+        store: PlaybackQueueStore = PlaybackQueueStore(directory: Paths.root, legacyURL: Paths.queue)
+    ) {
         self.output = output
+        self.store = store
         session.configure()
 
         // About this device's own sound: headphones pulled out, a call. A computer being

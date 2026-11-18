@@ -293,6 +293,7 @@ struct NowPlayingView: View {
                         )
                         .contentShape(Rectangle())
                 }
+                .accessibilityLabel("More")
             } else {
                 Spacer().frame(width: Metrics.minimumTouchTarget)
             }
@@ -354,10 +355,12 @@ struct NowPlayingView: View {
 
             case .queue:
                 QueueView()
+                    .fadesIntoSeekBar()
 
             case .lyrics:
                 if let song = player.currentSong {
                     LyricsView(song: song)
+                        .fadesIntoSeekBar()
                 }
 
             case .visualizer:
@@ -1286,5 +1289,22 @@ struct GuestDJMenu: View {
                 systemImage: "sparkles"
             )
         }
+    }
+}
+
+private extension View {
+    /// Queue and lyrics stop at the seekbar, and a row used to end there dead, cut
+    /// through the middle -- a wrapped lyric lost its second line. They fade out over the
+    /// last stretch instead, and their scrolling ends that far up, so the last row can
+    /// still be brought clear of the fade.
+    func fadesIntoSeekBar(_ fade: CGFloat = 28) -> some View {
+        contentMargins(.bottom, fade, for: .scrollContent)
+            .mask {
+                VStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: fade)
+                }
+            }
     }
 }
