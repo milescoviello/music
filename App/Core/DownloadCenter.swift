@@ -147,6 +147,37 @@ final class DownloadCenter {
         }
     }
 
+    /// Takes back audio the catalog lost track of (`DownloadCatalogStore.untrackedMedia`):
+    /// each file's song is looked up by its id. A song the server refuses -- it no longer
+    /// has it -- loses its file; a lookup that fails any other way (offline, server down)
+    /// leaves every remaining file for the next launch, so nothing is deleted on a bad
+    /// network. Called once the credentials are known, before anything syncs, so a lost
+    /// catalog's playlists are re-joined rather than downloaded a second time.
+    func readoptUntracked() async {
+        await catalogReading?.value
+        guard let client = appState?.client else { return }
+        let untracked = await store.untrackedMedia()
+        guard !untracked.isEmpty else { return }
+        var adopted = 0
+        var removed = 0
+        for (songID, file) in untracked {
+            do {
+                let song = try await client.song(id: songID)
+                catalog = await store.adopt(song: song, file: file)
+                adopted += 1
+            } catch SubsonicClient.ClientError.rejected(_) {
+                await store.discard(file)
+                removed += 1
+            } catch {
+                break
+            }
+        }
+        await Diagnostics.shared.record(
+            "downloads",
+            "found \(untracked.count) untracked files: re-adopted \(adopted), removed \(removed)"
+        )
+    }
+
     /// A relaunched background session already has tasks in flight; without this they
     /// would complete into a UI that never showed them as running.
     private func adoptRunningTasks() async {

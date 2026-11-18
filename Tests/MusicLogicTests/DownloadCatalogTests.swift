@@ -207,6 +207,100 @@ struct DownloadCatalogTests {
         #expect(catalog.songIDs(downloadedAs: "nothing").isEmpty)
     }
 
+    // MARK: - A lost catalog's files come back
+
+    private func media(_ name: String, bytes: Int, in directory: URL) throws -> URL {
+        let file = directory.appendingPathComponent(name)
+        try Data(repeating: 0x66, count: bytes).write(to: file)
+        return file
+    }
+
+    @Test func filesNoEntryPointsAtAreUntracked() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mediaDirectory = directory.appendingPathComponent("Media", isDirectory: true)
+        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
+
+        let store = DownloadCatalogStore(url: directory.appendingPathComponent("c.json"))
+        _ = await store.markPending(entry("a", in: directory))
+        _ = await store.complete(songID: "a", byteCount: 100)
+        _ = await store.markPending(entry("p", in: directory))
+        _ = try media("a.flac", bytes: 100, in: mediaDirectory)
+        _ = try media("p.flac", bytes: 10, in: mediaDirectory)      // pending: not lost
+        _ = try media("lost.flac", bytes: 300, in: mediaDirectory)
+        _ = try media("gone.mp3", bytes: 200, in: mediaDirectory)
+        try FileManager.default.createDirectory(
+            at: mediaDirectory.appendingPathComponent("incoming"), withIntermediateDirectories: true
+        )
+
+        let untracked = await store.untrackedMedia(in: mediaDirectory)
+        #expect(untracked.map(\.songID) == ["gone", "lost"])
+    }
+
+    @Test func anAdoptedFileIsADownloadWithItsRealSize() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = try media("lost.flac", bytes: 3_000, in: directory)
+
+        let store = DownloadCatalogStore(url: directory.appendingPathComponent("c.json"))
+        let after = await store.adopt(song: song("lost"), file: file)
+
+        #expect(after.entries["lost"]?.byteCount == 3_000)
+        #expect(after.entries["lost"]?.filename == "lost.flac")
+        #expect(after.entries["lost"]?.quality == .original)
+    }
+
+    @Test func anAdoptedTranscodeIsNotCalledTheOriginal() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var flac = song("t")
+        flac.duration = 240
+        // 240 s at 256 kbps is 7.68 MB: the file below is that rung's size.
+        let file = try media("t.mp3", bytes: 7_680_000, in: directory)
+
+        let store = DownloadCatalogStore(url: directory.appendingPathComponent("c.json"))
+        let after = await store.adopt(song: flac, file: file)
+
+        #expect(after.entries["t"] != nil)
+        #expect(after.entries["t"]?.quality != .original)
+    }
+
+    @Test func anErrorBodyIsDroppedNotAdopted() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("bad.flac")
+        try Data(#"{"subsonic-response":{"status":"failed"}}"#.utf8).write(to: file)
+
+        let store = DownloadCatalogStore(url: directory.appendingPathComponent("c.json"))
+        let after = await store.adopt(song: song("bad"), file: file)
+
+        #expect(after.entries["bad"] == nil)
+        #expect(FileManager.default.fileExists(atPath: file.path) == false)
+    }
+
+    /// The bug: a catalog from another build reads as empty, and its files used to stay on
+    /// disk forever while everything was downloaded again.
+    @Test func aCatalogFromAnotherBuildGetsItsFilesBack() async throws {
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mediaDirectory = directory.appendingPathComponent("Media", isDirectory: true)
+        try FileManager.default.createDirectory(at: mediaDirectory, withIntermediateDirectories: true)
+        let catalogFile = directory.appendingPathComponent("catalog.json")
+        try Data(#"{"version":9999,"entries":{},"pending":{}}"#.utf8).write(to: catalogFile)
+        for id in ["s1", "s2", "s3"] { _ = try media("\(id).flac", bytes: 500, in: mediaDirectory) }
+
+        let store = DownloadCatalogStore(url: catalogFile)
+        #expect(await store.load().entries.isEmpty)
+        for (id, file) in await store.untrackedMedia(in: mediaDirectory) {
+            await store.adopt(song: song(id), file: file)
+        }
+        #expect(await store.untrackedMedia(in: mediaDirectory).isEmpty)
+
+        // Written through: a relaunch reads them back.
+        let reopened = DownloadCatalogStore(url: catalogFile)
+        #expect(await reopened.load().entries.keys.sorted() == ["s1", "s2", "s3"])
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("music-tests-\(UUID().uuidString)", isDirectory: true)

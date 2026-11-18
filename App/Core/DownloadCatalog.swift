@@ -542,6 +542,72 @@ actor DownloadCatalogStore {
         return catalog
     }
 
+    /// Audio in `directory` that no entry, finished or pending, points at: what a catalog
+    /// that could not be read leaves behind, since `load()` then starts clean -- corrupt,
+    /// or written by another build (an older one installed over a newer one is enough).
+    /// Without this those files stayed on the phone, invisible, while the playlists they
+    /// belonged to were downloaded all over again. Files are named `<songID>.<suffix>`, so
+    /// each one says which song it is; `DownloadCenter` asks the server for that song and
+    /// calls `adopt` or `discard`.
+    func untrackedMedia(in directory: URL = Paths.media) -> [(songID: String, file: URL)] {
+        _ = load()
+        let known = Set(catalog.entries.values.map(\.filename))
+            .union(catalog.pending.values.map(\.filename))
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: directory, includingPropertiesForKeys: nil
+        )) ?? []
+        return files.compactMap { file -> (songID: String, file: URL)? in
+            guard !file.hasDirectoryPath, !file.pathExtension.isEmpty,
+                  !known.contains(file.lastPathComponent)
+            else { return nil }
+            let songID = file.deletingPathExtension().lastPathComponent
+            return songID.isEmpty ? nil : (songID, file)
+        }
+        .sorted { $0.songID < $1.songID }
+    }
+
+    /// Takes an untracked file back as a finished download of `song`, with its real size.
+    /// It comes back as a song on its own; the next playlist sync joins it to the playlists
+    /// it is on, as it does any song already here, instead of fetching it again.
+    @discardableResult
+    func adopt(song: Song, file: URL) -> DownloadCatalog {
+        _ = load()
+        guard catalog.entries[song.id] == nil, catalog.pending[song.id] == nil else { return catalog }
+        if Self.isErrorBody(file) {
+            try? FileManager.default.removeItem(at: file)
+            return catalog
+        }
+        let attributes = try? FileManager.default.attributesOfItem(atPath: file.path)
+        guard let size = (attributes?[.size] as? NSNumber)?.int64Value, size > 0 else { return catalog }
+
+        // The original keeps the song's own suffix; a transcode was stored as `.mp3`. Its
+        // rung is not written anywhere, so take the one whose size it is closest to.
+        let quality: DownloadQuality
+        if file.pathExtension.lowercased() == (song.suffix ?? "").lowercased() {
+            quality = .original
+        } else {
+            quality = DownloadQuality.allCases.filter { $0 != .original }.min {
+                abs($0.estimatedBytes(for: song) - size) < abs($1.estimatedBytes(for: song) - size)
+            } ?? .standard
+        }
+        catalog.entries[song.id] = DownloadCatalog.Entry(
+            song: song,
+            filename: file.lastPathComponent,
+            byteCount: size,
+            addedAt: .now,
+            groupID: nil,
+            groupName: nil,
+            qualityRaw: quality.rawValue
+        )
+        save()
+        return catalog
+    }
+
+    /// An untracked file whose song the server no longer has: storage nothing can reach.
+    func discard(_ file: URL) {
+        try? FileManager.default.removeItem(at: file)
+    }
+
     /// Writes whatever finished songs are waiting to be written. For going to the
     /// background, where the process may not come back.
     func flush() {
