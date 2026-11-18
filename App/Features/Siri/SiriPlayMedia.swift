@@ -114,10 +114,15 @@ final class SiriPlayMedia: NSObject, INPlayMediaIntentHandling {
         return true
     }
 
+    /// Whether this build was signed with Siri. Without it `INPreferences` throws an
+    /// Objective-C exception that kills the app at launch (the simulator, or any install
+    /// whose signing profile lacks Siri), so nothing here touches it then.
+    static let isSigned = SigningEntitlements.contains("com.apple.developer.siri")
+
     /// Asked once: without it Siri does not offer the app its media requests.
     @MainActor
     static func askForSiriIfNeeded() {
-        guard INPreferences.siriAuthorizationStatus() == .notDetermined else { return }
+        guard isSigned, INPreferences.siriAuthorizationStatus() == .notDetermined else { return }
         INPreferences.requestSiriAuthorization { _ in }
     }
 }
