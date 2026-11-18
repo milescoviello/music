@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from sonic.record_about import RecordAbout, same_name
+from sonic.record_about import RecordAbout, same_album, same_name
 from tests.test_about import Web
 
 
@@ -84,6 +84,15 @@ class Answers(unittest.TestCase):
             "title": "Currents (album)", "extract": "Currents is an album by Someone Else."}}}}
         answer = self.about(Web(pages)).answer("album", "al", "Currents", "Tame Impala")
         self.assertEqual((answer["sections"], answer["links"]), ([], []))
+
+    def test_another_album_whose_title_starts_the_same_is_not_this_one(self):
+        self.assertTrue(same_album("Currents (Deluxe)", "Currents"))
+        self.assertTrue(same_album("Deathmetal", "D>E>A>T>H>M>E>T>A>L"))
+        self.assertFalse(same_album("Kessoku Band Extra Music", "Kessoku Band"))
+        pages = album_pages()
+        pages["https://genius.com/api/search/album"] = search("album", (7, "Currents Extra Music", "Tame Impala"))
+        sections = self.about(Web(pages)).answer("album", "al", "Currents", "Tame Impala")["sections"]
+        self.assertNotIn("Genius", [s["source"] for s in sections])
 
     def test_a_song_page_is_not_the_album(self):
         pages = album_pages()

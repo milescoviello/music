@@ -29,7 +29,7 @@ from pathlib import Path
 
 from . import lrclib
 from .about import (BROWSER, DISAMBIGUATION, FAIL_RETRY, GENIUS, KEEP, NONE_RETRY, WIKIPEDIA, _cap, _names,
-                    _sections, get_json, plain, same_artist, same_title)
+                    _sections, get_json, plain, same_artist)
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +43,14 @@ def aliases(name: str | None) -> set[str]:
 
 def same_name(theirs: str | None, ours: str) -> bool:
     return bool(aliases(theirs) & aliases(ours))
+
+
+def same_album(theirs: str | None, ours: str) -> bool:
+    """The same album, editions and brackets aside: "Currents (Deluxe)" is Currents, "Deathmetal" is
+    D>E>A>T>H>M>E>T>A>L; "Kessoku Band Extra Music" is not Kessoku Band (a song's looser match would say it is)."""
+    def core(title):
+        return plain(re.sub(r"\s*[(\[][^)\]]*[)\]]", "", lrclib.clean(title or "")))
+    return bool(core(ours)) and core(theirs) == core(ours)
 
 SECTION_CHARS = 2_400
 MAX_SECTIONS = 7
@@ -180,7 +188,7 @@ class RecordAbout:
         first = re.split(r"\s*(?:[&,/;•·+]|\bfeat\.?|\bft\.?|\bwith\b|\bx\b)\s*", artist or "", flags=re.I)[0]
         for query in dict.fromkeys([f"{name} {artist}", f"{lrclib.clean(name)} {first}"]):
             hits = [hit for hit in self._genius_hits("album", query)
-                    if same_title(hit.get("name"), name) and same_artist((hit.get("artist") or {}).get("name"), artist)]
+                    if same_album(hit.get("name"), name) and same_artist((hit.get("artist") or {}).get("name"), artist)]
             if not hits:
                 continue
             album = ((self._get(f"{GENIUS}/albums/{hits[0]['id']}", {"text_format": "plain"}, BROWSER) or {})
