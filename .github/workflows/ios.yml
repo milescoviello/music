@@ -3,8 +3,12 @@ name: Build iOS app
 # Produces an UNSIGNED .ipa. It is re-signed on-device by xtool with a free
 # Apple developer certificate, which is why nothing here needs secrets.
 #
-# There is no macOS available locally, so this workflow is the compiler: a red
-# run here is the only signal that the Swift does not build.
+# Runs on the macOS build VM (Proxmox VM 134, self-hosted runner `music-vm`), not on
+# GitHub's hosted Macs, whose capacity outages left builds queued and cancelled.
+# Safe on a public repo because nothing here runs for pull requests: only pushes to
+# main/development and manual runs (and the repo requires approval for outside
+# contributors' workflows on top of that). Never add a pull_request trigger to a job
+# that runs on this runner.
 
 on:
     workflow_dispatch:
@@ -25,7 +29,7 @@ jobs:
     # simulator. This is the only automated check in the project -- everything else is
     # verified by hand on the device -- so it must not depend on Xcode project state.
     test:
-        runs-on: macos-26
+        runs-on: [self-hosted, music-vm]
         timeout-minutes: 15
 
         steps:
@@ -35,7 +39,7 @@ jobs:
               run: swift test --disable-sandbox
 
     build:
-        runs-on: macos-26
+        runs-on: [self-hosted, music-vm]
         timeout-minutes: 30
 
         steps:
