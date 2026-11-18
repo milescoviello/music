@@ -169,6 +169,9 @@ final class AppState {
     /// what lets downloaded music play offline from a cold launch.
     func restore() async {
         guard let saved = Keychain.loadCredentials() else {
+            #if targetEnvironment(simulator)
+            if await signInFromLaunchEnvironment() { return }
+            #endif
             phase = .needsSetup
             return
         }
@@ -201,6 +204,28 @@ final class AppState {
         await playlistSync.sync()
         await loadServerContext()
     }
+
+    #if targetEnvironment(simulator)
+    /// Simulator only (the macOS build VM): signs in from the launch environment, so a
+    /// fresh simulator can be tested without typing on the setup screen. `simctl launch`
+    /// passes variables prefixed `SIMCTL_CHILD_`, so the caller sets
+    /// `SIMCTL_CHILD_MUSIC_SERVER`, `_MUSIC_USER` and `_MUSIC_PASSWORD`; the values live on
+    /// the build machine, never in the repo. They take the same path as the setup screen
+    /// (ping first, then the Keychain). None of this exists in a device build.
+    private func signInFromLaunchEnvironment() async -> Bool {
+        let environment = ProcessInfo.processInfo.environment
+        guard let server = environment["MUSIC_SERVER"], let baseURL = URL(string: server),
+              let username = environment["MUSIC_USER"], !username.isEmpty,
+              let password = environment["MUSIC_PASSWORD"], !password.isEmpty
+        else { return false }
+        do {
+            try await signIn(baseURL: baseURL, username: username, password: password)
+            return true
+        } catch {
+            return false
+        }
+    }
+    #endif
 
     /// Verifies credentials against the server before storing them, so a typo
     /// surfaces at the setup screen rather than as an empty library later.
