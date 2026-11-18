@@ -80,9 +80,14 @@ fi
 
 # Swift.org toolchains can link the Swift runtime in, so the binary keeps working after
 # a toolchain update; distribution packages (Fedora's swift-lang) ship it shared only.
+# The toolchain is asked where its runtime is: `swift` on PATH may be a shim (swiftly's
+# resolves to swiftly itself), so following that link finds no toolchain.
 static=""
-toolchain=$(dirname "$(readlink -f "$(command -v swift)")")/..
-if [ -e "$toolchain/lib/swift_static/linux/libswiftCore.a" ]; then
+runtime=$(swift -print-target-info 2>/dev/null | sed -n 's/.*"runtimeResourcePath": *"\([^"]*\)".*/\1/p')
+if [ -z "$runtime" ]; then
+    runtime=$(dirname "$(readlink -f "$(command -v swift)")")/../lib/swift
+fi
+if [ -e "$(dirname "$runtime")/swift_static/linux/libswiftCore.a" ]; then
     static="--static-swift-stdlib"
 fi
 
