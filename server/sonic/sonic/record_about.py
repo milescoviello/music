@@ -6,8 +6,10 @@ song's About sheet (`about.py`), less the notes on lines.
   Reception...; an artist's History and its parts, Musical style, Influences, Legacy...).
 - **What it's about** / **who they are**: a few paragraphs written ahead of time by Claude from those sources (and
   searches, whose links it keeps), in `data/album-about-summaries/<album id>.json` or
-  `data/artist-about-summaries/<artist id>.json` = {"text", "basis", "links"?}. An album's `basis` is "songs" when
-  nothing has been written about it and the summary rests on its songs' own pages and lyrics.
+  `data/artist-about-summaries/<artist id>.json` = {"text", "basis", "links"?, "sources"?}. An album's `basis` is
+  "songs" when nothing has been written about it and the summary rests on its songs' own pages and lyrics.
+  `"sources": "own"` says the pages its name finds belong to someone else of that name: then nothing is looked up or
+  quoted, and the answer is the summary with its own links.
 
 Looked up the first time it is asked about and kept in `data/record-about.db` on the same terms as a song's: found
 for half a year, nothing for a month, a failure for an hour. A match has to be it: an album page of the same title
@@ -107,8 +109,8 @@ class RecordAbout:
                titles: tuple = ()) -> dict:
         """kind "album" (name = the album, artist = its album artist) or "artist" (name = the artist; `titles` = a few
         of its songs, which a Genius artist page of that name must have to count as this artist's)."""
-        found = self._found(kind, item_id, name, artist, refresh, titles)
         summary = self.summary(kind, item_id)
+        found = {} if summary and summary["own"] else self._found(kind, item_id, name, artist, refresh, titles)
         answer = {"id": item_id, "kind": kind, "title": name, "artist": artist if kind == "album" else name,
                   **found, "summary": summary and {k: summary[k] for k in ("text", "basis")}}
         known = {link.get("url") for link in answer.get("links") or []}
@@ -130,7 +132,7 @@ class RecordAbout:
         links = [{"name": str(link["name"]), "url": str(link["url"])} for link in stored.get("links") or []
                  if isinstance(link, dict) and link.get("name") and str(link.get("url", "")).startswith("http")]
         basis = "songs" if kind == "album" and stored.get("basis") == "songs" else "sources"
-        return {"text": text.strip(), "basis": basis, "links": links}
+        return {"text": text.strip(), "basis": basis, "links": links, "own": stored.get("sources") == "own"}
 
     def _found(self, kind: str, item_id: str, name: str, artist: str, refresh: bool, titles: tuple = ()) -> dict:
         with self._db() as db:

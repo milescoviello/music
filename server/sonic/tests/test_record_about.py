@@ -146,6 +146,18 @@ class Answers(unittest.TestCase):
         (self.dir / "artist-about-summaries" / "ar.json").write_text(json.dumps({"text": "A band.", "basis": "songs"}))
         self.assertEqual(self.about(Web({})).answer("artist", "ar", "Low Orbit Choir")["summary"]["basis"], "sources")
 
+    def test_a_namesakes_pages_set_aside_for_the_summarys_own(self):
+        web = Web(artist_pages())
+        about = self.about(web)
+        (self.dir / "artist-about-summaries" / "ar.json").write_text(json.dumps({
+            "text": "A producer.", "basis": "sources", "sources": "own",
+            "links": [{"name": "Interview", "url": "https://example.com/i"}]}))
+        answer = about.answer("artist", "ar", "Low Orbit Choir")
+        self.assertEqual(web.asked, [])
+        self.assertEqual(answer["summary"], {"text": "A producer.", "basis": "sources"})
+        self.assertNotIn("sections", answer)
+        self.assertEqual(answer["links"], [{"name": "Interview", "url": "https://example.com/i"}])
+
     def test_kept_and_asked_again_only_when_stale(self):
         web = Web(album_pages())
         about = self.about(web)
