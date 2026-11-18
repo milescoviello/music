@@ -15,6 +15,9 @@ final class WatchBridge: NSObject {
     private weak var appState: AppState?
     private var lastState: WatchLink.State?
     private var lastCoverID: String?
+    /// The newest state asked for, sent again when the link comes up or a watch app appears:
+    /// one asked for before either would otherwise wait for the next change.
+    private var wanted: (state: WatchLink.State, coverID: String?)?
     /// Collections whose songs are still being sent, so a stop can end them.
     private var sending: [String: Task<Void, Never>] = [:]
 
@@ -26,7 +29,7 @@ final class WatchBridge: NSObject {
     }
 
     func start(appState: AppState) {
-        guard WCSession.isSupported() else { return }
+        guard WCSession.isSupported(), self.appState == nil else { return }
         self.appState = appState
         WCSession.default.delegate = self
         WCSession.default.activate()
@@ -34,6 +37,7 @@ final class WatchBridge: NSObject {
 
     /// Whenever something the watch shows changes. Only a changed state is sent.
     func publish(_ state: WatchLink.State, coverID: String?) async {
+        wanted = (state, coverID)
         guard let session, state != lastState || coverID != lastCoverID else { return }
         var context: [String: Any] = [:]
         guard let data = WatchLink.encode(state) else { return }
@@ -48,6 +52,12 @@ final class WatchBridge: NSObject {
         lastState = state
         lastCoverID = coverID
         try? session.updateApplicationContext(context)
+    }
+
+    fileprivate func republish() async {
+        lastState = nil
+        lastCoverID = nil
+        if let wanted { await publish(wanted.state, coverID: wanted.coverID) }
     }
 
     // MARK: - Commands
@@ -137,7 +147,12 @@ extension WatchBridge {
 extension WatchBridge: WCSessionDelegate {
     nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         // A watch that has just appeared gets the state at once, not at the next change.
-        Task { @MainActor in WatchBridge.shared.lastState = nil }
+        Task { @MainActor in await WatchBridge.shared.republish() }
+    }
+
+    /// The watch app installed, or a watch paired.
+    nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
+        Task { @MainActor in await WatchBridge.shared.republish() }
     }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}

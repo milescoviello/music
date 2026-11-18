@@ -21,6 +21,9 @@ struct MusicApp: App {
         _remotePlayers = State(initialValue: RemotePlayers(appState: appState, browser: NetworkRemoteBrowser()))
         // The desktop can play to the phone too, when it is allowed in Settings.
         RemoteControlServer.shared.start(app: appState, advertiser: BonjourAdvertiser())
+        // The watch app's link, at launch: a command from the watch can start the app in
+        // the background, before any screen exists.
+        WatchBridge.shared.start(appState: appState)
         // The widgets' buttons, run here (`WidgetControl`).
         WidgetControl.handler = { action in
             guard let appState = await MusicIntentBridge.state() else { return }
