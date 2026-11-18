@@ -39,7 +39,9 @@ jobs:
               run: swift test --disable-sandbox
 
     # The app's own tests (AppTests/, the `MusicTests` target): PlaybackController and
-    # whatever else needs iOS frameworks, hosted in the app in the VM's simulator.
+    # whatever else needs iOS frameworks, hosted in the app in the VM's simulator. On the
+    # Pro Max, not the iPhone 17 Pro used for driving the app by hand: hosted tests run
+    # inside the app and save what they play, which showed up there as "Track b".
     app-tests:
         runs-on: [self-hosted, music-vm]
         timeout-minutes: 20
@@ -52,7 +54,7 @@ jobs:
                   xcodebuild test \
                     -project Music.xcodeproj \
                     -scheme Music \
-                    -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+                    -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
                     CODE_SIGN_STYLE=Manual \
                     CODE_SIGN_IDENTITY="-" \
                     DEVELOPMENT_TEAM=""
