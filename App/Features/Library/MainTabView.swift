@@ -9,6 +9,16 @@ struct MainTabView: View {
 
     private var navigator: Navigator { appState.navigator }
 
+    /// Everything the widget's details show, as one value that changes when any of them does.
+    private var widgetDetailsKey: String {
+        guard let song = appState.player.currentSong else { return "" }
+        let queue = appState.player.queue
+        let rating = appState.userState.rating(id: song.id, serverValue: song.userRating)
+        let starred = appState.userState.isStarred(id: song.id, serverValue: song.isFavorite)
+        let next = queue.upcoming(4).map(\.id).joined(separator: ",")
+        return "\(song.id)|\(rating)|\(starred)|\(next)"
+    }
+
     private var pinnedPlaylists: [Playlist] {
         appState.playlistArrangement.arranged(playlistStore.playlists).pinned
     }
@@ -68,6 +78,17 @@ struct MainTabView: View {
         .tint(Color.appTint)
         .task(id: appState.player.currentSong?.coverArt) {
             await CoverTint.shared.follow(appState.player.currentSong?.coverArt, artwork: appState.artwork)
+        }
+        // The watch app's view of the phone.
+        .watchBridge()
+        // The widget's stars, heart and Up Next, whenever one of them changes.
+        .task(id: widgetDetailsKey) {
+            guard let song = appState.player.currentSong else { return }
+            WidgetPublisher.shared.details(
+                rating: appState.userState.rating(id: song.id, serverValue: song.userRating),
+                isFavourite: appState.userState.isStarred(id: song.id, serverValue: song.isFavorite),
+                upNext: appState.player.queue.upcoming(4)
+            )
         }
         // What the Now Playing widget offers when nothing is playing.
         .task(id: pinnedPlaylists.map { $0.id + $0.name }) {

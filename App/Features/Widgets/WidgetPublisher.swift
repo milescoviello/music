@@ -11,16 +11,33 @@ final class WidgetPublisher {
     private var snapshot = WidgetSnapshot.load() ?? WidgetSnapshot()
     private var coverSongID: String?
 
-    /// From the lock screen's own updates (`NowPlayingCenter`): the same moments.
-    func nowPlaying(_ song: Song?, isPlaying: Bool) {
+    /// From the lock screen's own updates (`NowPlayingCenter`): the same moments -- a new
+    /// song, play, pause, a seek. The position goes with them, so the widget's progress
+    /// bar runs by itself between.
+    func nowPlaying(_ song: Song?, isPlaying: Bool, elapsed: Double = 0, duration: Double = 0, speed: Float = 1) {
         guard AppGroup.container != nil else { return }
         var next = snapshot
         next.title = song?.title
         next.artist = song?.artist
         next.album = song?.album
         next.isPlaying = song != nil && isPlaying
+        next.elapsed = song == nil ? nil : elapsed
+        next.duration = song == nil ? nil : duration
+        next.rate = next.isPlaying ? Double(speed) : 0
+        next.anchor = .now
+        if song == nil {
+            next.quality = nil
+            next.rating = nil
+            next.isFavourite = nil
+            next.upNext = nil
+        } else if let song, song.title != snapshot.title || song.artist != snapshot.artist {
+            next.quality = Self.quality(of: song)
+        }
+        // Where the bar already thinks the song is, to tell a seek from the clock running.
+        let predicted = (snapshot.elapsed ?? 0) + Date.now.timeIntervalSince(snapshot.anchor ?? .now) * (snapshot.rate ?? 0)
+        let moved = abs(predicted - elapsed) > 2 || next.duration != snapshot.duration
         guard next.title != snapshot.title || next.artist != snapshot.artist || next.album != snapshot.album
-            || next.isPlaying != snapshot.isPlaying
+            || next.isPlaying != snapshot.isPlaying || moved
         else { return }
         if song?.id != coverSongID {
             // The last song's cover would show under this one's name until its own arrives.
@@ -51,6 +68,46 @@ final class WidgetPublisher {
         var next = snapshot
         next.mixes = listed
         store(next, reloading: "MadeForYou")
+    }
+
+    /// The rest of the Linux player's lines for the song playing: its stars, its heart and
+    /// what comes next. Written only when one of them changes.
+    func details(rating: Int, isFavourite: Bool, upNext: [Song]) {
+        guard AppGroup.container != nil, snapshot.title != nil else { return }
+        var next = snapshot
+        next.rating = rating
+        next.isFavourite = isFavourite
+        next.upNext = upNext.prefix(4).map { WidgetSnapshot.Line(title: $0.title, artist: $0.artist) }
+        guard next.rating != snapshot.rating || next.isFavourite != snapshot.isFavourite || next.upNext != snapshot.upNext
+        else { return }
+        store(next, reloading: "NowPlaying")
+    }
+
+    /// The playing song's cover colours and accent (`CoverTint`), so the widgets have the
+    /// app's backdrop behind them.
+    func colours(pools: [VisualizerPalette.RGB], accent: (r: Double, g: Double, b: Double)?) {
+        guard AppGroup.container != nil else { return }
+        var next = snapshot
+        next.pools = pools.map { [$0.r, $0.g, $0.b] }
+        next.accent = accent.map { [$0.r, $0.g, $0.b] }
+        guard next.pools != snapshot.pools || next.accent != snapshot.accent else { return }
+        store(next, reloading: "NowPlaying")
+        WidgetCenter.shared.reloadTimelines(ofKind: "MadeForYou")
+    }
+
+    /// "FLAC · 24/96", "MP3 · 320 kbps": the file's own format, as the player's codec line
+    /// starts.
+    static func quality(of song: Song) -> String? {
+        var parts: [String] = []
+        if let suffix = song.suffix { parts.append(suffix.uppercased()) }
+        let lossless = ["flac", "wav", "aiff", "aif", "alac"].contains(song.suffix?.lowercased() ?? "")
+        if lossless, let depth = song.bitDepth, let rate = song.samplingRate, rate > 0 {
+            let khz = Double(rate) / 1000
+            parts.append("\(depth)/\(khz == khz.rounded() ? String(Int(khz)) : String(format: "%.1f", khz))")
+        } else if !lossless, let rate = song.bitRate, rate > 0 {
+            parts.append("\(rate) kbps")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// The pinned playlists, which Now Playing shows when nothing is playing: up to four,

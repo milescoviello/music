@@ -22,8 +22,44 @@ struct WidgetSnapshot: Codable, Sendable, Equatable {
     var album: String?
     var isPlaying: Bool = false
     var mixes: [Mix] = []
-    /// Optional, so a snapshot written before there were any still decodes.
+    /// A song coming up, for the large widget's Up Next.
+    struct Line: Codable, Sendable, Equatable {
+        var title: String
+        var artist: String?
+    }
+
+    // Everything below is optional, so a snapshot written by an older build still decodes.
+
     var pinned: [Pinned]?
+    /// Where the song was (`elapsed` seconds in) at `anchor`, how long it is, and how fast
+    /// it plays (0 while paused): enough for the widget's progress bar to run on its own.
+    var elapsed: Double?
+    var duration: Double?
+    var rate: Double?
+    var anchor: Date?
+    /// The Linux player's codec line: "FLAC · 24/96", the song's stars, its heart.
+    var quality: String?
+    var rating: Int?
+    var isFavourite: Bool?
+    var upNext: [Line]?
+    /// The playing song's three cover colours (0...255 a channel) and its accent (0...1),
+    /// as the app draws them behind its pages (`CoverColours`).
+    var pools: [[Double]]?
+    var accent: [Double]?
+
+    /// When the song started and will end, at the rate it plays; nil while paused or
+    /// before anything is known.
+    var playingSpan: ClosedRange<Date>? {
+        guard isPlaying, let elapsed, let duration, let anchor, let rate, rate > 0, duration > 0 else { return nil }
+        let start = anchor.addingTimeInterval(-elapsed / rate)
+        return start...start.addingTimeInterval(duration / rate)
+    }
+
+    /// How far through, 0...1, for a paused song.
+    var fraction: Double {
+        guard let elapsed, let duration, duration > 0 else { return 0 }
+        return min(max(elapsed / duration, 0), 1)
+    }
     var updated: Date = .now
 
     static let fileName = "widget.json"

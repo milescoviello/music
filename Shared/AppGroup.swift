@@ -18,7 +18,13 @@ enum AppGroup {
             guard let groups = applicationGroups(in: url), let first = groups.first(where: { !$0.contains("*") }) else { continue }
             return first
         }
+        #if targetEnvironment(simulator)
+        // A simulator build has no profile; it is given this group in its entitlements,
+        // so the widgets can be seen working there.
+        return "group.com.milescoviello.music.simulator"
+        #else
         return nil
+        #endif
     }()
 
     static var container: URL? {

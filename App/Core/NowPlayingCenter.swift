@@ -138,7 +138,7 @@ final class NowPlayingCenter {
         info = next
         MPNowPlayingInfoCenter.default().nowPlayingInfo = next
         // The widgets show the same, at the same moments.
-        WidgetPublisher.shared.nowPlaying(song, isPlaying: isPlaying)
+        WidgetPublisher.shared.nowPlaying(song, isPlaying: isPlaying, elapsed: elapsed, duration: duration, speed: speed)
     }
 
     private var currentArtworkSongID: String?

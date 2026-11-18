@@ -85,10 +85,12 @@ final class CoverTint: @unchecked Sendable {
     @MainActor
     func follow(_ cover: String?, artwork: ArtworkStore) async {
         guard let cover else { return }
-        guard let colours = await VisualizerArtworkPalette.colours(for: cover, artwork: artwork),
-              let rgb = CoverColours.accent(from: CoverColours.pick(colours), lightness: 0.62)
-        else { return }
+        guard let colours = await VisualizerArtworkPalette.colours(for: cover, artwork: artwork) else { return }
+        let pools = CoverColours.pick(colours)
+        guard let rgb = CoverColours.accent(from: pools, lightness: 0.62) else { return }
         accent = Color(red: rgb.r, green: rgb.g, blue: rgb.b)
+        // The widgets draw the same colours behind themselves.
+        WidgetPublisher.shared.colours(pools: pools, accent: rgb)
     }
 }
 

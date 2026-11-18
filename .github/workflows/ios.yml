@@ -94,6 +94,9 @@ jobs:
                   # The widgets' extension carries the app's version: iOS expects the two to match.
                   plutil -replace CFBundleShortVersionString -string "$BASE.$BUILD" Widgets/Info.plist
                   plutil -replace CFBundleVersion -string "$BUILD" Widgets/Info.plist
+                  # So does the watch app: the watch refuses one whose version is not the phone app's.
+                  plutil -replace CFBundleShortVersionString -string "$BASE.$BUILD" Watch/Info.plist
+                  plutil -replace CFBundleVersion -string "$BUILD" Watch/Info.plist
 
             - name: Archive (ad-hoc signed)
               run: |
@@ -115,6 +118,26 @@ jobs:
                     CODE_SIGN_STYLE=Manual \
                     DEVELOPMENT_TEAM=""
 
+            # The watch app is built on its own and goes only into a second .ipa,
+            # Music-watch.ipa. A watch app the signing profile does not cover can fail
+            # the whole install, so the everyday Music.ipa never carries one.
+            - name: Build the watch app
+              run: |
+                  xcodebuild \
+                    -project Music.xcodeproj \
+                    -target MusicWatch \
+                    -configuration Release \
+                    -sdk watchos \
+                    SYMROOT="$RUNNER_TEMP/watch-build" \
+                    OBJROOT="$RUNNER_TEMP/watch-obj" \
+                    build \
+                    CODE_SIGNING_ALLOWED=YES \
+                    AD_HOC_CODE_SIGNING_ALLOWED=YES \
+                    CODE_SIGNING_REQUIRED=NO \
+                    CODE_SIGN_IDENTITY="-" \
+                    CODE_SIGN_STYLE=Manual \
+                    DEVELOPMENT_TEAM=""
+
             - name: Package .ipa
               run: |
                   APP="$RUNNER_TEMP/Music.xcarchive/Products/Applications/Music.app"
@@ -124,11 +147,18 @@ jobs:
                   cd "$RUNNER_TEMP"
                   zip -qry Music-unsigned.ipa Payload
                   ls -lh Music-unsigned.ipa
+                  # The same app with the watch app inside, where iOS looks for it.
+                  mkdir -p Payload/Music.app/Watch
+                  cp -R "$RUNNER_TEMP/watch-build/Release-watchos/MusicWatch.app" Payload/Music.app/Watch/
+                  zip -qry Music-watch.ipa Payload
+                  ls -lh Music-watch.ipa
 
             - uses: actions/upload-artifact@v4
               with:
                   name: Music-unsigned-ipa
-                  path: ${{ runner.temp }}/Music-unsigned.ipa
+                  path: |
+                      ${{ runner.temp }}/Music-unsigned.ipa
+                      ${{ runner.temp }}/Music-watch.ipa
                   if-no-files-found: error
 
             # Also published to a rolling prerelease, for two reasons: the artifact
@@ -158,6 +188,7 @@ jobs:
                   for attempt in 1 2 3 4 5; do
                     if gh release create latest \
                       "$RUNNER_TEMP/Music.ipa" \
+                      "$RUNNER_TEMP/Music-watch.ipa" \
                       --repo "$GITHUB_REPOSITORY" \
                       --title "Latest build" \
                       --notes-file "$RUNNER_TEMP/notes.md" \
