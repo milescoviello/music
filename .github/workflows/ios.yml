@@ -26,8 +26,8 @@ concurrency:
 
 jobs:
     # Runs first and independently of the app build: pure logic, `swift test`, no
-    # simulator. This is the only automated check in the project -- everything else is
-    # verified by hand on the device -- so it must not depend on Xcode project state.
+    # simulator, so it does not depend on Xcode project state. `app-tests` covers what
+    # needs iOS frameworks.
     test:
         runs-on: [self-hosted, music-vm]
         timeout-minutes: 15
@@ -37,6 +37,25 @@ jobs:
 
             - name: Test the pure logic
               run: swift test --disable-sandbox
+
+    # The app's own tests (AppTests/, the `MusicTests` target): PlaybackController and
+    # whatever else needs iOS frameworks, hosted in the app in the VM's simulator.
+    app-tests:
+        runs-on: [self-hosted, music-vm]
+        timeout-minutes: 20
+
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Test the app in the simulator
+              run: |
+                  xcodebuild test \
+                    -project Music.xcodeproj \
+                    -scheme Music \
+                    -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+                    CODE_SIGN_STYLE=Manual \
+                    CODE_SIGN_IDENTITY="-" \
+                    DEVELOPMENT_TEAM=""
 
     build:
         runs-on: [self-hosted, music-vm]

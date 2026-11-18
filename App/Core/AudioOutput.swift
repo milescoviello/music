@@ -78,6 +78,13 @@ protocol AudioOutput: AnyObject {
 
     /// Where to deliver PCM for the visualiser.
     func setSpectrumSink(_ buffer: AudioSampleBuffer?)
+
+    /// The system's media services restarted underneath the players.
+    var onMediaServicesReset: (() -> Void)? { get set }
+    /// The beat-matched fade between two tracks, given the overlap, when there is one.
+    var beatMatch: ((Song, Song, Double) -> BeatMatch.Plan?)? { get set }
+    /// Builds the players again after a media services reset.
+    func replacePlayers()
 }
 
 extension AudioOutput {

@@ -100,7 +100,9 @@ final class PlaybackController {
 
     // MARK: - Dependencies
 
-    private let output = QueuePlayerOutput()
+    /// The platform's player in the app; a recording stand-in in the tests, which is the
+    /// only reason this is a protocol here rather than `QueuePlayerOutput` itself.
+    private let output: any AudioOutput
 
     private let session = AudioSessionCoordinator()
     private let nowPlaying = NowPlayingCenter()
@@ -216,7 +218,8 @@ final class PlaybackController {
     /// out in a few minutes; an outage is left paused rather than resumed an hour later.
     private static let retryDelays: [Double] = [5, 15, 30, 60, 120]
 
-    init() {
+    init(output: any AudioOutput = QueuePlayerOutput()) {
+        self.output = output
         session.configure()
 
         // About this device's own sound: headphones pulled out, a call. A computer being

@@ -7,6 +7,13 @@
 	objects = {
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		A1A0000000000000000020 /* AppTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			path = AppTests;
+			sourceTree = "<group>";
+		};
 		A1A0000000000000000001 /* App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -46,6 +53,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		A1A0000000000000000029 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1A000000000000000000A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1A0000000000000000006;
+			remoteInfo = Music;
+		};
 		A1A0000000000000000015 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = A1A000000000000000000A /* Project object */;
@@ -70,6 +84,13 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		A1A0000000000000000021 /* MusicTests.xctest */ = {
+			isa = PBXFileReference;
+			explicitFileType = wrapper.cfbundle;
+			includeInIndex = 0;
+			path = MusicTests.xctest;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
 		A1A0000000000000000002 /* Music.app */ = {
 			isa = PBXFileReference;
 			explicitFileType = wrapper.application;
@@ -87,6 +108,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		A1A0000000000000000027 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A1A0000000000000000003 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -110,6 +138,7 @@
 				A1A0000000000000000001 /* App */,
 				A1A0000000000000000011 /* Shared */,
 				A1A0000000000000000010 /* Widgets */,
+				A1A0000000000000000020 /* AppTests */,
 				A1A0000000000000000005 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -119,6 +148,7 @@
 			children = (
 				A1A0000000000000000002 /* Music.app */,
 				A1A0000000000000000012 /* MusicWidgets.appex */,
+				A1A0000000000000000021 /* MusicTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -126,6 +156,27 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		A1A0000000000000000022 /* MusicTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1A0000000000000000023 /* Build configuration list for PBXNativeTarget "MusicTests" */;
+			buildPhases = (
+				A1A0000000000000000026 /* Sources */,
+				A1A0000000000000000027 /* Frameworks */,
+				A1A0000000000000000028 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1A000000000000000002A /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A1A0000000000000000020 /* AppTests */,
+			);
+			name = MusicTests;
+			productName = MusicTests;
+			productReference = A1A0000000000000000021 /* MusicTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		A1A0000000000000000006 /* Music */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A1A0000000000000000007 /* Build configuration list for PBXNativeTarget "Music" */;
@@ -186,6 +237,10 @@
 					A1A0000000000000000016 = {
 						CreatedOnToolsVersion = 16.0;
 					};
+					A1A0000000000000000022 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = A1A0000000000000000006;
+					};
 				};
 			};
 			buildConfigurationList = A1A000000000000000000B /* Build configuration list for PBXProject "Music" */;
@@ -203,11 +258,19 @@
 			targets = (
 				A1A0000000000000000006 /* Music */,
 				A1A0000000000000000016 /* MusicWidgets */,
+				A1A0000000000000000022 /* MusicTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		A1A0000000000000000028 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A1A0000000000000000009 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -225,6 +288,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		A1A0000000000000000026 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A1A0000000000000000008 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -242,6 +312,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		A1A000000000000000002A /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1A0000000000000000006 /* Music */;
+			targetProxy = A1A0000000000000000029 /* PBXContainerItemProxy */;
+		};
 		A1A0000000000000000017 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = A1A0000000000000000016 /* MusicWidgets */;
@@ -250,6 +325,34 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		A1A0000000000000000024 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.milescoviello.music.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Music.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Music";
+			};
+			name = Debug;
+		};
+		A1A0000000000000000025 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.milescoviello.music.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Music.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Music";
+			};
+			name = Release;
+		};
 		A1A000000000000000000C /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -382,6 +485,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A1A0000000000000000023 /* Build configuration list for PBXNativeTarget "MusicTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1A0000000000000000024 /* Debug */,
+				A1A0000000000000000025 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A1A0000000000000000007 /* Build configuration list for PBXNativeTarget "Music" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
