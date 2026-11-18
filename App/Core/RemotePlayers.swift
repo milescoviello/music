@@ -351,34 +351,9 @@ final class RemotePlayers {
         within timeout: TimeInterval
     ) async -> (answer: Answer, base: URL, roundTrip: TimeInterval, at: Date)? {
         guard let token = computer.token else { return nil }
-        let quick = quick
         let candidates = computer.candidates
         guard !candidates.isEmpty else { return nil }
-        // Every address at once; the first good answer wins.
-        let found: (Data, URL, TimeInterval, Date)? = await withTaskGroup(of: (Data, URL, TimeInterval, Date)?.self) { group in
-            for base in candidates {
-                group.addTask {
-                    var request = URLRequest(url: base.appendingPathComponent(path))
-                    request.timeoutInterval = timeout
-                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                    let sent = Date.now
-                    guard let (data, response) = try? await quick.data(for: request),
-                          let status = (response as? HTTPURLResponse)?.statusCode
-                    else { return nil }
-                    if status == 401 { return (Data(), base, -1, .now) }
-                    guard status == 200 else { return nil }
-                    let received = Date.now
-                    return (data, base, received.timeIntervalSince(sent), received)
-                }
-            }
-            for await result in group {
-                if let result {
-                    group.cancelAll()
-                    return result
-                }
-            }
-            return nil
-        }
+        let found = await Self.firstAnswer(from: candidates, path: path, token: token, timeout: timeout, session: quick)
         guard let (data, base, roundTrip, at) = found else { return nil }
         if roundTrip < 0 {
             // It has forgotten this device: its token is no use any more.
@@ -391,6 +366,33 @@ final class RemotePlayers {
         guard let answer = try? JSONDecoder().decode(Answer.self, from: data) else { return nil }
         noteAnswered(computer, at: base)
         return (answer, base, roundTrip, at)
+    }
+
+    /// Every address at once; the first good answer wins (`Race`).
+    private nonisolated static func firstAnswer(
+        from candidates: [URL],
+        path: String,
+        token: String,
+        timeout: TimeInterval,
+        session: URLSession
+    ) async -> (Data, URL, TimeInterval, Date)? {
+        let jobs: [@Sendable () async -> (Data, URL, TimeInterval, Date)?] = candidates.map { base in
+            {
+                var request = URLRequest(url: base.appendingPathComponent(path))
+                request.timeoutInterval = timeout
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                let sent = Date.now
+                guard let (data, response) = try? await session.data(for: request),
+                      let status = (response as? HTTPURLResponse)?.statusCode
+                else { return nil }
+                // Refused: a roundTrip below zero says so.
+                if status == 401 { return (Data(), base, -1, .now) }
+                guard status == 200 else { return nil }
+                let received = Date.now
+                return (data, base, received.timeIntervalSince(sent), received)
+            }
+        }
+        return await Race.first(of: jobs, within: timeout + 0.3)
     }
 
     /// Tells a paired device to pause because the music has moved here.

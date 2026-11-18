@@ -133,7 +133,7 @@ struct RemoteRelease: Codable, Equatable, Sendable {
 }
 
 /// The pairing code as a link, for the desktop to show as a QR code and the iPhone's camera
-/// to open: `music-remote://pair?id=…&n=…&p=47823&a=192.168.1.20,100.66.1.2&k=…`. The key
+/// to open: `music-remote://pair?id=…&n=…&p=47823&a=192.168.1.20,100.64.0.7&k=…`. The key
 /// is a pairing code too long to guess, good for ten minutes, so scanning it is the whole
 /// pairing: nothing to type.
 struct PairingLink: Equatable, Sendable {
@@ -185,6 +185,63 @@ struct PairingLink: Equatable, Sendable {
             addresses: addresses,
             key: key
         )
+    }
+}
+
+/// The first useful answer of several asked at once, as soon as it comes.
+///
+/// Not a task group: a group always waits for every child before it returns, so one
+/// address that never answers -- or a server slow to answer at all -- held up a press of
+/// play for its whole timeout, cancelled or not. And nothing is cancelled: on Linux,
+/// cancelling a request can deadlock with the main thread (`URLSessionTask.cancel`
+/// waits on a queue that may be waiting on it). The rest finish on their own timeouts.
+enum Race {
+    static func first<Answer: Sendable>(
+        of jobs: [@Sendable () async -> Answer?],
+        within seconds: TimeInterval
+    ) async -> Answer? {
+        guard !jobs.isEmpty else { return nil }
+        return await withCheckedContinuation { continuation in
+            let finish = Finish(continuation, waitingFor: jobs.count)
+            for job in jobs {
+                Task.detached { finish.offer(await job()) }
+            }
+            Task.detached {
+                try? await Task.sleep(for: .seconds(seconds))
+                finish.giveUp()
+            }
+        }
+    }
+
+    /// Resumes once: with the first answer, or with nil when every job has answered
+    /// nothing or the time is up.
+    private final class Finish<Answer: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Answer?, Never>?
+        private var waitingFor: Int
+
+        init(_ continuation: CheckedContinuation<Answer?, Never>, waitingFor: Int) {
+            self.continuation = continuation
+            self.waitingFor = waitingFor
+        }
+
+        func offer(_ answer: Answer?) {
+            lock.lock()
+            waitingFor -= 1
+            let done = answer != nil || waitingFor == 0
+            let continuation = done ? self.continuation : nil
+            if done { self.continuation = nil }
+            lock.unlock()
+            continuation?.resume(returning: answer)
+        }
+
+        func giveUp() {
+            lock.lock()
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume(returning: nil)
+        }
     }
 }
 

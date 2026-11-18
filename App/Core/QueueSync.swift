@@ -36,7 +36,7 @@ final class QueueSync {
         var deviceName: String { QueueSync.deviceName(from: changedBy) }
     }
 
-    /// What this device saves the queue as, for the server's `changedBy`: "Music (gentoo)".
+    /// What this device saves the queue as, for the server's `changedBy`: "Music (Laptop)".
     static var uploadName: String {
         "\(SubsonicAuth.clientName) (\(RemoteControlServer.shared.name))"
     }
@@ -163,29 +163,27 @@ final class QueueSync {
     /// longer than `timeout`, which a press of play cannot wait out.
     func newest(within timeout: TimeInterval) async -> Remote? {
         guard let client else { return nil }
-        let own = Self.uploadName
-        return await withTaskGroup(of: Remote?.self) { group in
-            group.addTask {
-                guard let saved = try? await client.savedQueue(), !saved.songs.isEmpty,
-                      let changedAt = saved.changedAt, (saved.changedBy ?? "") != own
-                else { return nil }
-                return Remote(
-                    songs: saved.songs,
-                    currentID: saved.current,
-                    positionSeconds: Double(saved.position ?? 0) / 1000,
-                    changedBy: saved.changedBy ?? "",
-                    changedAt: changedAt
-                )
-            }
-            group.addTask {
-                try? await Task.sleep(for: .seconds(timeout))
-                return nil
-            }
-            // Whichever is first: the queue, or the timeout's nil.
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
+        return await Self.newest(from: client, notSavedBy: Self.uploadName, within: timeout)
     }
 
+    /// The request, or nil once `timeout` has passed (`Race`): a press of play does not
+    /// wait out a slow server.
+    private nonisolated static func newest(
+        from client: SubsonicClient,
+        notSavedBy own: String,
+        within timeout: TimeInterval
+    ) async -> Remote? {
+        await Race.first(of: [{
+            guard let saved = try? await client.savedQueue(), !saved.songs.isEmpty,
+                  let changedAt = saved.changedAt, (saved.changedBy ?? "") != own
+            else { return nil }
+            return Remote(
+                songs: saved.songs,
+                currentID: saved.current,
+                positionSeconds: Double(saved.position ?? 0) / 1000,
+                changedBy: saved.changedBy ?? "",
+                changedAt: changedAt
+            )
+        }], within: timeout)
+    }
 }

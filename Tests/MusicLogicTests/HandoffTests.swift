@@ -63,7 +63,7 @@ struct HandoffChoiceTests {
 
 struct PairingLinkTests {
     @Test func roundTrips() throws {
-        let link = PairingLink(id: "A1-B2", name: "Miles’s Legion & co", port: 47823, addresses: ["192.168.1.20", "100.66.167.44"], key: "00ff")
+        let link = PairingLink(id: "A1-B2", name: "Studio Laptop & co", port: 47823, addresses: ["192.168.1.20", "100.64.0.7"], key: "00ff")
         let read = try #require(PairingLink(link.url))
         #expect(read == link)
         #expect(link.url.absoluteString.hasPrefix("music-remote://pair?"))
@@ -89,40 +89,40 @@ struct QRCodeTests {
             "100000101010001110100110101000001",
             "101110100100001000011111001011101",
             "101110101100110001100011101011101",
-            "101110100001001011010101001011101",
-            "100000101010100100001010101000001",
+            "101110100001001011010001001011101",
+            "100000101010100100001110101000001",
             "111111101010101010101010101111111",
-            "000000000000000010010111000000000",
+            "000000000000000010010101000000000",
             "111110111110110101101010110101010",
-            "110100010101001000010101111000101",
-            "010011100100000100100110000011010",
-            "011101011111101100010110100010110",
-            "001101100100110111101010010110001",
-            "100000010011001001010001101101001",
-            "101010111000110100100010000011110",
-            "000110011011100000000100110011111",
-            "011101100010110111111010110111000",
-            "011000010101001000010110001100111",
-            "011101111000010101101110001110010",
-            "100100001010101010111100010111110",
-            "101101110010110001101011010010010",
-            "101001001111001001110001111101111",
-            "100000111010001111000010100001110",
-            "101111000100100100101110001001110",
-            "100100100111010111101010111110011",
-            "000000001001101000010000100011001",
-            "111111101010101100101011101011110",
-            "100000100010101010001111100011100",
-            "101110101011010001111000111110011",
-            "101110101111101000010101100111000",
-            "101110101110011101000010011001010",
-            "100000101001000100100100011101100",
+            "001011000101001000010101111000101",
+            "000100100100000100100100000011010",
+            "101100010111101100010110100010110",
+            "010010100100110111101010010110001",
+            "101000000111001001010111101101001",
+            "001001111000110100100100000011110",
+            "000111001001100000000100110011111",
+            "001010110010110111111010110111000",
+            "111010010011001000010110001100111",
+            "101011100000010101101110001110010",
+            "100111010010101010111100010111110",
+            "101010101010110001101011010010010",
+            "111100001111001001110001111101111",
+            "100001100010001111000010100001110",
+            "101101011010100100101110001001110",
+            "100001100101010111101010111110011",
+            "000000001111101000010110100011001",
+            "111111101010101100101101101011110",
+            "100000100100101010001101100011100",
+            "101110101101010001111000111110011",
+            "101110101001101000010101100111000",
+            "101110101000011101000010011001010",
+            "100000101111000100100100011101100",
             "111111101000010011101011111001010",
     ]
 
     @Test func matchesAnIndependentEncoderModuleForModule() throws {
         let code = try #require(QRCode(
-            "music-remote://pair?id=A1&n=gentoo&p=47823&a=192.168.1.20&k=0123456789abcdef",
+            "music-remote://pair?id=A1&n=laptop&p=47823&a=192.168.1.20&k=0123456789abcdef",
             correction: .low
         ))
         #expect(code.version == 4)
@@ -140,5 +140,32 @@ struct QRCodeTests {
 
     @Test func tooLongForAnyVersionIsNil() {
         #expect(QRCode(String(repeating: "a", count: 3_000), correction: .high) == nil)
+    }
+}
+
+struct RaceTests {
+    @Test func theFirstAnswerWinsWithoutWaitingForTheRest() async {
+        let started = Date.now
+        let jobs: [@Sendable () async -> String?] = [
+            { try? await Task.sleep(for: .seconds(5)); return "slow" },
+            { try? await Task.sleep(for: .milliseconds(50)); return "fast" },
+        ]
+        let answer = await Race.first(of: jobs, within: 10)
+        #expect(answer == "fast")
+        #expect(Date.now.timeIntervalSince(started) < 2, "the slow one is not waited for")
+    }
+
+    @Test func nothingWhenEveryJobAnswersNothing() async {
+        let jobs: [@Sendable () async -> String?] = [{ nil }, { nil }]
+        let answer = await Race.first(of: jobs, within: 10)
+        #expect(answer == nil)
+    }
+
+    @Test func nothingOnceTheTimeIsUp() async {
+        let started = Date.now
+        let jobs: [@Sendable () async -> String?] = [{ try? await Task.sleep(for: .seconds(5)); return "late" }]
+        let answer = await Race.first(of: jobs, within: 0.2)
+        #expect(answer == nil)
+        #expect(Date.now.timeIntervalSince(started) < 2)
     }
 }

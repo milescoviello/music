@@ -38,7 +38,9 @@ final class PlaybackController {
     /// a second early. Carried on from the last tick at the playing speed, never further
     /// than one tick could have been missed by.
     var elapsedNow: Double {
-        guard isPlaying, !isBuffering else { return elapsed }
+        // Following another device as it plays, the time moves on between its updates too,
+        // so lyrics sung word by word do not step.
+        guard (isPlaying && !isBuffering) || showsFollowedPlaying else { return elapsed }
         let since = min(max(0, Date.now.timeIntervalSince(elapsedChangedAt)), 0.5)
         return elapsed + since * Double(speed)
     }
@@ -88,11 +90,11 @@ final class PlaybackController {
     private func queueDidChange() {
         let current = queue.current
         let songChanged = current?.id != currentSong?.id
-        if let current, songChanged { announce(current) }
+        if let current, songChanged, !isFollowingMove { announce(current) }
         if current != currentSong { currentSong = current }
         // Before the output is rebuilt for it, so a video standing in is still in place
         // and the new track is never heard before its own video takes over.
-        if songChanged, remote == nil { appState?.video.trackChanged() }
+        if songChanged, remote == nil, !isFollowingMove { appState?.video.trackChanged() }
         if hasQueue == queue.isEmpty { hasQueue = !queue.isEmpty }
         let canAdd = queue.canAddToUpNext
         if canAdd != canAddToUpNext { canAddToUpNext = canAdd }
@@ -844,6 +846,42 @@ final class PlaybackController {
         if isPlaying { pause() }
         let line = "handed over to \(device ?? "another device") at \(LogReport.clock(elapsed))"
         Task { await Diagnostics.shared.record("handoff", line) }
+    }
+
+    /// Following another device on to another place in the queue both hold (`Handoff`):
+    /// shown there, paused, at `seconds`. Only shown: the track is fetched if play is
+    /// pressed, not for every track the other device plays.
+    func follow(to index: Int, at seconds: Double) {
+        guard remote == nil, video == nil, !isPlaying, queue.order.indices.contains(index) else { return }
+        output.stop()
+        // Not a track started here: no log of one, and no video fetched for it.
+        isFollowingMove = true
+        queue.position = index
+        isFollowingMove = false
+        duration = Double(queue.current?.duration ?? 0)
+        elapsed = max(0, seconds)
+        publishNowPlaying(force: true)
+    }
+
+    @ObservationIgnored private var isFollowingMove = false
+    /// The device followed is playing: see `elapsedNow`.
+    @ObservationIgnored private var showsFollowedPlaying = false
+
+    /// The followed device's time, shown as this one's while it waits -- the seek bar,
+    /// the lyrics, the lock screen's -- and whether it is moving.
+    func showFollowed(elapsed seconds: Double, playing: Bool) {
+        guard remote == nil, video == nil, !isPlaying else {
+            showsFollowedPlaying = false
+            return
+        }
+        showsFollowedPlaying = playing
+        let place = duration > 0 ? min(max(0, seconds), duration) : max(0, seconds)
+        if abs(elapsed - place) >= 0.05 { elapsed = place }
+    }
+
+    /// No longer following: the time stands still again unless this device plays.
+    func endFollowing() {
+        showsFollowedPlaying = false
     }
 
     /// Until the current track has opened, or `seconds` have gone: a handoff starts it

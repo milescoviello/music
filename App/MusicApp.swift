@@ -114,8 +114,10 @@ struct MusicApp: App {
                         SiriPlayMedia.askForSiriIfNeeded()
                         // Nothing playing here: catch up with wherever the music
                         // is, so a press of play carries on from it.
+                        appState.handoff?.setActive(true)
                         appState.handoff?.look()
                     case .background:
+                        appState.handoff?.setActive(false)
                         Task { await Diagnostics.shared.record("app", "background") }
                         // Backgrounding does not kill the app while audio plays, but
                         // termination while paused is common and silent.
