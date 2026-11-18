@@ -80,14 +80,14 @@ class TranslationQueue(unittest.TestCase):
     def test_a_whole_song_translation_answers_by_the_lines_words(self):
         translations = FakeTranslations(self.dir)
         (self.dir / "song-translations" / "abc.json").write_text(json.dumps({
-            "language": "ru", "source": ["Группа крови на рукаве", "Пожелай мне удачи в бою"],
-            "english": ["Blood type on my sleeve", "Wish me luck in battle"],
+            "language": "ru", "source": ["Ветер над рекой", "Не гаси свет"],
+            "english": ["Wind over the river", "Don't turn off the light"],
             "notes": [None, "an idiom"], "engine": "flash-next"}, ensure_ascii=False))
         # Only some lines, another order, a chorus twice, punctuation and case changed.
-        asked = ["пожелай мне удачи в бою!", "Группа крови на рукаве", "Группа крови на рукаве", ""]
+        asked = ["не гаси свет!", "Ветер над рекой", "Ветер над рекой", ""]
         status, body = translations.answer("ru", asked, "abc")
         self.assertEqual(status, 200)
-        self.assertEqual(body["lines"], ["Wish me luck in battle", "Blood type on my sleeve", "Blood type on my sleeve", ""])
+        self.assertEqual(body["lines"], ["Don't turn off the light", "Wind over the river", "Wind over the river", ""])
         self.assertEqual(body["notes"], ["an idiom", None, None, None])
         self.assertEqual(body["engine"], "flash-next")
         self.assertEqual(translations.calls, 0)

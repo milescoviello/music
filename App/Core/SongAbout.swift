@@ -60,7 +60,7 @@ struct SongAbout: Decodable, Equatable, Sendable {
 
     var isEmpty: Bool { summary == nil && sections.isEmpty && notes.isEmpty }
 
-    /// "1999 · Anthony Kiedis, Flea": when it came out and who wrote it, for under the title.
+    /// "1999 · Ada Marsh, Ben Tully": when it came out and who wrote it, for under the title.
     var facts: String? {
         let year = released.flatMap { date in date.range(of: #"\d{4}"#, options: .regularExpression).map { String(date[$0]) } }
         let parts = [year, writers.isEmpty ? nil : "Written by " + writers.prefix(4).joined(separator: ", ")

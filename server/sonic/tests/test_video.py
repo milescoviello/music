@@ -34,10 +34,10 @@ class Picking(unittest.TestCase):
         self.assertEqual(self.best("Glass Harbor", "Low Tide", 242, items), "Glass Harbor - Low Tide (Official Video)")
 
     def test_a_word_in_the_song_title_is_not_a_penalty(self):
-        live_song = result("The Lanterns - Live Forever (Official Video)", "The Lanterns")
-        other = result("The Lanterns - Live Forever (Live)", "The Lanterns")
-        self.assertGreater(video.score(live_song, "The Lanterns", "Live Forever", 240),
-                           video.score(other, "The Lanterns", "Live Forever", 240))
+        live_song = result("The Lanterns - Live Wire Heart (Official Video)", "The Lanterns")
+        other = result("The Lanterns - Live Wire Heart (Live)", "The Lanterns")
+        self.assertGreater(video.score(live_song, "The Lanterns", "Live Wire Heart", 240),
+                           video.score(other, "The Lanterns", "Live Wire Heart", 240))
 
     def test_another_song_by_the_artist_does_not_count(self):
         wrong = result("Mira Vale - Paper Moons (Official Video)", "Mira Vale")

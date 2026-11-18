@@ -34,8 +34,8 @@ struct LyricTranslationStoreTests {
 
     @Test func aWholeSongTranslationKeepsItsNotesAndIsFinal() async {
         let store = store()
-        let lines = ["Группа крови на рукаве", "Не остаться в этой траве"]
-        await store.save(["Blood type on my sleeve", "Not to end up in this grass"],
+        let lines = ["Ветер над рекой", "Свет в окне"]
+        await store.save(["Wind over the river", "A light in the window"],
                          notes: [nil, "lit. \"not to stay in this grass\": not to fall in battle"],
                          engine: LyricTranslationStore.wholeSong, of: lines, songID: "a")
         let kept = await store.kept(songID: "a", lines: lines)
@@ -62,7 +62,7 @@ struct LyricTranslationStoreTests {
 
         // Linux keeps the server's answer under its own engine name: still final.
         let store = store()
-        await store.save(["Blood type on my sleeve"], notes: [nil], engine: "claude", of: ["Группа крови на рукаве"], songID: "a")
-        #expect(await store.kept(songID: "a", lines: ["Группа крови на рукаве"])?.isFinal == true)
+        await store.save(["Wind over the river"], notes: [nil], engine: "claude", of: ["Ветер над рекой"], songID: "a")
+        #expect(await store.kept(songID: "a", lines: ["Ветер над рекой"])?.isFinal == true)
     }
 }

@@ -92,7 +92,7 @@ def song_key(artist: str | None, title: str | None) -> str:
 
 
 # Words that mark a video as something other than the song's own. Each is ignored when the
-# song's title has it too ("Live Forever" is not a live recording).
+# song's title has it too ("Live Wire Heart" is not a live recording).
 PENALTIES = {
     "live": 35, "concert": 35, "tour": 20, "performance": 30, "session": 25, "unplugged": 25,
     "cover": 45, "reaction": 60, "karaoke": 60, "instrumental": 40, "remix": 35, "slowed": 50,

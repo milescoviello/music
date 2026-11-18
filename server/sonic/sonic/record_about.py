@@ -35,8 +35,8 @@ log = logging.getLogger(__name__)
 
 
 def aliases(name: str | None) -> set[str]:
-    """An artist's whole name, and each name in brackets or outside them: "Кино (Kino)" -> кинокino, кино, kino.
-    Never the parts of "Simon & Garfunkel": a page for "Simon" is not theirs."""
+    """An artist's whole name, and each name in brackets or outside them: "Звёздный сад (Zvyozdny Sad)" -> its three
+    forms. Never the parts of "Hart & Vale": a page for "Hart" is not theirs."""
     parts = [part for part in re.split(r"\s*[()]\s*", name or "") if part.strip()]
     return {alias for alias in [plain(name)] + [plain(part) for part in parts] if len(alias) >= 2}
 
@@ -46,8 +46,8 @@ def same_name(theirs: str | None, ours: str) -> bool:
 
 
 def same_album(theirs: str | None, ours: str) -> bool:
-    """The same album, editions and brackets aside: "Currents (Deluxe)" is Currents, "Deathmetal" is
-    D>E>A>T>H>M>E>T>A>L; "Kessoku Band Extra Music" is not Kessoku Band (a song's looser match would say it is)."""
+    """The same album, editions and brackets aside: "Harbour Nights (Deluxe)" is Harbour Nights,
+    "N>E>O>N T>I>D>E" is Neon Tide; "Glass Harbour Extra Music" is not Glass Harbour (a song's looser match would say it is)."""
     def core(title):
         return plain(re.sub(r"\s*[(\[][^)\]]*[)\]]", "", lrclib.clean(title or "")))
     return bool(core(ours)) and core(theirs) == core(ours)
@@ -278,7 +278,7 @@ class RecordAbout:
             if not plain(title).startswith(plain(clean)) or not album_word \
                     or not any(n in plain(opening[:800]) for n in _names(artist)):
                 return None
-            # The title track's page ("«Группа крови» — песня ... из одноимённого альбома"): a song first, the album after.
+            # The title track's page ("«Песня ветра» — песня ... из одноимённого альбома"): a song first, the album after.
             song_word = SONG_WORDS.search(opening[:album_word.start()])
             if song_word:
                 return None
@@ -299,7 +299,7 @@ class RecordAbout:
             return None
 
         def fits(title, parts, opening):
-            # "Panchiko", "Nirvana (band)", "Kino (band)": the name, with at most a bracket after it.
+            # "Low Orbit Choir", "Glass Harbour (band)": the name, with at most a bracket after it.
             if not (same_name(title, name) or same_name(re.sub(r"\s*\([^)]*\)$", "", title), name)):
                 return None
             if not ARTIST_WORDS.search(opening[:500]):
@@ -317,7 +317,7 @@ class RecordAbout:
 
 
 def _languages(text: str) -> list[str]:
-    """English first; then the language the name is written in, when its script says (Кино: ru; 結束バンド: ja)."""
+    """English first; then the language the name is written in, when its script says (Звёздный сад: ru; 架空バンド: ja)."""
     if re.search(r"[\u0400-\u04ff]", text):
         return ["en", "ru"]
     if re.search(r"[\u3040-\u30ff\u4e00-\u9fff]", text):

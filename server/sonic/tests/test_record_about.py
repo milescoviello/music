@@ -15,36 +15,36 @@ def search(kind, *hits):
         for id_, name, artist in hits]}]}}
 
 
-ALBUM_WIKI = {"query": {"pages": {"1": {"title": "Currents (album)", "extract": (
-    "Currents is the third studio album by Australian musical project Tame Impala.\n\n"
-    "== Background ==\nParker broke up and moved home.\n\n=== Title ===\nAn old power station.\n\n"
-    "== Track listing ==\n1. Let It Happen\n\n== Critical reception ==\nAcclaim.\n\n"
+ALBUM_WIKI = {"query": {"pages": {"1": {"title": "Harbour Nights (album)", "extract": (
+    "Harbour Nights is the third studio album by the band the Velvet Oranges.\n\n"
+    "== Background ==\nThey moved to the coast.\n\n=== Title ===\nAn old lighthouse.\n\n"
+    "== Track listing ==\n1. Glass Harbour\n\n== Critical reception ==\nAcclaim.\n\n"
     "== Charts ==\nNumber one.\n\n=== Weekly charts ===\nAustralia 1")}}}}
-ARTIST_WIKI = {"query": {"pages": {"1": {"title": "Panchiko", "extract": (
-    "Panchiko is a British indie rock band from Nottingham.\n\n"
+ARTIST_WIKI = {"query": {"pages": {"1": {"title": "Low Orbit Choir", "extract": (
+    "Low Orbit Choir is a British indie rock band from Leeds.\n\n"
     "== History ==\n\n=== 1997–2001: Formation ===\nThey formed at school.\n\n"
-    "=== 2016–2020: Resurgence ===\nA 4chan post.\n\n== Band members ==\nOwain Davies\n\n"
+    "=== 2016–2020: Return ===\nA reunion.\n\n== Band members ==\nAda Marsh\n\n"
     "== Discography ==\n\n=== Studio albums ===\nFailed at Math(s)")}}}}
 
 
 def album_pages():
     return {
-        "https://genius.com/api/search/album": search("album", (7, "Currents", "Tame Impala")),
+        "https://genius.com/api/search/album": search("album", (7, "Harbour Nights", "The Velvet Oranges")),
         "https://genius.com/api/albums/7": {"response": {"album": {
-            "url": "https://genius.com/albums/Tame-impala/Currents", "release_date_for_display": "July 17, 2015",
+            "url": "https://genius.com/albums/The-velvet-oranges/Harbour-nights", "release_date_for_display": "July 17, 2015",
             "description_annotation": {"annotations": [{"body": {"plain": "A warm sonic wave."}}]}}}},
         "https://en.wikipedia.org/w/api.php?action=query&list=search": {"query": {"search": [
-            {"title": "Currents (Martin Garrix song)"}, {"title": "Currents (album)"}]}},
+            {"title": "Harbour Nights (Quiet Engines song)"}, {"title": "Harbour Nights (album)"}]}},
         "https://en.wikipedia.org/w/api.php?action=query&prop=extracts": ALBUM_WIKI,
     }
 
 
 def artist_pages():
     return {
-        "https://genius.com/api/search/artist": search("artist", (3, "Panchiko", None)),
+        "https://genius.com/api/search/artist": search("artist", (3, "Low Orbit Choir", None)),
         "https://genius.com/api/artists/3": {"response": {"artist": {
-            "url": "https://genius.com/artists/Panchiko", "description": {"plain": "A band from Nottingham."}}}},
-        "https://en.wikipedia.org/w/api.php?action=query&list=search": {"query": {"search": [{"title": "Panchiko"}]}},
+            "url": "https://genius.com/artists/Low-orbit-choir", "description": {"plain": "A band from Leeds."}}}},
+        "https://en.wikipedia.org/w/api.php?action=query&list=search": {"query": {"search": [{"title": "Low Orbit Choir"}]}},
         "https://en.wikipedia.org/w/api.php?action=query&prop=extracts": ARTIST_WIKI,
     }
 
@@ -60,68 +60,68 @@ class Answers(unittest.TestCase):
         return RecordAbout(self.dir, open_url=web, clock=lambda: self.now)
 
     def test_an_albums_pages_quoted_without_its_tracks_and_charts(self):
-        answer = self.about(Web(album_pages())).answer("album", "al", "Currents", "Tame Impala")
+        answer = self.about(Web(album_pages())).answer("album", "al", "Harbour Nights", "The Velvet Oranges")
         self.assertEqual([(s["source"], s["heading"]) for s in answer["sections"]],
                          [("Genius", "About"), ("Wikipedia", "Overview"), ("Wikipedia", "Background"),
                           ("Wikipedia", "Title"), ("Wikipedia", "Critical reception")])
         self.assertEqual(answer["sections"][0]["text"], "A warm sonic wave.")
         self.assertEqual(answer["released"], "July 17, 2015")
         self.assertEqual([link["url"] for link in answer["links"]],
-                         ["https://genius.com/albums/Tame-impala/Currents", "https://en.wikipedia.org/wiki/Currents_(album)"])
-        self.assertEqual((answer["kind"], answer["title"], answer["artist"]), ("album", "Currents", "Tame Impala"))
+                         ["https://genius.com/albums/The-velvet-oranges/Harbour-nights", "https://en.wikipedia.org/wiki/Harbour_Nights_(album)"])
+        self.assertEqual((answer["kind"], answer["title"], answer["artist"]), ("album", "Harbour Nights", "The Velvet Oranges"))
         self.assertIsNone(answer["summary"])
 
     def test_an_artists_story_without_members_or_discography(self):
-        answer = self.about(Web(artist_pages())).answer("artist", "ar", "Panchiko")
+        answer = self.about(Web(artist_pages())).answer("artist", "ar", "Low Orbit Choir")
         self.assertEqual([s["heading"] for s in answer["sections"]],
-                         ["About", "Overview", "1997–2001: Formation", "2016–2020: Resurgence"])
-        self.assertEqual(answer["artist"], "Panchiko")
+                         ["About", "Overview", "1997–2001: Formation", "2016–2020: Return"])
+        self.assertEqual(answer["artist"], "Low Orbit Choir")
 
     def test_another_artists_album_of_the_same_name_is_not_this_one(self):
         pages = album_pages()
-        pages["https://genius.com/api/search/album"] = search("album", (7, "Currents", "Martin Garrix"))
+        pages["https://genius.com/api/search/album"] = search("album", (7, "Harbour Nights", "Quiet Engines"))
         pages["https://en.wikipedia.org/w/api.php?action=query&prop=extracts"] = {"query": {"pages": {"1": {
-            "title": "Currents (album)", "extract": "Currents is an album by Someone Else."}}}}
-        answer = self.about(Web(pages)).answer("album", "al", "Currents", "Tame Impala")
+            "title": "Harbour Nights (album)", "extract": "Harbour Nights is an album by Quiet Engines."}}}}
+        answer = self.about(Web(pages)).answer("album", "al", "Harbour Nights", "The Velvet Oranges")
         self.assertEqual((answer["sections"], answer["links"]), ([], []))
 
     def test_another_album_whose_title_starts_the_same_is_not_this_one(self):
-        self.assertTrue(same_album("Currents (Deluxe)", "Currents"))
-        self.assertTrue(same_album("Deathmetal", "D>E>A>T>H>M>E>T>A>L"))
-        self.assertFalse(same_album("Kessoku Band Extra Music", "Kessoku Band"))
+        self.assertTrue(same_album("Harbour Nights (Deluxe)", "Harbour Nights"))
+        self.assertTrue(same_album("Neon Tide", "N>E>O>N T>I>D>E"))
+        self.assertFalse(same_album("Glass Harbour Extra Music", "Glass Harbour"))
         pages = album_pages()
-        pages["https://genius.com/api/search/album"] = search("album", (7, "Currents Extra Music", "Tame Impala"))
-        sections = self.about(Web(pages)).answer("album", "al", "Currents", "Tame Impala")["sections"]
+        pages["https://genius.com/api/search/album"] = search("album", (7, "Harbour Nights Extra Music", "The Velvet Oranges"))
+        sections = self.about(Web(pages)).answer("album", "al", "Harbour Nights", "The Velvet Oranges")["sections"]
         self.assertNotIn("Genius", [s["source"] for s in sections])
 
     def test_a_song_page_is_not_the_album(self):
         pages = album_pages()
         pages["https://en.wikipedia.org/w/api.php?action=query&prop=extracts"] = {"query": {"pages": {"1": {
-            "title": "Currents (song)", "extract": '"Currents" is a song by Tame Impala, released as a single.'}}}}
-        sections = self.about(Web(pages)).answer("album", "al", "Currents", "Tame Impala")["sections"]
+            "title": "Harbour Nights (song)", "extract": '"Harbour Nights" is a song by The Velvet Oranges, released as a single.'}}}}
+        sections = self.about(Web(pages)).answer("album", "al", "Harbour Nights", "The Velvet Oranges")["sections"]
         self.assertEqual([s["source"] for s in sections], ["Genius"])
 
     def test_the_title_tracks_page_is_not_the_album(self):
         pages = album_pages()
         pages["https://en.wikipedia.org/w/api.php?action=query&prop=extracts"] = {"query": {"pages": {"1": {
-            "title": "Currents", "extract": '"Currents" is a song by Tame Impala from their album of the same name.'}}}}
-        sections = self.about(Web(pages)).answer("album", "al", "Currents", "Tame Impala")["sections"]
+            "title": "Harbour Nights", "extract": '"Harbour Nights" is a song by The Velvet Oranges from their album of the same name.'}}}}
+        sections = self.about(Web(pages)).answer("album", "al", "Harbour Nights", "The Velvet Oranges")["sections"]
         self.assertEqual([s["source"] for s in sections], ["Genius"])
 
     def test_a_namesake_who_is_no_musician_is_not_the_artist(self):
         pages = artist_pages()
         pages["https://en.wikipedia.org/w/api.php?action=query&prop=extracts"] = {"query": {"pages": {"1": {
-            "title": "Panchiko", "extract": "Panchiko is a village in Bulgaria."}}}}
-        sections = self.about(Web(pages)).answer("artist", "ar", "Panchiko")["sections"]
+            "title": "Low Orbit Choir", "extract": "Low Orbit Choir is a village in Bulgaria."}}}}
+        sections = self.about(Web(pages)).answer("artist", "ar", "Low Orbit Choir")["sections"]
         self.assertEqual([s["source"] for s in sections], ["Genius"])
 
     def test_part_of_a_duos_name_is_not_the_duo(self):
-        self.assertFalse(same_name("Simon", "Simon & Garfunkel"))
-        self.assertTrue(same_name("Kino (band)", "Кино (Kino)"))
-        self.assertTrue(same_name("КИНО", "Кино"))
+        self.assertFalse(same_name("Hart", "Hart & Vale"))
+        self.assertTrue(same_name("Zvyozdny Sad (band)", "Звёздный сад (Zvyozdny Sad)"))
+        self.assertTrue(same_name("ЗВЁЗДНЫЙ САД", "Звёздный сад"))
         pages = artist_pages()
-        pages["https://genius.com/api/search/artist"] = search("artist", (3, "Simon", None))
-        answer = self.about(Web(pages)).answer("artist", "ar", "Simon & Garfunkel")
+        pages["https://genius.com/api/search/artist"] = search("artist", (3, "Hart", None))
+        answer = self.about(Web(pages)).answer("artist", "ar", "Hart & Vale")
         self.assertNotIn("Genius", [s["source"] for s in answer["sections"]])
 
     def test_the_summary_written_ahead_of_time_and_its_links(self):
@@ -129,37 +129,37 @@ class Answers(unittest.TestCase):
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "al.json").write_text(json.dumps({"text": " About change. ", "basis": "songs",
                                                     "links": [{"name": "Interview", "url": "https://example.com/i"}]}))
-        answer = self.about(Web(album_pages())).answer("album", "al", "Currents", "Tame Impala")
+        answer = self.about(Web(album_pages())).answer("album", "al", "Harbour Nights", "The Velvet Oranges")
         self.assertEqual(answer["summary"], {"text": "About change.", "basis": "songs"})
         self.assertEqual(answer["links"][-1], {"name": "Interview", "url": "https://example.com/i"})
         # "songs" is an album's word only; an artist's summary rests on sources.
         (self.dir / "artist-about-summaries" / "ar.json").write_text(json.dumps({"text": "A band.", "basis": "songs"}))
-        self.assertEqual(self.about(Web({})).answer("artist", "ar", "Panchiko")["summary"]["basis"], "sources")
+        self.assertEqual(self.about(Web({})).answer("artist", "ar", "Low Orbit Choir")["summary"]["basis"], "sources")
 
     def test_kept_and_asked_again_only_when_stale(self):
         web = Web(album_pages())
         about = self.about(web)
-        about.answer("album", "al", "Currents", "Tame Impala")
+        about.answer("album", "al", "Harbour Nights", "The Velvet Oranges")
         asked = len(web.asked)
-        about.answer("album", "al", "Currents", "Tame Impala")
+        about.answer("album", "al", "Harbour Nights", "The Velvet Oranges")
         self.assertEqual(len(web.asked), asked)
-        about.answer("album", "al", "Currents", "Tame Impala", refresh=True)
+        about.answer("album", "al", "Harbour Nights", "The Velvet Oranges", refresh=True)
         self.assertGreater(len(web.asked), asked)
 
     def test_unreachable_is_said_and_retried_within_the_hour(self):
         about = self.about(Web(fail=True))
-        self.assertTrue(about.answer("artist", "ar", "Panchiko")["unavailable"])
+        self.assertTrue(about.answer("artist", "ar", "Low Orbit Choir")["unavailable"])
         self.now += 3_700
         about._open = Web(artist_pages())
-        self.assertFalse(about.answer("artist", "ar", "Panchiko").get("unavailable"))
+        self.assertFalse(about.answer("artist", "ar", "Low Orbit Choir").get("unavailable"))
 
     def test_an_album_and_an_artist_of_one_id_are_kept_apart(self):
         web = Web({**album_pages(), **{k: v for k, v in artist_pages().items() if "genius" in k}})
         about = self.about(web)
-        album = about.answer("album", "x", "Currents", "Tame Impala")
-        artist = about.answer("artist", "x", "Panchiko")
+        album = about.answer("album", "x", "Harbour Nights", "The Velvet Oranges")
+        artist = about.answer("artist", "x", "Low Orbit Choir")
         self.assertEqual(album["sections"][0]["text"], "A warm sonic wave.")
-        self.assertEqual(artist["sections"][0]["text"], "A band from Nottingham.")
+        self.assertEqual(artist["sections"][0]["text"], "A band from Leeds.")
 
 
 if __name__ == "__main__":

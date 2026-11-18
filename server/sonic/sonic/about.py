@@ -61,8 +61,8 @@ def plain(text: str | None) -> str:
 
 
 def _names(artist: str) -> list[str]:
-    """"Кино (Kino)" -> ["кинокino", "кино", "kino"]; "Elton John & Dua Lipa" or "The Strokes • Julian
-    Casablancas" -> both, and each."""
+    """"Звёздный сад (Zvyozdny Sad)" -> ["звездныйсадzvyozdnysad", "звездныйсад", "zvyozdnysad"]; "Ada Marsh & Ben Tully"
+    or "Lantern Choir • Cleo Ray" -> both, and each."""
     parts = re.split(r"\s*(?:[()&,/;•·+]|\bfeat\.?|\bft\.?|\bwith\b|\band\b|\bx\b)\s*", artist or "", flags=re.I)
     return [name for name in dict.fromkeys([plain(artist)] + [plain(part) for part in parts]) if len(name) >= 2]
 
@@ -71,7 +71,7 @@ OTHER_TAKE = re.compile(r"\b(live|remix|demo|acoustic|instrumental|cover|karaoke
 
 
 def same_title(theirs: str | None, ours: str) -> bool:
-    # "Deathmetal - Live in Nottingham" is another recording's page, not the album track "Deathmetal".
+    # "Glass Harbour - Live in Leeds" is another recording's page, not the album track "Glass Harbour".
     take = OTHER_TAKE.search(theirs or "")
     if take and not re.search(rf"\b{re.escape(take.group(1))}\b", ours, re.I):
         return False
@@ -80,7 +80,7 @@ def same_title(theirs: str | None, ours: str) -> bool:
         return False
     if a == b:
         return True
-    # "Группа крови (Blood Type)" for "Группа крови"; never a short title inside a long one.
+    # "Песня ветра (Wind Song)" for "Песня ветра"; never a short title inside a long one.
     shorter, longer = sorted((a, b), key=len)
     return longer.startswith(shorter) and len(shorter) >= 4 and len(shorter) >= 0.5 * len(longer)
 
@@ -262,7 +262,7 @@ class SongAbout:
                        same_artist((hit.get("primary_artist") or {}).get("name") or hit.get("artist_names"), artist)]
             if not matches:
                 continue
-            # Several pages of one title (Panchiko's "Deathmetal": the 2000 album's, and a 2022 live album's):
+            # Several pages of one title (a studio album's, and a later live album's):
             # the one on this album, else the first.
             songs = []
             for hit in matches[:3 if album else 1]:

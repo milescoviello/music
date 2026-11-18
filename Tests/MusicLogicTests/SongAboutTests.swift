@@ -5,25 +5,25 @@ import Testing
 struct SongAboutTests {
     @Test func theServicesAnswerDecodes() throws {
         let about = try JSONDecoder().decode(SongAbout.self, from: Data(#"""
-        {"id":"s","title":"Parallel Universe","artist":"Red Hot Chili Peppers","album":"Californication",
-         "summary":{"text":"About addiction.","basis":"sources"},
+        {"id":"s","title":"Glass Harbour","artist":"The Velvet Oranges","album":"Harbour Nights",
+         "summary":{"text":"About the coast.","basis":"sources"},
          "sections":[{"source":"Genius","heading":"About","text":"The second song.","url":"https://genius.com/song"},
                      {"source":"Wikipedia","heading":"Overview","text":"A single.","url":null}],
-         "notes":[{"fragment":"Deep inside of a parallel universe","text":"Addiction's private world.","url":"https://genius.com/1","reviewed":false}],
+         "notes":[{"fragment":"Out past the glass harbour lights","text":"The singer's hometown pier.","url":"https://genius.com/1","reviewed":false}],
          "links":[{"name":"Genius","url":"https://genius.com/song"}],
-         "released":"June 8, 1999","writers":["Anthony Kiedis","Flea","John Frusciante","Chad Smith","Rick Rubin"]}
+         "released":"June 8, 1999","writers":["Ada Marsh","Ben Tully","Cleo Ray","Dev Okafor","Eli Stone"]}
         """#.utf8))
         #expect(about.summary?.isReadingOfLyrics == false)
         #expect(about.sections.map(\.id) == ["Genius/About", "Wikipedia/Overview"])
-        #expect(about.notes.first?.fragment == "Deep inside of a parallel universe")
-        #expect(about.facts == "1999 · Written by Anthony Kiedis, Flea, John Frusciante, Chad Smith and 1 more")
+        #expect(about.notes.first?.fragment == "Out past the glass harbour lights")
+        #expect(about.facts == "1999 · Written by Ada Marsh, Ben Tully, Cleo Ray, Dev Okafor and 1 more")
         #expect(!about.isEmpty)
         #expect(!about.unavailable)
     }
 
     @Test func nothingFoundIsEmptyNotAnError() throws {
         let about = try JSONDecoder().decode(SongAbout.self, from: Data(#"""
-        {"id":"s","title":"Obscure","artist":"Nobody","album":"","summary":null,"sections":[],"notes":[],"links":[],"unavailable":true}
+        {"id":"s","title":"Obscure","artist":"Some Artist","album":"","summary":null,"sections":[],"notes":[],"links":[],"unavailable":true}
         """#.utf8))
         #expect(about.isEmpty)
         #expect(about.unavailable)
@@ -40,9 +40,9 @@ struct SongAboutTests {
 
     @Test func anAlbumPageShowsTheSummaryElseTheFirstPassage() throws {
         let written = try JSONDecoder().decode(SongAbout.self, from: Data(#"""
-        {"id":"al","kind":"album","title":"Currents","artist":"Tame Impala","released":"July 17, 2015",
+        {"id":"al","kind":"album","title":"Harbour Nights","artist":"The Velvet Oranges","released":"July 17, 2015",
          "summary":{"text":"About change.","basis":"sources"},
-         "sections":[{"source":"Genius","heading":"About","text":"A warm sonic wave.","url":"https://genius.com/a"}],
+         "sections":[{"source":"Genius","heading":"About","text":"A record about the sea.","url":"https://genius.com/a"}],
          "links":[{"name":"Genius","url":"https://genius.com/a"}]}
         """#.utf8))
         #expect(written.preview(of: .album) == .init(text: "About change.", credit: "Written by Claude from the sources."))
@@ -50,10 +50,10 @@ struct SongAboutTests {
         #expect(written.hasSources)
 
         let quoted = try JSONDecoder().decode(SongAbout.self, from: Data(#"""
-        {"id":"ar","kind":"artist","title":"Panchiko",
-         "sections":[{"source":"Wikipedia","heading":"Overview","text":"A band from Nottingham.","url":null}],"links":[]}
+        {"id":"ar","kind":"artist","title":"Low Orbit Choir",
+         "sections":[{"source":"Wikipedia","heading":"Overview","text":"A band from Leeds.","url":null}],"links":[]}
         """#.utf8))
-        #expect(quoted.preview(of: .artist) == .init(text: "A band from Nottingham.", credit: "From Wikipedia."))
+        #expect(quoted.preview(of: .artist) == .init(text: "A band from Leeds.", credit: "From Wikipedia."))
         #expect(quoted.hasSources)
 
         let nothing = try JSONDecoder().decode(SongAbout.self, from: Data(#"{"id":"x","sections":[],"links":[]}"#.utf8))
@@ -71,10 +71,10 @@ struct SongAboutTests {
 
     @Test func albumAndArtistAddresses() {
         let client = SonicClient(configuration: .default)
-        #expect(client.url("v1/albums/al/about", ["name": "Currents"])?.absoluteString
-            == "http://192.168.1.148:8650/v1/albums/al/about?name=Currents")
-        #expect(client.url("v1/artists/ar/about", ["name": "Кино"])?.absoluteString
-            == "http://192.168.1.148:8650/v1/artists/ar/about?name=%D0%9A%D0%B8%D0%BD%D0%BE")
+        #expect(client.url("v1/albums/al/about", ["name": "Harbour Nights"])?.absoluteString
+            == "http://192.168.1.148:8650/v1/albums/al/about?name=Harbour%20Nights")
+        #expect(client.url("v1/artists/ar/about", ["name": "Звёздный сад"])?.absoluteString
+            == "http://192.168.1.148:8650/v1/artists/ar/about?name=%D0%97%D0%B2%D1%91%D0%B7%D0%B4%D0%BD%D1%8B%D0%B9%20%D1%81%D0%B0%D0%B4")
     }
 
     @Test func theAddressIsTheServices() {

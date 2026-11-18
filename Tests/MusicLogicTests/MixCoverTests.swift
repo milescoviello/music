@@ -5,9 +5,9 @@ import Testing
 
 /// The mix card's four tiles are meant to be four different records. They were told apart
 /// by cover id, and Navidrome gives each track its own (`mf-…`) when the art is embedded,
-/// so Heavy Rotation showed Panchiko's sleeve twice.
+/// so Heavy Rotation showed one band's sleeve twice.
 struct MixCoverTests {
-    private func song(_ id: String, album: String, albumID: String, artist: String = "Panchiko") -> Song {
+    private func song(_ id: String, album: String, albumID: String, artist: String = "Low Orbit Choir") -> Song {
         var song = Song(id: id, title: "Track \(id)")
         song.album = album
         song.albumId = albumID
@@ -18,10 +18,10 @@ struct MixCoverTests {
 
     @Test func twoTracksOffOneAlbumAreOneTile() {
         let covers = MixEngine.covers(of: [
-            song("1", album: "Meteora", albumID: "m", artist: "Linkin Park"),
-            song("2", album: "D>E>A>T>H>M>E>T>A>L", albumID: "p"),
-            song("3", album: "D>E>A>T>H>M>E>T>A>L", albumID: "p"),
-            song("4", album: "Nevermind", albumID: "n", artist: "Nirvana"),
+            song("1", album: "Copper Skies", albumID: "m", artist: "The Velvet Oranges"),
+            song("2", album: "Paper Moons", albumID: "p"),
+            song("3", album: "Paper Moons", albumID: "p"),
+            song("4", album: "Velvet Hours", albumID: "n", artist: "Quiet Engines"),
         ])
 
         #expect(covers == ["mf-1", "mf-2", "mf-4"])
@@ -29,8 +29,8 @@ struct MixCoverTests {
 
     @Test func aTwinCopyOfAnAlbumUnderAnotherIDIsTheSameRecord() {
         let covers = MixEngine.covers(of: [
-            song("1", album: "Meteora", albumID: "m1", artist: "Linkin Park"),
-            song("2", album: "Meteora", albumID: "m2", artist: "Linkin Park"),
+            song("1", album: "Copper Skies", albumID: "m1", artist: "The Velvet Oranges"),
+            song("2", album: "Copper Skies", albumID: "m2", artist: "The Velvet Oranges"),
         ])
 
         #expect(covers == ["mf-1"])
