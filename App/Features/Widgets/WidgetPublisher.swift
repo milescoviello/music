@@ -90,9 +90,45 @@ final class WidgetPublisher {
         var next = snapshot
         next.pools = pools.map { [$0.r, $0.g, $0.b] }
         next.accent = accent.map { [$0.r, $0.g, $0.b] }
-        guard next.pools != snapshot.pools || next.accent != snapshot.accent else { return }
+        let drawn = WidgetSnapshot.image(WidgetSnapshot.groundSquareName) != nil
+        guard next.pools != snapshot.pools || next.accent != snapshot.accent || !drawn else { return }
+        WidgetSnapshot.setImage(Self.ground(pools, width: 96, height: 96), WidgetSnapshot.groundSquareName)
+        WidgetSnapshot.setImage(Self.ground(pools, width: 192, height: 90), WidgetSnapshot.groundWideName)
         store(next, reloading: "NowPlaying")
         WidgetCenter.shared.reloadTimelines(ofKind: "MadeForYou")
+    }
+
+    /// The backdrop drawn small, as the Linux app draws its window's: the widget only
+    /// stretches it, which costs it nothing. Drawn by the widget as three gradients the
+    /// size of the large widget, it took more memory than a widget may use, and the large
+    /// one stopped updating.
+    static func ground(_ pools: [VisualizerPalette.RGB], width: Int, height: Int) -> Data? {
+        let size = CGSize(width: width, height: height)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).pngData { context in
+            let cg = context.cgContext
+            let ground = CoverColours.ground
+            UIColor(red: ground.r / 255, green: ground.g / 255, blue: ground.b / 255, alpha: 1).setFill()
+            cg.fill(CGRect(origin: .zero, size: size))
+            let radius = CoverColours.radius(width: Double(width), height: Double(height))
+            // The app's falloff: strongest at the centre, smoothly to nothing at the edge.
+            let stops: [(location: CGFloat, strength: CGFloat)] = [(0, 1), (0.25, 0.844), (0.5, 0.5), (0.75, 0.156), (1, 0)]
+            var locations = stops.map(\.location)
+            for (index, rgb) in pools.prefix(3).enumerated() {
+                let colours = stops.map {
+                    UIColor(red: rgb.r / 255, green: rgb.g / 255, blue: rgb.b / 255,
+                            alpha: CoverColours.poolStrength * $0.strength).cgColor
+                } as CFArray
+                guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colours, locations: &locations)
+                else { continue }
+                let centre = CoverColours.centre(index, time: 0)
+                let point = CGPoint(x: centre.x * Double(width), y: centre.y * Double(height))
+                cg.drawRadialGradient(gradient, startCenter: point, startRadius: 0, endCenter: point,
+                                      endRadius: radius, options: [])
+            }
+        }
     }
 
     /// "FLAC · 24/96", "MP3 · 320 kbps": the file's own format, as the player's codec line

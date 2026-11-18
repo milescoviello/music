@@ -23,6 +23,9 @@ struct SnapshotEntry: TimelineEntry {
     let cover: Data?
     let mixCovers: [Int: Data]
     var pinnedCovers: [Int: Data] = [:]
+    /// The cover-colour backdrop, drawn small by the app.
+    var groundSquare: Data?
+    var groundWide: Data?
 }
 
 struct SnapshotProvider: TimelineProvider {
@@ -53,7 +56,9 @@ struct SnapshotProvider: TimelineProvider {
             pinned[number] = WidgetSnapshot.image(WidgetSnapshot.pinnedCoverName(number))
         }
         return SnapshotEntry(date: .now, snapshot: snapshot, cover: WidgetSnapshot.image(WidgetSnapshot.coverName),
-                             mixCovers: covers, pinnedCovers: pinned)
+                             mixCovers: covers, pinnedCovers: pinned,
+                             groundSquare: WidgetSnapshot.image(WidgetSnapshot.groundSquareName),
+                             groundWide: WidgetSnapshot.image(WidgetSnapshot.groundWideName))
     }
 }
 
@@ -70,39 +75,21 @@ extension WidgetSnapshot {
 
 // MARK: - The app's look
 
-/// The app's backdrop, still: three of the cover's colours, each a wide pool of light over
-/// a dark ground, where the app's pools start their slow drift (`CoverColours`).
+/// The app's backdrop: three of the cover's colours as pools of light over a dark ground.
+/// The app draws it small (`WidgetPublisher.ground`) and this only stretches it, as the
+/// Linux app stretches its window's. Drawn here as gradients the size of the widget, it
+/// took more memory than a widget may use at the large size, and the large one stopped
+/// updating.
 struct CoverGround: View {
-    let pools: [[Double]]?
-
-    /// Before there is a cover: the app's accent, a deep blue and a violet.
-    private static let resting: [[Double]] = [[150, 40, 60], [30, 50, 110], [70, 40, 110]]
-    private static let centres: [(x: Double, y: Double)] = [(0.25, 0.5), (0.92, 0.13), (0.26, 0.91)]
+    let image: Data?
 
     var body: some View {
-        let colours = (pools?.count == 3 ? pools : nil) ?? Self.resting
-        GeometryReader { geometry in
-            let width = geometry.size.width
-            let height = geometry.size.height
-            let radius = 0.85 * (width * width + height * height).squareRoot() / 1.6
-            ZStack {
-                Color(red: 10 / 255, green: 10 / 255, blue: 14 / 255)
-                ForEach(0..<3, id: \.self) { index in
-                    let rgb = colours[index].count == 3 ? colours[index] : Self.resting[index]
-                    let colour = Color(red: rgb[0] / 255, green: rgb[1] / 255, blue: rgb[2] / 255)
-                    RadialGradient(
-                        gradient: Gradient(stops: [
-                            .init(color: colour.opacity(0.62), location: 0),
-                            .init(color: colour.opacity(0.52), location: 0.25),
-                            .init(color: colour.opacity(0.31), location: 0.5),
-                            .init(color: colour.opacity(0.1), location: 0.75),
-                            .init(color: colour.opacity(0), location: 1),
-                        ]),
-                        center: .center, startRadius: 0, endRadius: radius
-                    )
-                    .frame(width: radius * 2, height: radius * 2)
-                    .position(x: Self.centres[index].x * width, y: Self.centres[index].y * height)
-                }
+        ZStack {
+            Color(red: 10 / 255, green: 10 / 255, blue: 14 / 255)
+            if let image, let picture = UIImage(data: image) {
+                Image(uiImage: picture)
+                    .resizable()
+                    .interpolation(.high)
             }
         }
     }
@@ -185,7 +172,7 @@ struct NowPlayingView: View {
             if isAccessory {
                 Color.clear
             } else {
-                CoverGround(pools: snapshot?.pools)
+                CoverGround(image: family == .systemMedium ? entry.groundWide : entry.groundSquare)
             }
         }
     }
@@ -568,6 +555,8 @@ struct MadeForYouView: View {
             }
         }
         .tint(entry.snapshot?.accentColor ?? pink)
-        .containerBackground(for: .widget) { CoverGround(pools: entry.snapshot?.pools) }
+        .containerBackground(for: .widget) {
+            CoverGround(image: family == .systemMedium ? entry.groundWide : entry.groundSquare)
+        }
     }
 }

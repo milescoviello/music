@@ -67,6 +67,11 @@ struct WidgetSnapshot: Codable, Sendable, Equatable {
 
     static func mixCoverName(_ number: Int) -> String { "widget-mix-\(number).jpg" }
 
+    /// The cover-colour backdrop, drawn small by the app: square for the small and large
+    /// widgets, wide for the medium ones.
+    static let groundSquareName = "widget-ground-square.png"
+    static let groundWideName = "widget-ground-wide.png"
+
     /// By place, from 1, as the mixes' are.
     static func pinnedCoverName(_ number: Int) -> String { "widget-pinned-\(number).jpg" }
 
