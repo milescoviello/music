@@ -144,6 +144,7 @@ func logicPackage() -> Package {
                     "LyricsStore.swift",
                     "LyricTranslationStore.swift",
                     "RemoteControl.swift",
+                    "QRCode.swift",
                     "RecordingMatch.swift",
                     "VideoClient.swift",
                 ]

@@ -817,12 +817,17 @@ final class NowPlaying {
             SongAboutPage.present(app, song: song)
         }
         let album = Button("", "flat", "link-button", "np-album")
-        for button in [artist, album] {
-            button.halign(GTK_ALIGN_CENTER)
-            if let label = gtk_button_get_child(button.widget.cast()) {
-                gtk_label_set_ellipsize(OpaquePointer(label), PANGO_ELLIPSIZE_END)
+        // Each time, because setting a button's text gives it a new label: one set only
+        // when the buttons were made, still empty, was gone by the first song, and a
+        // 200-character credit list then pushed the whole player off the window's edge.
+        func ellipsize() {
+            for button in [artist, album] {
+                if let label = gtk_button_get_child(button.widget.cast()) {
+                    gtk_label_set_ellipsize(OpaquePointer(label), PANGO_ELLIPSIZE_END)
+                }
             }
         }
+        for button in [artist, album] { button.halign(GTK_ALIGN_CENTER) }
         artist.onClicked {
             guard let song = player.currentSong, let id = song.artistId, let name = song.artist else { return }
             app.navigator.open(.artist(ArtistRef(id: id, name: name)))
@@ -845,6 +850,7 @@ final class NowPlaying {
             let year = song.year.map { " (\($0))" } ?? ""
             album.label = song.album.map { $0 + year } ?? ""
             album.isVisible = song.album != nil
+            ellipsize()
         }
         return box
     }

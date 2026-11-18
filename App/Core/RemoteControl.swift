@@ -64,6 +64,9 @@ struct RemoteInfo: Codable, Equatable, Sendable {
     var id: String
     var name: String
     var version: Int = RemoteControl.protocolVersion
+    /// Every address it can be reached at -- the LAN's and Tailscale's -- so a device that
+    /// has seen it once can find it again on another network. Absent from older builds.
+    var addresses: [String]?
 }
 
 enum RemotePairing {
@@ -74,12 +77,154 @@ enum RemotePairing {
     struct Confirm: Codable, Equatable, Sendable {
         var device: String
         var code: String
+        /// The pairing device as a player in its own right, with a token for the way back:
+        /// one pairing lets either end hand playback to the other (`Handoff`).
+        var peer: RemotePeer?
     }
 
     struct Grant: Codable, Equatable, Sendable {
         var token: String
         var id: String
         var name: String
+    }
+}
+
+/// A device introducing itself as one that can be played to and handed off from: who it
+/// is, where it listens, and the token it will accept from the device it tells. Sent in a
+/// pairing's `Confirm`, and as `POST /v1/peer` each time a paired device is reached, so
+/// either end always knows the other's current addresses.
+struct RemotePeer: Codable, Equatable, Sendable {
+    var id: String
+    var name: String
+    var port: UInt16
+    var addresses: [String]
+    var token: String
+}
+
+/// What a device is playing right now, for a handoff to decide on: `GET /v1/now`. Small,
+/// so it can be asked of every paired device on each press of play.
+struct RemoteNow: Codable, Equatable, Sendable {
+    var id: String
+    var name: String
+    /// Empty when nothing is queued here.
+    var listID: String
+    var count: Int
+    var state: RemoteState
+    /// When this device's queue last changed or moved: who listened last.
+    var savedAt: Date?
+}
+
+/// The whole queue, for a device taking playback over: `GET /v1/queue`. Every track in
+/// play order, not `RemoteQueue`'s window, because the one taking over keeps it.
+struct RemoteHandoffQueue: Codable, Equatable, Sendable {
+    var listID: String
+    var songs: [Song]
+    /// Place in `songs` of the current track.
+    var position: Int
+    var source: String
+    var station: Station?
+    var repeatMode: RepeatMode
+}
+
+/// Where a handoff is going, so the device let go can say so: `POST /v1/release`, which
+/// pauses it without telling the server, since the new device now owns the queue.
+struct RemoteRelease: Codable, Equatable, Sendable {
+    var to: String
+}
+
+/// The pairing code as a link, for the desktop to show as a QR code and the iPhone's camera
+/// to open: `music-remote://pair?id=…&n=…&p=47823&a=192.168.1.20,100.66.1.2&k=…`. The key
+/// is a pairing code too long to guess, good for ten minutes, so scanning it is the whole
+/// pairing: nothing to type.
+struct PairingLink: Equatable, Sendable {
+    static let scheme = "music-remote"
+
+    var id: String
+    var name: String
+    var port: UInt16
+    var addresses: [String]
+    var key: String
+
+    var url: URL {
+        var components = URLComponents()
+        components.scheme = Self.scheme
+        components.host = "pair"
+        components.queryItems = [
+            URLQueryItem(name: "id", value: id),
+            URLQueryItem(name: "n", value: name),
+            URLQueryItem(name: "p", value: String(port)),
+            URLQueryItem(name: "a", value: addresses.joined(separator: ",")),
+            URLQueryItem(name: "k", value: key),
+        ]
+        // `URLComponents` is sure to give one back for these parts.
+        return components.url ?? URL(string: "\(Self.scheme)://pair")!
+    }
+
+    init(id: String, name: String, port: UInt16, addresses: [String], key: String) {
+        self.id = id
+        self.name = name
+        self.port = port
+        self.addresses = addresses
+        self.key = key
+    }
+
+    init?(_ url: URL) {
+        guard url.scheme?.lowercased() == Self.scheme, url.host?.lowercased() == "pair",
+              let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems
+        else { return nil }
+        func value(_ name: String) -> String? {
+            items.first { $0.name == name }?.value.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        guard let id = value("id"), let key = value("k"),
+              let addresses = value("a")?.split(separator: ",").map(String.init), !addresses.isEmpty
+        else { return nil }
+        self.init(
+            id: id,
+            name: value("n") ?? "Computer",
+            port: value("p").flatMap(UInt16.init) ?? RemoteControl.defaultPort,
+            addresses: addresses,
+            key: key
+        )
+    }
+}
+
+/// Which device a press of play should take the music from, if any: the decision at the
+/// heart of `Handoff`, kept apart from the network so it can be tested.
+enum HandoffChoice: Equatable, Sendable {
+    /// Another device is playing: take it over at its exact place, and pause it.
+    case takeOver(peer: String)
+    /// Another paired device was listened to last, and is paused: carry on from it.
+    case continueFrom(peer: String)
+    /// The queue on the server is the newest, saved by a device not reachable directly.
+    case server
+    /// This device's own queue is the newest: just play.
+    case here
+
+    /// `peers` are the devices that answered; `serverSavedAt` is when the server's queue
+    /// was saved by some other device, if it was; `localSavedAt` is this device's own.
+    /// A second's leeway, because two devices' clocks are never quite the same.
+    static func choose(peers: [RemoteNow], serverSavedAt: Date?, localSavedAt: Date?) -> HandoffChoice {
+        let candidates = peers.filter { $0.count > 0 }
+        if let playing = candidates.filter({ $0.state.isPlaying })
+            .max(by: { ($0.savedAt ?? .distantPast) < ($1.savedAt ?? .distantPast) }) {
+            return .takeOver(peer: playing.id)
+        }
+        let local = localSavedAt ?? .distantPast
+        let newestPeer = candidates.compactMap { peer in peer.savedAt.map { (peer.id, $0) } }
+            .max { $0.1 < $1.1 }
+        let peerIsNewer = newestPeer.map { $0.1 > local.addingTimeInterval(1) } ?? false
+        let serverIsNewer = serverSavedAt.map { $0 > local.addingTimeInterval(1) } ?? false
+        switch (peerIsNewer, serverIsNewer) {
+        case (true, true):
+            // The same pause usually lands in both; the device itself has the exact one.
+            return serverSavedAt! > newestPeer!.1.addingTimeInterval(5) ? .server : .continueFrom(peer: newestPeer!.0)
+        case (true, false):
+            return .continueFrom(peer: newestPeer!.0)
+        case (false, true):
+            return .server
+        case (false, false):
+            return .here
+        }
     }
 }
 

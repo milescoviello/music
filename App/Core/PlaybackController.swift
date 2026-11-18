@@ -237,7 +237,7 @@ final class PlaybackController {
         }
         session.onResume = { [weak self] in
             guard let self, remote == nil else { return }
-            play()
+            play(handingOff: false)
         }
 
         nowPlaying.onPlay = { [weak self] in self?.play() }
@@ -541,7 +541,7 @@ final class PlaybackController {
         planCache()
         // Back online with a try pending: now, not when its timer says.
         if retryTask != nil, appState?.reachability.network != .offline {
-            play()
+            play(handingOff: false)
         }
     }
 
@@ -557,11 +557,26 @@ final class PlaybackController {
     private(set) var playGeneration = 0
 
     func adopt(songs: [Song], currentID: String?, positionSeconds: Double, source: String) {
+        let index = currentID.flatMap { id in songs.firstIndex { $0.id == id } } ?? 0
+        adopt(songs: songs, index: index, positionSeconds: positionSeconds, source: source)
+    }
+
+    /// Another device's queue, loaded here paused at `positionSeconds` into the track at
+    /// `index`. Not `uploading` when it came from that device or the server, which have
+    /// it already: this device's copy goes up once it plays.
+    func adopt(
+        songs: [Song],
+        index: Int,
+        positionSeconds: Double,
+        source: String,
+        station: Station? = nil,
+        uploading: Bool = true
+    ) {
         guard !songs.isEmpty else { return }
         playGeneration += 1
-        let index = currentID.flatMap { id in songs.firstIndex { $0.id == id } } ?? 0
+        let index = songs.indices.contains(index) ? index : 0
         if let remote {
-            remote.send(.playSongs(songs, from: index, source: source, startAt: positionSeconds, paused: true))
+            remote.send(.playSongs(songs, from: index, source: source, startAt: positionSeconds, station: station, paused: true))
             return
         }
 
@@ -570,11 +585,12 @@ final class PlaybackController {
             startingAt: index,
             shuffled: false,
             source: source,
-            repeatMode: queue.repeatMode
+            repeatMode: queue.repeatMode,
+            station: station
         )
         appState?.guestDJ.queueReplaced()
         rebuildOutput(startPlaying: false, seekTo: positionSeconds)
-        persistNow()
+        persistNow(uploading: uploading)
     }
 
     // MARK: - Visualiser
@@ -719,9 +735,14 @@ final class PlaybackController {
 
     // MARK: - Transport
 
-    func play() {
+    /// A press of play. `handingOff`, for one made here by a person, first asks the paired
+    /// devices whether the music is playing on one of them, to carry on from it
+    /// (`Handoff`); false for a resume this device makes itself -- an interruption over, a
+    /// retry -- or another device's command.
+    func play(handingOff: Bool = true) {
         if let remote { remote.send(RemoteCommand(.play)); return }
         if let video { video.play(); return }
+        if handingOff, !isPlaying, appState?.handoff?.claimPlay() == true { return }
         guard hasQueue else { return }
         // Video left on from last time: pressing play plays the song's video.
         if appState?.video.takesOverPlay() == true { return }
@@ -811,6 +832,37 @@ final class PlaybackController {
         session.noteIsPlaying(false)
         publishNowPlaying(force: true)
         persist()
+        // The place too, for a device that picks up from the server: walking away is when.
+        appState?.queueSync.pushNow(queue: queue, elapsed: elapsed)
+    }
+
+    /// Another device has taken the music over (`Handoff`): pause here, and leave the
+    /// server's queue to it.
+    func release(to device: String?) {
+        guard remote == nil else { return }
+        appState?.queueSync.holdUploads(for: 30)
+        if isPlaying { pause() }
+        let line = "handed over to \(device ?? "another device") at \(LogReport.clock(elapsed))"
+        Task { await Diagnostics.shared.record("handoff", line) }
+    }
+
+    /// Until the current track has opened, or `seconds` have gone: a handoff starts it
+    /// at the other device's place only once it can start at once.
+    func waitUntilOpened(atMost seconds: Double) async {
+        let deadline = Date.now.addingTimeInterval(seconds)
+        while output.unopened != nil, Date.now < deadline {
+            try? await Task.sleep(for: .milliseconds(30))
+        }
+    }
+
+    /// Until the output has moved on from where it was started -- it is sounding -- or
+    /// `seconds` have gone: only then does a handoff pause the other device.
+    func waitUntilSounding(atMost seconds: Double) async {
+        let start = elapsed
+        let deadline = Date.now.addingTimeInterval(seconds)
+        while isPlaying, elapsed <= start + 0.05, Date.now < deadline {
+            try? await Task.sleep(for: .milliseconds(30))
+        }
     }
 
     /// The app came back to the foreground.
@@ -1196,7 +1248,7 @@ final class PlaybackController {
         }
         tracker.interrupted(at: elapsed)
         if play {
-            self.play()
+            self.play(handingOff: false)
         } else {
             session.noteIsPlaying(false)
             publishNowPlaying(force: true)
@@ -1566,7 +1618,7 @@ final class PlaybackController {
             guard let self, !Task.isCancelled, remote == nil,
                   unreachableSongID == songID, queue.current?.id == songID
             else { return }
-            play()
+            play(handingOff: false)
         }
     }
 
@@ -1712,9 +1764,11 @@ final class PlaybackController {
         let snapshot = QueueSnapshot(queue: queue, positionSeconds: elapsed, savedAt: .now)
         lastSavedAt = snapshot.savedAt
         Task { [store] in await store.save(snapshot) }
+        // And on the server now and then, for a device that cannot ask this one.
+        if videoSong == nil { appState?.queueSync.pushPlace(queue: queue, elapsed: elapsed) }
     }
 
-    func persistNow() {
+    func persistNow(uploading: Bool = true) {
         guard remote == nil else { return }
         // A debounced save still waiting holds an older snapshot, and would land on top
         // of this one.
@@ -1723,7 +1777,7 @@ final class PlaybackController {
         let snapshot = QueueSnapshot(queue: queue, positionSeconds: elapsed, savedAt: .now)
         lastSavedAt = snapshot.savedAt
         Task { [store] in await store.save(snapshot) }
-        appState?.queueSync.pushNow(queue: queue, elapsed: elapsed)
+        if uploading { appState?.queueSync.pushNow(queue: queue, elapsed: elapsed) }
     }
 
     /// Restores the previous queue **paused**. Auto-playing on launch is hostile.

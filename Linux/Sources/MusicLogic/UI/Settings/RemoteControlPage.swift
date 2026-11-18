@@ -23,8 +23,9 @@ enum RemoteControlPage {
         page.add(PreferencesGroup("Remote Control", description: """
         The Music app on your iPhone, or on another computer, can play to this one, the way \
         Plexamp plays to another Plexamp: in its player, choose Play On and this name. The \
-        first time, this computer shows a code to type in there. Only devices on this \
-        network can reach it.
+        first time, this computer shows a code to type in there. Paired devices also hand \
+        the music to each other: press play on one and it carries on from the other, at \
+        the same second. Only devices on this network or your tailnet can reach it.
         """) {
             enabled
             name
@@ -44,6 +45,8 @@ enum RemoteControlPage {
             let count = remote.listenerCount
             connectedValue.text = count == 0 ? "None" : count == 1 ? "1 phone" : "\(count) phones"
         }
+
+        page.add(qrGroup(remote))
 
         let paired = PreferencesGroup("Paired Phones", description: "A phone forgotten here has to pair again before it can control this computer.")
         let list = ListBox()
@@ -65,6 +68,52 @@ enum RemoteControlPage {
         }
 
         return SettingsPages.preferencesPage("Remote Control", page)
+    }
+
+    /// The pairing link as a QR code, for the iPhone's camera: scanning it pairs the two
+    /// both ways, with nothing to type.
+    private static func qrGroup(_ remote: RemoteControlServer) -> PreferencesGroup {
+        final class Shown { var code: QRCode? }
+        let shown = Shown()
+        let area = DrawingArea(width: 232, height: 232) { cairo, width, height in
+            guard let code = shown.code else { return }
+            // White behind, with the four-module margin the standard asks for.
+            let modules = Double(code.size + 8)
+            let scale = floor(min(width, height) / modules)
+            let side = scale * modules
+            let left = floor((width - side) / 2)
+            let top = floor((height - side) / 2)
+            cairo.color(red: 1, green: 1, blue: 1)
+            cairo.rectangle(left, top, side, side)
+            cairo.fill()
+            cairo.color(red: 0, green: 0, blue: 0)
+            for y in 0..<code.size {
+                for x in 0..<code.size where code.isDark(x: x, y: y) {
+                    cairo.rectangle(left + Double(x + 4) * scale, top + Double(y + 4) * scale, scale, scale)
+                }
+            }
+            cairo.fill()
+        }
+        area.halign(GTK_ALIGN_CENTER).margin(vertical: 12)
+        let caption = Label("", "dim", "caption").xalign(0.5).wrap()
+        let group = PreferencesGroup("Pair an iPhone", description: """
+        Point the iPhone's camera at this code and tap the link it shows. That pairs them \
+        both ways at once: nothing to type.
+        """) {
+            area
+            caption
+        }
+        area.observe {
+            // Again after each pairing, which uses the code up.
+            _ = remote.devices.count
+            let link = remote.isEnabled ? remote.pairingLink() : nil
+            shown.code = link.flatMap { QRCode($0.url.absoluteString, correction: .low) }
+            caption.text = link == nil
+                ? "Turn on Allow Control from Other Devices to pair."
+                : "The code works for ten minutes. Come back to this page for a new one."
+            area.redraw()
+        }
+        return group
     }
 
     private static func subtitle(for device: RemoteControlServer.Device) -> String {
@@ -94,6 +143,16 @@ enum RemotePairingPrompt {
 
     static func install() {
         RemoteControlServer.shared.onPairing = { show($0) }
+        RemoteControlServer.shared.onPaired = { paired($0) }
+    }
+
+    /// Someone scanned the QR code: said, since there was nothing to type here.
+    private static func paired(_ device: String) {
+        guard let application = Desktop.application else { return }
+        let notification = g_notification_new("Paired with \(device)")!
+        g_notification_set_body(notification, "Press play on either one to carry on from the other.")
+        g_application_send_notification(application.cast(), "remote-paired", notification)
+        g_object_unref(notification.cast())
     }
 
     private static func show(_ pairing: RemoteControlServer.Pairing?) {

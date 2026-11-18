@@ -269,7 +269,8 @@ actor SubsonicClient {
     private func post(
         _ endpoint: String,
         _ query: [String: String?],
-        _ repeated: [URLQueryItem] = []
+        _ repeated: [URLQueryItem] = [],
+        client: String = SubsonicAuth.clientName
     ) async throws -> Data {
         guard let credentials else { throw ClientError.notConfigured }
 
@@ -281,7 +282,7 @@ actor SubsonicClient {
             )),
             URLQueryItem(name: "s", value: salt),
             URLQueryItem(name: "v", value: SubsonicAuth.apiVersion),
-            URLQueryItem(name: "c", value: SubsonicAuth.clientName),
+            URLQueryItem(name: "c", value: client),
             URLQueryItem(name: "f", value: "json"),
         ]
         items.append(contentsOf: query.compactMap { key, value in
@@ -761,7 +762,11 @@ actor SubsonicClient {
 
     /// `position` is milliseconds into the current track, which is the unit Subsonic
     /// uses here even though `scrobble` uses seconds.
-    func saveQueue(songIDs: [String], currentID: String?, positionMilliseconds: Int) async throws {
+    ///
+    /// `client` is what the server records as `changedBy`: each device's own name
+    /// (`QueueSync.uploadName`), so the phone and the desktop can tell each other's saves
+    /// from their own.
+    func saveQueue(songIDs: [String], currentID: String?, positionMilliseconds: Int, client: String) async throws {
         guard !songIDs.isEmpty else { return }
 
         let data = try await post(
@@ -770,7 +775,8 @@ actor SubsonicClient {
                 "current": currentID,
                 "position": String(max(0, positionMilliseconds)),
             ],
-            songIDs.map { URLQueryItem(name: "id", value: $0) }
+            songIDs.map { URLQueryItem(name: "id", value: $0) },
+            client: client
         )
         _ = try await status(of: data, from: "savePlayQueue.view")
     }

@@ -26,7 +26,7 @@ struct PlayedToSettingsView: View {
                         LabeledContent("Connected Now", value: connected)
                     }
                 } footer: {
-                    Text("Music on a computer can play to this iPhone, the way it plays here: in its player, choose Play On and this name. The first time, this iPhone shows a code to type in there. It listens only while Music is open or playing, and only to devices on this network.")
+                    Text("Music on a computer can play to this iPhone, the way it plays here: in its player, choose Play On and this name. Paired computers also hand the music back and forth: press play on one and it carries on from the other, at the same second. To pair, scan the code on the computer's Remote Control page with the Camera. This iPhone listens only while Music is open or playing, and only to devices on this network or your tailnet.")
                 }
 
                 if server.isEnabled {

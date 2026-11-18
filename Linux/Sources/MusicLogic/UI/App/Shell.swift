@@ -181,7 +181,6 @@ final class Shell {
         installHistoryButtons()
 
         let main = ToolbarView(content: split)
-        main.top(RemoteQueueBar.make(app))
         main.top(offlineBanner())
 
         let player = NowPlaying(app: app, shell: self)
@@ -408,7 +407,9 @@ final class Shell {
         app.downloads.resumeWaiting()
         Task { await app.mostPlayed.refresh() }
         Task { await app.playlistStore.refreshIfStale() }
-        Task { await app.queueSync.check(localSavedAt: app.player.lastSavedAt) }
+        // Nothing playing here: catch up with wherever the music is, so a press of play
+        // carries on from it.
+        app.handoff?.look()
     }
 
     private func restoreSize() {
@@ -489,38 +490,5 @@ final class Shell {
         guard let focus = gtk_window_get_focus(window.widget.cast()) else { return false }
         return g_type_check_instance_is_a(UnsafeMutableRawPointer(focus).assumingMemoryBound(to: GTypeInstance.self), gtk_editable_get_type()) != 0
             || g_type_check_instance_is_a(UnsafeMutableRawPointer(focus).assumingMemoryBound(to: GTypeInstance.self), gtk_text_get_type()) != 0
-    }
-}
-
-/// Offered rather than applied: another device's queue arriving unannounced and replacing
-/// what was playing would be worse than not syncing at all.
-@MainActor
-enum RemoteQueueBar {
-    static func make(_ app: AppState) -> Widget {
-        let title = Label("", "heading")
-        let detail = Label("", "caption", "dim").ellipsize()
-        let bar = Box.horizontal(spacing: 12) {
-            Icon("view-refresh-symbolic").css("accent")
-            Box.vertical(spacing: 0) {
-                title
-                detail
-            }.hexpand()
-            Button("Resume", "suggested-action", "pill") { app.adoptRemoteQueue() }
-            Button(icon: "window-close-symbolic", "flat", "circular") { app.queueSync.dismiss() }
-                .tooltip("Dismiss")
-        }.margin(horizontal: 16, vertical: 8)
-        let revealer = Revealer(bar)
-        revealer.observe {
-            guard let remote = app.queueSync.available else {
-                revealer.isRevealed = false
-                return
-            }
-            title.text = "Continue from \(remote.changedBy)?"
-            if let first = remote.songs.first {
-                detail.text = remote.songs.count == 1 ? first.title : "\(first.title) + \(remote.songs.count - 1) more"
-            }
-            revealer.isRevealed = true
-        }
-        return revealer
     }
 }

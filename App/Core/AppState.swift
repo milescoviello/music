@@ -29,6 +29,8 @@ final class AppState {
     let playlistArrangement = PlaylistArrangement()
     let requests = MusicRequestService()
     let queueSync = QueueSync()
+    /// Carrying the music on from another device (`Handoff`), made with the remote players.
+    @ObservationIgnored var handoff: Handoff?
     let playlistSync = PlaylistSync()
     let cache = LibraryCache()
     let playlistArtwork = PlaylistArtwork()
@@ -202,7 +204,7 @@ final class AppState {
         // Both are cheap when there is nothing to do, and both want to happen once the
         // credentials are known rather than at construction.
         await resume.refresh()
-        await queueSync.check(localSavedAt: player.lastSavedAt)
+        handoff?.look()
         await playlistSync.sync()
         await loadServerContext()
     }
@@ -371,19 +373,6 @@ final class AppState {
             t: SubsonicAuth.token(password: credentials.password, salt: salt),
             s: salt
         )
-    }
-
-    /// Adopts a queue saved by another client, at its position, **paused**. Resuming
-    /// automatically would start music in someone's pocket.
-    func adoptRemoteQueue() {
-        guard let remote = queueSync.available else { return }
-        player.adopt(
-            songs: remote.songs,
-            currentID: remote.currentID,
-            positionSeconds: remote.positionSeconds,
-            source: "From \(remote.changedBy)"
-        )
-        queueSync.dismiss()
     }
 
     /// Triggers a server rescan. Used after requesting music, because otherwise new

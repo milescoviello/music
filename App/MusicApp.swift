@@ -66,6 +66,20 @@ struct MusicApp: App {
                 .environment(appState.streamCache)
                 .environment(remotePlayers)
                 .remotePairingPrompt()
+                // The desktop's pairing QR code, opened by the camera.
+                .onOpenURL { url in
+                    guard url.scheme == PairingLink.scheme else { return }
+                    Task { await remotePlayers.pair(link: url) }
+                }
+                .alert(
+                    remotePlayers.notice ?? "",
+                    isPresented: Binding(
+                        get: { remotePlayers.notice != nil },
+                        set: { if !$0 { remotePlayers.notice = nil } }
+                    )
+                ) {
+                    Button("OK", role: .cancel) { remotePlayers.notice = nil }
+                }
                 // Today's mixes, for the Made for You widget, whenever they change.
                 .task(id: appState.mixes.mixes.map(\.id)) {
                     await WidgetPublisher.shared.mixes(appState.mixes.mixes, artwork: appState.artwork)
@@ -98,11 +112,9 @@ struct MusicApp: App {
                         // Siri's names for playlists, artists and albums, read again.
                         MusicShortcuts.refreshNamesIfStale()
                         SiriPlayMedia.askForSiriIfNeeded()
-                        Task {
-                            await appState.queueSync.check(
-                                localSavedAt: appState.player.lastSavedAt
-                            )
-                        }
+                        // Nothing playing here: catch up with wherever the music
+                        // is, so a press of play carries on from it.
+                        appState.handoff?.look()
                     case .background:
                         Task { await Diagnostics.shared.record("app", "background") }
                         // Backgrounding does not kill the app while audio plays, but

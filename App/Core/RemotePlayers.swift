@@ -44,12 +44,25 @@ final class RemotePlayers {
         var port: UInt16?
         /// Present once paired.
         var token: String?
+        /// Every address it has said it listens at, its tailnet's among them: where to look
+        /// when `host` no longer answers, on another network or after a new lease.
+        var addresses: [String]?
 
         var isPaired: Bool { token != nil }
 
         var baseURL: URL? {
             guard let host, let port else { return nil }
             return URL(string: "http://\(host):\(port)")
+        }
+
+        /// Where to try, the last address that answered first.
+        var candidates: [URL] {
+            guard let port else { return [] }
+            var hosts: [String] = []
+            for host in [host].compactMap({ $0 }) + (addresses ?? []) where !hosts.contains(host) {
+                hosts.append(host)
+            }
+            return hosts.compactMap { URL(string: "http://\($0):\(port)") }
         }
     }
 
@@ -63,11 +76,19 @@ final class RemotePlayers {
     private(set) var pairing: Computer?
     /// The last thing that went wrong, for the picker to say.
     var problem: String?
+    /// A pairing made from a scanned code, or why it failed: said over whatever is open.
+    var notice: String?
+    /// What moves playback between this device and the paired ones.
+    let handoff: Handoff
 
     private let appState: AppState
     private let requests: URLSession
     @ObservationIgnored private let browser: any RemoteBrowsing
     @ObservationIgnored private var isBrowsing = false
+    /// Computers told this run who this device is (`introduce`): once each is enough.
+    @ObservationIgnored private var introduced: Set<String> = []
+    /// Short-lived requests for a handoff, which must not keep a press of play waiting.
+    @ObservationIgnored private let quick: URLSession
 
     init(appState: AppState, browser: any RemoteBrowsing) {
         self.appState = appState
@@ -78,10 +99,20 @@ final class RemotePlayers {
         configuration.waitsForConnectivity = false
         #endif
         requests = URLSession(configuration: configuration)
+        let quickConfiguration = URLSessionConfiguration.ephemeral
+        quickConfiguration.timeoutIntervalForRequest = 2
+        #if !canImport(FoundationNetworking)
+        quickConfiguration.waitsForConnectivity = false
+        #endif
+        quick = URLSession(configuration: quickConfiguration)
+        handoff = Handoff(app: appState)
         if let data = Keychain.loadRemotePlayers(),
            let paired = try? JSONDecoder().decode([Computer].self, from: data) {
             computers = paired
         }
+        handoff.players = self
+        appState.handoff = handoff
+        RemoteControlServer.shared.players = self
     }
 
     private static var deviceName: String {
@@ -189,9 +220,12 @@ final class RemotePlayers {
         guard let computer = pairing, let base = computer.baseURL else { return }
         pairing = nil
         do {
+            // This device as a player too, with a token for the way back: pairing once lets
+            // either end take the music from the other.
+            let peer = RemoteControlServer.shared.introduction(for: computer.id, named: computer.name)
             let (data, status) = try await post(
                 base.appendingPathComponent("v1/pair/confirm"),
-                RemotePairing.Confirm(device: Self.deviceName, code: code)
+                RemotePairing.Confirm(device: Self.deviceName, code: code, peer: peer)
             )
             switch status {
             case 200:
@@ -200,6 +234,7 @@ final class RemotePlayers {
                 computers[index].token = grant.token
                 computers[index].name = grant.name
                 save()
+                if peer != nil { introduced.insert(computer.id) }
                 await select(computers[index])
             case 403:
                 problem = "That isn't the code \(computer.name) showed. Tap it to get a new one."
@@ -236,6 +271,178 @@ final class RemotePlayers {
         }
         problem = "\(computer.name) has forgotten this iPhone. Tap it to pair again."
         Task { await playHere(moving: false) }
+    }
+
+    // MARK: - Pairing by QR code
+
+    /// Pairs from a scanned `music-remote://pair` link: the desktop's Remote Control page
+    /// shows it as a QR code, and the camera opens it here. Both ways at once, and without
+    /// playing to the computer afterwards: it is for handing off, not for a remote.
+    func pair(link url: URL) async {
+        guard let link = PairingLink(url) else {
+            notice = "That code isn't a Music pairing code."
+            return
+        }
+        let server = RemoteControlServer.shared
+        if !server.isEnabled { server.isEnabled = true }
+        let peer = server.introduction(for: link.id, named: link.name)
+        var computer = computers.first { $0.id == link.id }
+            ?? Computer(id: link.id, name: link.name, host: nil, port: link.port)
+        computer.port = link.port
+        computer.addresses = link.addresses
+
+        for base in computer.candidates {
+            guard let (data, status) = try? await post(
+                base.appendingPathComponent("v1/pair/confirm"),
+                RemotePairing.Confirm(device: Self.deviceName, code: link.key, peer: peer)
+            ) else { continue }
+            guard status == 200, let grant = try? JSONDecoder().decode(RemotePairing.Grant.self, from: data) else {
+                notice = status == 403 || status == 410
+                    ? "That code has expired. Open Remote Control on \(link.name) again for a new one."
+                    : "\(link.name) answered, but wouldn't pair."
+                return
+            }
+            computer.token = grant.token
+            computer.name = grant.name
+            computer.host = base.host
+            if let index = computers.firstIndex(where: { $0.id == computer.id }) {
+                computers[index] = computer
+            } else {
+                computers.append(computer)
+            }
+            introduced.insert(computer.id)
+            save()
+            notice = "Paired with \(grant.name). Press play on either one to carry on from the other."
+            return
+        }
+        notice = "Couldn't reach \(link.name). Is this iPhone on the same network, or on Tailscale?"
+    }
+
+    // MARK: - Reaching paired devices
+
+    /// A paired device introduced itself (`RemotePeer`): kept, or brought up to date, as one
+    /// this device can take the music from and play to.
+    func met(_ peer: RemotePeer, at address: String) {
+        var addresses = [address]
+        for other in peer.addresses where !addresses.contains(other) { addresses.append(other) }
+        if let index = computers.firstIndex(where: { $0.id == peer.id }) {
+            computers[index].name = peer.name
+            computers[index].token = peer.token
+            computers[index].host = address
+            computers[index].port = peer.port
+            computers[index].addresses = addresses
+        } else {
+            computers.append(Computer(id: peer.id, name: peer.name, host: address, port: peer.port, token: peer.token, addresses: addresses))
+        }
+        save()
+    }
+
+    /// The paired devices, not counting this one should it see itself on the network.
+    var paired: [Computer] {
+        computers.filter { $0.isPaired && $0.id != RemoteControlServer.shared.serverID }
+    }
+
+    /// A paired device's `GET` answer, from the first of its addresses to answer, with the
+    /// round trip it took. The address that answered becomes the one tried first.
+    func ask<Answer: Decodable>(
+        _ computer: Computer,
+        _ path: String,
+        as type: Answer.Type,
+        within timeout: TimeInterval
+    ) async -> (answer: Answer, base: URL, roundTrip: TimeInterval, at: Date)? {
+        guard let token = computer.token else { return nil }
+        let quick = quick
+        let candidates = computer.candidates
+        guard !candidates.isEmpty else { return nil }
+        // Every address at once; the first good answer wins.
+        let found: (Data, URL, TimeInterval, Date)? = await withTaskGroup(of: (Data, URL, TimeInterval, Date)?.self) { group in
+            for base in candidates {
+                group.addTask {
+                    var request = URLRequest(url: base.appendingPathComponent(path))
+                    request.timeoutInterval = timeout
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    let sent = Date.now
+                    guard let (data, response) = try? await quick.data(for: request),
+                          let status = (response as? HTTPURLResponse)?.statusCode
+                    else { return nil }
+                    if status == 401 { return (Data(), base, -1, .now) }
+                    guard status == 200 else { return nil }
+                    let received = Date.now
+                    return (data, base, received.timeIntervalSince(sent), received)
+                }
+            }
+            for await result in group {
+                if let result {
+                    group.cancelAll()
+                    return result
+                }
+            }
+            return nil
+        }
+        guard let (data, base, roundTrip, at) = found else { return nil }
+        if roundTrip < 0 {
+            // It has forgotten this device: its token is no use any more.
+            if let index = computers.firstIndex(where: { $0.id == computer.id }) {
+                computers[index].token = nil
+                save()
+            }
+            return nil
+        }
+        guard let answer = try? JSONDecoder().decode(Answer.self, from: data) else { return nil }
+        noteAnswered(computer, at: base)
+        return (answer, base, roundTrip, at)
+    }
+
+    /// Tells a paired device to pause because the music has moved here.
+    func release(_ computer: Computer, at base: URL) async {
+        guard let token = computer.token else { return }
+        var request = URLRequest(url: base.appendingPathComponent("v1/release"))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 3
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try? JSONEncoder().encode(RemoteRelease(to: RemoteControlServer.shared.name))
+        _ = try? await quick.data(for: request)
+    }
+
+    private func noteAnswered(_ computer: Computer, at base: URL) {
+        guard let index = computers.firstIndex(where: { $0.id == computer.id }) else { return }
+        if let host = base.host, computers[index].host != host {
+            computers[index].host = host
+            save()
+        }
+        introduce(computers[index], at: base)
+    }
+
+    /// Tells a paired device who this one is as a player, where it listens now, and the
+    /// token to use: so it can take the music from here too, and find this device on
+    /// whatever network it is on. Once a run; a pairing from before this existed gets its
+    /// way back the first time it is reached.
+    private func introduce(_ computer: Computer, at base: URL) {
+        guard !introduced.contains(computer.id), let token = computer.token,
+              let peer = RemoteControlServer.shared.introduction(for: computer.id, named: computer.name)
+        else { return }
+        introduced.insert(computer.id)
+        let requests = requests
+        Task {
+            var request = URLRequest(url: base.appendingPathComponent("v1/peer"))
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.httpBody = try? JSONEncoder().encode(peer)
+            _ = try? await requests.data(for: request)
+        }
+    }
+
+    /// Looks on the local network for a few seconds, when some paired device did not
+    /// answer at any address it is known by: Bonjour may know its new one.
+    func lookAround() {
+        guard !isBrowsing else { return }
+        startBrowsing()
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            self?.stopBrowsing()
+        }
     }
 
     // MARK: - Choosing where to play

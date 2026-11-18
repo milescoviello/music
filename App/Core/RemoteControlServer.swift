@@ -29,6 +29,9 @@ final class RemoteControlServer {
         var token: String
         var pairedAt: Date
         var lastSeenAt: Date?
+        /// The device's own id as a player (`RemoteInfo.id`), when it is one too: the
+        /// token it was given for a handoff's way back. Nil for a pairing older than that.
+        var peerID: String?
     }
 
     /// A pairing waiting for its code.
@@ -65,6 +68,13 @@ final class RemoteControlServer {
 
     /// Shows a new pairing's code, and takes it away again when it is nil.
     @ObservationIgnored var onPairing: (@MainActor (Pairing?) -> Void)?
+    /// The devices this one plays to, which a device pairing here becomes one of, so
+    /// either can hand playback to the other.
+    @ObservationIgnored weak var players: RemotePlayers?
+    /// Someone paired by scanning the code: for the window to say so.
+    @ObservationIgnored var onPaired: (@MainActor (String) -> Void)?
+    /// The key in the QR code now on show, good for ten minutes (`PairingLink`).
+    @ObservationIgnored private var linkKey: (key: String, expiresAt: Date)?
 
     @ObservationIgnored private let id: String
     @ObservationIgnored private weak var app: AppState?
@@ -90,13 +100,10 @@ final class RemoteControlServer {
 
     private init() {
         let defaults = UserDefaults.standard
-        // On by default on the desktop, which is what it was for; off on the phone, which
-        // listens only while it runs and is asked to.
-        #if canImport(UIKit)
-        isEnabled = defaults.object(forKey: Keys.enabled) as? Bool ?? false
-        #else
+        // On by default everywhere: a computer taking over from the phone has to ask it
+        // where it has got to and tell it to stop (`Handoff`). The phone listens only while
+        // Music is open or playing, and only to devices on its own network or tailnet.
         isEnabled = defaults.object(forKey: Keys.enabled) as? Bool ?? true
-        #endif
         name = defaults.string(forKey: Keys.name) ?? Self.hostName
         if let id = defaults.string(forKey: Keys.id) {
             self.id = id
@@ -105,6 +112,41 @@ final class RemoteControlServer {
             defaults.set(id, forKey: Keys.id)
         }
         devices = Keychain.loadRemoteDevices()
+    }
+
+    /// This installation's id as a player: `RemoteInfo.id`.
+    var serverID: String { id }
+
+    /// Who this device is and where it listens, with the token `peerID` is to use: what a
+    /// pairing or an introduction tells the other device.
+    func introduction(for peerID: String, named peerName: String) -> RemotePeer? {
+        guard let port else { return nil }
+        return RemotePeer(
+            id: id,
+            name: name,
+            port: port,
+            addresses: HTTPServer.localAddresses(),
+            token: token(for: peerID, named: peerName)
+        )
+    }
+
+    /// The token `peerID` may use here, made the first time it is asked for.
+    private func token(for peerID: String, named peerName: String) -> String {
+        if let device = devices.first(where: { $0.peerID == peerID }) { return device.token }
+        let device = Device(id: UUID(), name: peerName, token: Self.randomToken(), pairedAt: .now, peerID: peerID)
+        devices.append(device)
+        Keychain.saveRemoteDevices(devices)
+        return device.token
+    }
+
+    /// The pairing link for the QR code: scanning it pairs both ways at once. The same key
+    /// while one is on show, a new one once it has expired or been used.
+    func pairingLink() -> PairingLink? {
+        guard isEnabled, let port else { return nil }
+        if linkKey == nil || linkKey!.expiresAt < .now {
+            linkKey = (Self.randomToken(), .now.addingTimeInterval(600))
+        }
+        return PairingLink(id: id, name: name, port: port, addresses: HTTPServer.localAddresses(), key: linkKey!.key)
     }
 
     private static var hostName: String {
@@ -215,7 +257,26 @@ final class RemoteControlServer {
     private func handle(_ request: HTTPServer.Request, on connection: HTTPConnection) {
         switch (request.method, request.path) {
         case ("GET", "/v1/info"):
-            connection.respond(200, json: encode(RemoteInfo(id: id, name: name)))
+            connection.respond(200, json: encode(RemoteInfo(id: id, name: name, addresses: HTTPServer.localAddresses())))
+        case ("POST", "/v1/peer"):
+            guard let device = device(for: request) else { return connection.respond(401) }
+            guard let peer = try? JSONDecoder().decode(RemotePeer.self, from: request.body) else {
+                return connection.respond(400)
+            }
+            meet(peer, from: request.peer, device: device.id)
+            connection.respond(204)
+        case ("GET", "/v1/now"):
+            guard device(for: request) != nil else { return connection.respond(401) }
+            connection.respond(200, json: encode(now()))
+        case ("GET", "/v1/queue"):
+            guard device(for: request) != nil else { return connection.respond(401) }
+            guard let queue = handoffQueue() else { return connection.respond(404) }
+            connection.respond(200, json: encode(queue))
+        case ("POST", "/v1/release"):
+            guard device(for: request) != nil else { return connection.respond(401) }
+            let release = try? JSONDecoder().decode(RemoteRelease.self, from: request.body)
+            app?.player.release(to: release?.to)
+            connection.respond(204)
         case ("POST", "/v1/pair/request"):
             requestPairing(request, on: connection)
         case ("POST", "/v1/pair/confirm"):
@@ -260,6 +321,15 @@ final class RemoteControlServer {
         guard let body = try? JSONDecoder().decode(RemotePairing.Confirm.self, from: request.body) else {
             return connection.respond(400)
         }
+        // The QR code's key: scanned, so nothing was asked for first and nothing to type.
+        if let link = linkKey, link.expiresAt > .now,
+           Self.equal(Array(body.code.utf8), Array(link.key.utf8)) {
+            linkKey = nil
+            let name = String(body.device.prefix(60))
+            let device = grant(to: name.isEmpty ? "A phone" : name, peer: body.peer, from: request.peer)
+            onPaired?(device.name)
+            return connection.respond(200, json: encode(RemotePairing.Grant(token: device.token, id: id, name: self.name)))
+        }
         guard var pairing, pairing.expiresAt > .now else {
             return connection.respond(410)
         }
@@ -272,11 +342,83 @@ final class RemoteControlServer {
             }
             return connection.respond(403)
         }
-        let device = Device(id: UUID(), name: pairing.device, token: Self.randomToken(), pairedAt: .now)
-        devices.append(device)
-        Keychain.saveRemoteDevices(devices)
+        let device = grant(to: pairing.device, peer: body.peer, from: request.peer)
         cancelPairing()
         connection.respond(200, json: encode(RemotePairing.Grant(token: device.token, id: id, name: name)))
+    }
+
+    /// A new token for a device that has just paired, and, if it plays too, it added to
+    /// the devices this one plays to, with the token it gave for the way back.
+    private func grant(to name: String, peer: RemotePeer?, from address: String) -> Device {
+        // Pairing again replaces the old token rather than leaving it to pile up.
+        if let peer { devices.removeAll { $0.peerID == peer.id } }
+        let device = Device(id: UUID(), name: name, token: Self.randomToken(), pairedAt: .now, peerID: peer?.id)
+        devices.append(device)
+        Keychain.saveRemoteDevices(devices)
+        if let peer { players?.met(peer, at: address) }
+        return device
+    }
+
+    /// A paired device saying who it is as a player, where, and with what token.
+    private func meet(_ peer: RemotePeer, from address: String, device deviceID: UUID) {
+        if let index = devices.firstIndex(where: { $0.id == deviceID }), devices[index].peerID != peer.id {
+            devices[index].peerID = peer.id
+            Keychain.saveRemoteDevices(devices)
+        }
+        players?.met(peer, at: address)
+    }
+
+    // MARK: - Handoff
+
+    /// What plays here, for a device deciding whether to take it over. Nothing while this
+    /// device is itself playing to another: its queue is not its own then.
+    private func now() -> RemoteNow {
+        guard let player = app?.player, player.remote == nil else {
+            return RemoteNow(id: id, name: name, listID: "", count: 0, state: RemoteState(), savedAt: nil)
+        }
+        let queue = player.queue
+        return RemoteNow(
+            id: id,
+            name: name,
+            listID: queue.isEmpty ? "" : queue.listID.uuidString,
+            count: queue.order.count,
+            state: currentState(player),
+            savedAt: player.lastSavedAt
+        )
+    }
+
+    private func handoffQueue() -> RemoteHandoffQueue? {
+        guard let player = app?.player, player.remote == nil, !player.queue.isEmpty else { return nil }
+        let queue = player.queue
+        var songs: [Song] = []
+        var position = 0
+        for (place, index) in queue.order.enumerated() where queue.tracks.indices.contains(index) {
+            if place == queue.position { position = songs.count }
+            songs.append(queue.tracks[index])
+        }
+        return RemoteHandoffQueue(
+            listID: queue.listID.uuidString,
+            songs: songs,
+            position: position,
+            source: queue.sourceDescription,
+            station: queue.station,
+            repeatMode: queue.repeatMode
+        )
+    }
+
+    private func currentState(_ player: PlaybackController) -> RemoteState {
+        RemoteState(
+            song: player.currentSong,
+            isPlaying: player.isPlaying,
+            isBuffering: player.isBuffering,
+            elapsed: player.elapsedNow,
+            duration: player.duration,
+            speed: Double(player.speed),
+            volume: volume.read(),
+            position: player.queue.position,
+            repeatMode: player.queue.repeatMode,
+            canAddToUpNext: player.canAddToUpNext
+        )
     }
 
     // MARK: - Commands
@@ -290,10 +432,12 @@ final class RemoteControlServer {
             return index
         }
 
+        // Another device's own commands: played here as they are, never taken for a press
+        // of play here, which would look for a device to take the music from.
         switch command.action {
-        case .play: player.play()
+        case .play: player.play(handingOff: false)
         case .pause: player.pause()
-        case .toggle: player.togglePlayPause()
+        case .toggle: player.isPlaying ? player.pause() : player.play(handingOff: false)
         case .next: player.next()
         case .previous: player.previous()
         case .seek:
