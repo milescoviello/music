@@ -53,6 +53,11 @@ final class Handoff {
     /// Play was pressed while a look was under way.
     @ObservationIgnored private var playWhenDone = false
 
+    /// When a paired device last answered: lately, a press of play asks before playing.
+    @ObservationIgnored private var lastAnswerAt: Date?
+    /// How long the follower waits between looks for a device to follow.
+    @ObservationIgnored private var searchWait: TimeInterval = 3
+
     /// The device being followed, by name, while this one is idle.
     private(set) var following: String?
     @ObservationIgnored private var followed: (computer: RemotePlayers.Computer, base: URL)?
@@ -89,15 +94,66 @@ final class Handoff {
         }
         guard let app, app.credentials != nil else { return false }
         let hasPeers = !(players?.paired.isEmpty ?? true)
-        // Without paired devices only the server can say, and it was asked a moment ago.
-        guard hasPeers || serverIsStale(within: 60) else { return false }
-        run(play: true)
-        return true
+        // A paired device heard from lately -- followed, or answering a look -- is asked
+        // first: reachable, it answers in a tenth of a second.
+        if hasPeers, let heard = lastAnswerAt, Date.now.timeIntervalSince(heard) < 120 {
+            run(play: true)
+            return true
+        }
+        // Otherwise this device plays at once, and whether another has newer music is
+        // looked at as it plays. Waiting first on a laptop that was off cost every press a
+        // second, and from the lock screen the music then did not start at all.
+        if hasPeers || serverIsStale(within: 60) {
+            checkAfterPlaying(localSavedAt: app.player.lastSavedAt, list: app.player.queue.listID)
+        }
+        return false
+    }
+
+    /// Play went ahead here without asking: if another device turns out to have been
+    /// playing, or to have newer music, the music moves over to it after all.
+    private func checkAfterPlaying(localSavedAt: Date?, list: UUID) {
+        guard !isMoving, let app, let players else { return }
+        isMoving = true
+        Task {
+            let askServer = serverIsStale(within: 60)
+            async let fromServer = serverQueue(asking: askServer, within: 4)
+            let answers = await askAll(players.paired, players: players)
+            let server = await fromServer
+            if askServer { serverLookedAt = .now }
+            let player = app.player
+            let choice = HandoffChoice.choose(
+                peers: answers.map(\.now),
+                serverSavedAt: server?.changedAt,
+                localSavedAt: localSavedAt
+            )
+            await record("played at once: \(answers.count) of \(players.paired.count) paired answered → \(choice)")
+            isMoving = false
+            // Only over the press it followed: not if something else has been put on since.
+            guard player.queue.listID == list, player.remote == nil, player.video == nil else { return }
+            switch choice {
+            case .takeOver(let id), .continueFrom(let id):
+                guard let answer = answers.first(where: { $0.now.id == id }) else { return }
+                isMoving = true
+                await bring(from: answer, play: true)
+                isMoving = false
+            case .server:
+                guard let server else { return }
+                let index = server.currentID.flatMap { id in server.songs.firstIndex { $0.id == id } } ?? 0
+                taken = nil
+                player.adopt(songs: server.songs, index: index, positionSeconds: server.positionSeconds,
+                             source: "From \(server.deviceName)", uploading: false)
+                player.play(handingOff: false)
+                lastMove = (server.deviceName, .now)
+            case .here:
+                break
+            }
+        }
     }
 
     /// The app came to the front, or the desktop's window was focused. With nothing
     /// playing here, the player catches up with wherever the music is, paused.
     func look() {
+        searchWait = 3
         startFollowing()
         guard !isMoving, let player = app?.player, !player.isPlaying, player.remote == nil,
               player.video == nil, app?.credentials != nil
@@ -107,8 +163,10 @@ final class Handoff {
 
     /// The phone's app coming to the front (true) or going to the background (false).
     func setActive(_ active: Bool) {
+        guard active != isActive || (active && follower == nil) else { return }
         isActive = active
         if active {
+            searchWait = 3
             startFollowing()
         } else {
             stopFollowing()
@@ -127,6 +185,38 @@ final class Handoff {
             }
             isMoving = false
         }
+    }
+
+    /// Every paired device's `/v1/now`, all at once; the ones that answered. Notes who
+    /// went quiet, so the next press does not wait as long on them.
+    private func askAll(_ computers: [RemotePlayers.Computer], players: RemotePlayers) async -> [Answer] {
+        let silent = silentSince
+        let answers: [Answer] = await withTaskGroup(of: Answer?.self) { group in
+            for computer in computers {
+                let recentlySilent = silent[computer.id].map { Date.now.timeIntervalSince($0) < 300 } ?? false
+                group.addTask {
+                    guard let reply = await players.ask(
+                        computer, "v1/now", as: RemoteNow.self, within: recentlySilent ? 0.5 : 1.2
+                    ) else { return nil }
+                    return Answer(computer: computer, now: reply.answer, base: reply.base, roundTrip: reply.roundTrip, at: reply.at)
+                }
+            }
+            var answers: [Answer] = []
+            for await answer in group {
+                if let answer { answers.append(answer) }
+            }
+            return answers
+        }
+        let answered = Set(answers.map(\.computer.id))
+        for computer in computers {
+            if answered.contains(computer.id) {
+                silentSince[computer.id] = nil
+            } else if silentSince[computer.id] == nil {
+                silentSince[computer.id] = .now
+            }
+        }
+        if !answers.isEmpty { lastAnswerAt = .now }
+        return answers
     }
 
     private func serverQueue(asking: Bool, within timeout: TimeInterval) async -> QueueSync.Remote? {
@@ -160,34 +250,11 @@ final class Handoff {
         let askServer = !play || serverIsStale(within: 60)
         async let fromServer = serverQueue(asking: askServer, within: play ? 1.5 : 4)
 
-        let silent = silentSince
-        let answers: [Answer] = await withTaskGroup(of: Answer?.self) { group in
-            for computer in computers {
-                let recentlySilent = silent[computer.id].map { Date.now.timeIntervalSince($0) < 300 } ?? false
-                group.addTask {
-                    guard let reply = await players.ask(
-                        computer, "v1/now", as: RemoteNow.self, within: recentlySilent ? 0.4 : 1.2
-                    ) else { return nil }
-                    return Answer(computer: computer, now: reply.answer, base: reply.base, roundTrip: reply.roundTrip, at: reply.at)
-                }
-            }
-            var answers: [Answer] = []
-            for await answer in group {
-                if let answer { answers.append(answer) }
-            }
-            return answers
-        }
+        let answers = await askAll(computers, players: players)
         let server = await fromServer
         if askServer { serverLookedAt = .now }
 
         let answered = Set(answers.map(\.computer.id))
-        for computer in computers {
-            if answered.contains(computer.id) {
-                silentSince[computer.id] = nil
-            } else if silentSince[computer.id] == nil {
-                silentSince[computer.id] = .now
-            }
-        }
         if !play, answered.count < computers.count { players.lookAround() }
 
         // While this was asking, something may have started here: then it stays.
@@ -311,12 +378,24 @@ final class Handoff {
                 try? await Task.sleep(for: .seconds(wait))
             }
         }
-        // The time, four times a second, as the player's own ticks would move it.
-        ticker = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(250))
-                self?.tick()
+    }
+
+    /// The time, four times a second, as the player's own ticks would move it: only while
+    /// a device being followed is playing. Always on, it woke the app four times a second
+    /// for nothing.
+    private func updateTicker() {
+        let moving = followedState.map { $0.state.isPlaying && !$0.state.isBuffering } ?? false
+        if moving, ticker == nil {
+            ticker = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(250))
+                    self?.tick()
+                }
             }
+        } else if !moving, let running = ticker {
+            running.cancel()
+            ticker = nil
+            tick()
         }
     }
 
@@ -335,6 +414,7 @@ final class Handoff {
         followFailures = 0
         if following != nil { following = nil }
         app?.player.endFollowing()
+        updateTicker()
     }
 
     /// Starts following what `answer` says, its queue already made this device's own.
@@ -344,6 +424,7 @@ final class Handoff {
         followedList = app?.player.queue.listID
         followFailures = 0
         if following != answer.now.name { following = answer.now.name }
+        updateTicker()
     }
 
     /// One look at the followed device, or for one to follow. How long to wait after.
@@ -377,6 +458,7 @@ final class Handoff {
                     }
                     followed = nil
                     if following != nil { following = nil }
+                    updateTicker()
                 }
                 return 1
             }
@@ -386,29 +468,16 @@ final class Handoff {
             return 1
         }
 
-        // Following nothing: is any paired device playing?
+        // Following nothing: is any paired device playing? Every few seconds while one
+        // answers; less and less often, to every fifteen, while none does -- a phone asleep
+        // in a pocket, a laptop shut -- since each look wakes the network for nothing.
         let computers = players.paired
-        guard !computers.isEmpty else { return 5 }
-        let silent = silentSince
-        let answers: [Answer] = await withTaskGroup(of: Answer?.self) { group in
-            for computer in computers {
-                let recentlySilent = silent[computer.id].map { Date.now.timeIntervalSince($0) < 300 } ?? false
-                group.addTask {
-                    guard let reply = await players.ask(
-                        computer, "v1/now", as: RemoteNow.self, within: recentlySilent ? 0.5 : 1.2
-                    ) else { return nil }
-                    return Answer(computer: computer, now: reply.answer, base: reply.base, roundTrip: reply.roundTrip, at: reply.at)
-                }
-            }
-            var answers: [Answer] = []
-            for await answer in group {
-                if let answer { answers.append(answer) }
-            }
-            return answers
-        }
+        guard !computers.isEmpty else { return 15 }
+        let answers = await askAll(computers, players: players)
+        searchWait = answers.isEmpty ? min(searchWait * 2, 15) : 3
         guard canFollow, followed == nil,
               let playing = answers.first(where: { $0.now.state.isPlaying && $0.now.count > 0 })
-        else { return 3 }
+        else { return searchWait }
         await keepUp(with: playing)
         return 1
     }

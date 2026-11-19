@@ -33,7 +33,13 @@ final class PulseOutput: @unchecked Sendable {
     private var sinkIndex: UInt32 = UInt32.max
     private var lastLatency: Double = 0
 
-    static let bufferSeconds = 0.08
+    /// How much is written ahead, and how little the server asks for at a time. 300 ms in
+    /// 100 ms requests: 80 in 20 had the sound server and the app up fifty times a second
+    /// each while playing. A seek, a skip and a pause flush or cork it at the server, so
+    /// none of them waits on it; and asking for less latency lets PipeWire run the whole
+    /// graph in larger, rarer steps when nothing else needs smaller ones.
+    static let bufferSeconds = 0.3
+    static let requestSeconds = 0.1
 
     private init() {
         mainloop = pa_threaded_mainloop_new()
@@ -146,7 +152,7 @@ final class PulseOutput: @unchecked Sendable {
             maxlength: UInt32.max,
             tlength: UInt32(Double(rate) * Self.bufferSeconds) * frameBytes,
             prebuf: UInt32.max,
-            minreq: UInt32(Double(rate) * 0.02) * frameBytes,
+            minreq: UInt32(Double(rate) * Self.requestSeconds) * frameBytes,
             fragsize: UInt32.max
         )
         let flags = pa_stream_flags_t(

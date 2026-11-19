@@ -63,6 +63,7 @@ final class QueuePlayerOutput: AudioOutput {
     /// an `ObjectIdentifier`: the source made to retry it can reuse the old one's address.
     private weak var reportedUnreachable: TrackSource?
     private var ticker: Task<Void, Never>?
+    private var tickerStop: Task<Void, Never>?
 
     /// How far ahead of needing it a track's decoder is started: enough to open a stream
     /// and fill its ring on a slow server, little enough that a long queue is not a pile
@@ -73,11 +74,32 @@ final class QueuePlayerOutput: AudioOutput {
         mixer = Mixer(rate: pulse.rate)
         let mixer = mixer
         pulse.render = { buffer, frames in mixer.render(into: buffer, frames: frames) }
+    }
+
+    /// Four times a second while playing, and for a moment after a pause while a fade
+    /// finishes. It used to run from launch to quit: paused, it woke the app four times a
+    /// second to find nothing had moved.
+    private func startTicking() {
+        tickerStop?.cancel()
+        tickerStop = nil
+        guard ticker == nil else { return }
         ticker = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(250))
                 self?.tick()
             }
+        }
+    }
+
+    private func stopTicking() {
+        tickerStop?.cancel()
+        tickerStop = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard let self, !Task.isCancelled, !self.wantsToPlay else { return }
+            self.tick()
+            self.ticker?.cancel()
+            self.ticker = nil
+            self.tickerStop = nil
         }
     }
 
@@ -296,11 +318,13 @@ final class QueuePlayerOutput: AudioOutput {
         wantsToPlay = true
         startAhead()
         pulse.setPlaying(true)
+        startTicking()
     }
 
     func pause() {
         wantsToPlay = false
         pulse.setPlaying(false)
+        stopTicking()
         // Finishing the fade rather than freezing it: a resume should not bring back a
         // track that was on its way out.
         var released: [TrackSource] = []
@@ -334,6 +358,7 @@ final class QueuePlayerOutput: AudioOutput {
     func stop() {
         wantsToPlay = false
         pulse.setPlaying(false)
+        stopTicking()
         var released: [TrackSource] = []
         pulse.withRenderingHeld(flush: true) {
             withMixer { mixer in

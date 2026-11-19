@@ -248,7 +248,11 @@ final class LyricsPane {
                     let rest = words.dropFirst(count).map(\.text).joined()
                     label.setMarkup("\(Markup.escape(done))<span alpha=\"45%\">\(Markup.escape(rest))</span>")
                 }
-                try? await Task.sleep(for: .milliseconds(60))
+                // Every 60 ms only while the words move and can be seen: it ran so whether
+                // paused or off screen, and woke the app sixteen times a second for nothing.
+                let onScreen = gtk_widget_get_mapped(label.widget) != 0
+                let wait = !onScreen ? 1_000 : pane.env.player.isTimeMoving ? 60 : 300
+                try? await Task.sleep(for: .milliseconds(wait))
             }
         }
     }

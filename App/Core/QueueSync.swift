@@ -107,13 +107,15 @@ final class QueueSync {
         schedule(queue, elapsed: elapsed, as: upload)
     }
 
-    /// While playing, every ten seconds or so: the place, for a device that cannot ask this
-    /// one directly. Every twenty seconds at most, and not for a queue so long that each
-    /// upload is a large request (a smart playlist of the whole library); those go at
-    /// each change of track and each pause, as before.
-    func pushPlace(queue: PlaybackQueue, elapsed: Double) {
-        guard queue.order.count <= 2_000,
-              Date.now.timeIntervalSince(lastPushedAt ?? .distantPast) >= 17
+    /// While playing: the place now and then, for a device that cannot ask this one
+    /// directly. Once a minute, on Wi-Fi only, and not for a queue so long that each upload
+    /// is a large request (a smart playlist of the whole library). Every twenty seconds,
+    /// on cellular too, it woke the phone's radio for each; a paired device asks this one
+    /// for the exact place anyway, and every pause, change of track and trip to the
+    /// background still saves it.
+    func pushPlace(queue: PlaybackQueue, elapsed: Double, network: NetworkKind) {
+        guard network == .wifi, queue.order.count <= 2_000,
+              Date.now.timeIntervalSince(lastPushedAt ?? .distantPast) >= 60
         else { return }
         pushNow(queue: queue, elapsed: elapsed)
     }

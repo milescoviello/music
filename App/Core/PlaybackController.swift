@@ -744,7 +744,12 @@ final class PlaybackController {
     func play(handingOff: Bool = true) {
         if let remote { remote.send(RemoteCommand(.play)); return }
         if let video { video.play(); return }
-        if handingOff, !isPlaying, appState?.handoff?.claimPlay() == true { return }
+        if handingOff, !isPlaying, appState?.handoff?.claimPlay() == true {
+            // The session now, inside the press, not once the handoff knows where the music
+            // is: iOS lets a background app start its audio only while it handles one.
+            session.activate()
+            return
+        }
         guard hasQueue else { return }
         // Video left on from last time: pressing play plays the song's video.
         if appState?.video.takesOverPlay() == true { return }
@@ -864,6 +869,10 @@ final class PlaybackController {
     }
 
     @ObservationIgnored private var isFollowingMove = false
+
+    /// Whether the time shown moves on by itself: playing here, or following another
+    /// device that is. What anything animated with the time should tick for.
+    var isTimeMoving: Bool { (isPlaying && !isBuffering) || showsFollowedPlaying }
     /// The device followed is playing: see `elapsedNow`.
     @ObservationIgnored private var showsFollowedPlaying = false
 
@@ -1803,7 +1812,9 @@ final class PlaybackController {
         lastSavedAt = snapshot.savedAt
         Task { [store] in await store.save(snapshot) }
         // And on the server now and then, for a device that cannot ask this one.
-        if videoSong == nil { appState?.queueSync.pushPlace(queue: queue, elapsed: elapsed) }
+        if videoSong == nil, let appState {
+            appState.queueSync.pushPlace(queue: queue, elapsed: elapsed, network: appState.reachability.network)
+        }
     }
 
     func persistNow(uploading: Bool = true) {

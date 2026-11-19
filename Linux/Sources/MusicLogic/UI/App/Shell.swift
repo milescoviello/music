@@ -78,6 +78,16 @@ final class Shell {
             guard active else { return }
             reference.value?.becameActive()
         })
+        // Following the phone (`Handoff`) only while the window can be seen: shown, and
+        // neither minimized nor covered over -- what the compositor calls suspended.
+        window.onMap {
+            guard let shell = reference.value else { return }
+            shell.updateFollowing()
+            guard let surface = gtk_native_get_surface(OpaquePointer(window.widget)) else { return }
+            // A notify signal's handler takes the property too: the `pointer:` form.
+            Signal.connect(surface, "notify::state", pointer: { _ in reference.value?.updateFollowing() })
+        }
+        window.onUnmap { reference.value?.app.handoff?.setActive(false) }
         Signal.connectHandled(window.widget, "close-request") {
             guard let shell = reference.value else { return false }
             shell.saveSize()
@@ -394,6 +404,16 @@ final class Shell {
     }
 
     // MARK: - Lifecycle
+
+    private func updateFollowing() {
+        var seen = gtk_widget_get_mapped(window.widget) != 0
+        if seen, let surface = gtk_native_get_surface(OpaquePointer(window.widget)) {
+            let state = gdk_toplevel_get_state(surface).rawValue
+            let hidden = GDK_TOPLEVEL_STATE_MINIMIZED.rawValue | GDK_TOPLEVEL_STATE_SUSPENDED.rawValue
+            seen = state & hidden == 0
+        }
+        app.handoff?.setActive(seen)
+    }
 
     /// The phone's return to the foreground: the most likely moment to have a network
     /// again, and for another device to have moved the queue on.

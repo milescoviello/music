@@ -186,6 +186,12 @@ final class RemoteControlServer {
         self.server = server
         port = server.port
         advertise()
+    }
+
+    /// The keep-alive, only while some device follows along: with nobody listening it woke
+    /// the app every fifteen seconds to say nothing to no one.
+    private func startPinging() {
+        guard pinger == nil else { return }
         pinger = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(RemoteControl.pingInterval))
@@ -200,6 +206,7 @@ final class RemoteControlServer {
         port = nil
         advertiser?.withdraw()
         pinger?.cancel()
+        pinger = nil
         for connection in streams.values { connection.close() }
         streams = [:]
         listenerCount = 0
@@ -512,6 +519,7 @@ final class RemoteControlServer {
         }
         streams[key] = connection
         listenerCount = streams.count
+        startPinging()
         connection.startEvents()
         connection.send(EventStream.frame("hello", json(RemoteHello(
             id: id, name: name, server: app?.credentials?.baseURL.absoluteString
@@ -530,7 +538,11 @@ final class RemoteControlServer {
     private func drop(_ key: ObjectIdentifier) {
         streams[key] = nil
         listenerCount = streams.count
-        if streams.isEmpty { stopFollowing() }
+        if streams.isEmpty {
+            stopFollowing()
+            pinger?.cancel()
+            pinger = nil
+        }
     }
 
     private func stopFollowing() {

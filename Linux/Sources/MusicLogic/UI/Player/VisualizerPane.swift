@@ -41,7 +41,9 @@ final class VisualizerPane {
     private let name = Label("", "visualizer-name")
     private let nameRevealer: Revealer
     private var nameGeneration = 0
-    private var tickID: guint = 0
+    /// Steps the display about sixty times a second, while it is on screen and animating.
+    private var animator: Task<Void, Never>?
+    private var isOnScreen = false
     private var lastFrame: gint64 = 0
     private var pending: Double = 0
     private var lastSwitch: gint64 = 0
@@ -85,15 +87,15 @@ final class VisualizerPane {
 
         // Animated only while on screen: an FFT nobody is looking at is pure battery.
         root.onMap {
-            guard let pane = reference.value, pane.tickID == 0 else { return }
+            guard let pane = reference.value else { return }
             app.player.startSpectrum()
-            pane.lastFrame = 0
-            pane.tickID = tick(pane.root) { reference.value?.step() ?? false }
+            pane.isOnScreen = true
+            pane.updateAnimation()
         }
         root.onUnmap {
-            guard let pane = reference.value, pane.tickID != 0 else { return }
-            gtk_widget_remove_tick_callback(pane.root.widget, pane.tickID)
-            pane.tickID = 0
+            guard let pane = reference.value else { return }
+            pane.isOnScreen = false
+            pane.updateAnimation()
         }
 
         root.observe { artwork.show(app.player.currentSong?.coverArt, fallback: app.player.currentSong?.album) }
@@ -107,6 +109,7 @@ final class VisualizerPane {
             pane.shownProgram = program.name
             let idle = !app.player.isPlaying && !program.displayWhenIdle
             pane.stack.visibleName = idle ? "artwork" : (pane.spectrum == nil ? "canvas" : "spectrum")
+            pane.updateAnimation()
         }
         // Plexamp sends the palette when the visualiser appears and on every track change
         // after, which is what fades it from one cover's colours to the next.
@@ -123,6 +126,26 @@ final class VisualizerPane {
         root.observe {
             guard let id = app.player.currentSong?.id, let levels = app.seekbarLevels.levels(for: id) else { return }
             reference.value?.feed.setLoudness(VisualizerLoudness.texels(from: levels))
+        }
+    }
+
+    /// Sixty steps a second by a timer, and only while there is something moving to see.
+    /// It was GTK's frame callback, which runs at the display's rate -- 240 times a second
+    /// on a 240 Hz panel, for 60 steps -- and on through a pause with only the cover shown.
+    private func updateAnimation() {
+        let wanted = isOnScreen && stack.visibleName != "artwork"
+        if wanted, animator == nil {
+            lastFrame = 0
+            animator = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(16))
+                    guard let self else { return }
+                    _ = self.step()
+                }
+            }
+        } else if !wanted, let running = animator {
+            running.cancel()
+            animator = nil
         }
     }
 

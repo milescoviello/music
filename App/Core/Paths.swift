@@ -17,9 +17,22 @@ enum Paths {
     #endif
 
     static let root: URL = {
+        // `swift test` on its own: a folder of its own, not the app's. The tests on the
+        // desktop wrote their made-up errors into the real app's log ("sonic levels for a").
+        if isPackageTest {
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("MusicLogicTests-\(ProcessInfo.processInfo.processIdentifier)", isDirectory: true)
+        }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return base.appendingPathComponent(folder, isDirectory: true)
     }()
+
+    /// Running as `swift test` runs the logic tests: an `.xctest` bundle, or the helper
+    /// that runs swift-testing's.
+    private static var isPackageTest: Bool {
+        let name = ProcessInfo.processInfo.processName
+        return name.hasSuffix(".xctest") || name.contains("PackageTests") || name == "swiftpm-testing-helper"
+    }
 
     /// Completed, playable audio. Flat rather than per-album: song ids are unique,
     /// album membership lives in the catalog, and eviction becomes one listing.

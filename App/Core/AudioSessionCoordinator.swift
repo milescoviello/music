@@ -51,10 +51,18 @@ final class AudioSessionCoordinator {
 
     /// Activated lazily on the first play. Activating a `.playback` session at
     /// launch silently stops whatever the user was already listening to.
+    /// A refusal is said and not taken for success: marked active after one, every later
+    /// press of play skipped the session and played to nothing. iOS refuses a background
+    /// app that starts its audio after the moment a lock-screen or headphone press gave it.
     func activate() {
         guard !isActivated else { return }
-        try? AVAudioSession.sharedInstance().setActive(true)
-        isActivated = true
+        do {
+            try AVAudioSession.sharedInstance().setActive(true)
+            isActivated = true
+        } catch {
+            let line = "could not start the audio session: \(error.localizedDescription)"
+            Task { await Diagnostics.shared.record("audio", line) }
+        }
     }
 
     /// Holding an active session with nothing playing invites termination.

@@ -60,6 +60,11 @@ final class WindowBackdrop {
             reference.value?.isMapped = false
             reference.value?.update()
         }
+        // Playing or not decides whether it drifts.
+        root.observe {
+            _ = app.player.isPlaying
+            reference.value?.update()
+        }
         draw()
     }
 
@@ -88,8 +93,11 @@ final class WindowBackdrop {
         }
     }
 
+    /// Drifting only while music plays, the window is the one in use, and the machine is
+    /// on mains power: each step repaints the whole window, which on battery is not worth
+    /// a blend nobody would miss standing still.
     private func update() {
-        if Self.drifts, isMapped, isActive { start() } else { stop() }
+        if Self.drifts, isMapped, isActive, app.player.isPlaying, !Self.onBattery() { start() } else { stop() }
     }
 
     private func start() {
@@ -98,10 +106,31 @@ final class WindowBackdrop {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 guard let self else { return }
+                // Unplugged since: still, until the next change looks again.
+                if Self.onBattery() {
+                    stop()
+                    return
+                }
                 time += 1
                 draw()
             }
         }
+    }
+
+    /// Whether the machine runs on its battery: a mains supply that says it is offline. A
+    /// desktop has no mains entry in sysfs, and so is never on battery.
+    private static func onBattery() -> Bool {
+        let root = URL(fileURLWithPath: "/sys/class/power_supply")
+        guard let supplies = try? FileManager.default.contentsOfDirectory(atPath: root.path) else { return false }
+        for supply in supplies {
+            let folder = root.appendingPathComponent(supply)
+            guard let type = try? String(contentsOf: folder.appendingPathComponent("type"), encoding: .utf8),
+                  type.trimmingCharacters(in: .whitespacesAndNewlines) == "Mains",
+                  let online = try? String(contentsOf: folder.appendingPathComponent("online"), encoding: .utf8)
+            else { continue }
+            return online.trimmingCharacters(in: .whitespacesAndNewlines) == "0"
+        }
+        return false
     }
 
     private func stop() {
