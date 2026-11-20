@@ -73,6 +73,14 @@ class Matching(unittest.TestCase):
         self.assertFalse(same_title("GLASS HARBOUR (Live)", "Glass Harbour"))
         self.assertTrue(same_title("Slow Comet (Sunfold Remix)", "Slow Comet (Sunfold remix)"))
 
+    def test_a_title_in_another_script_by_its_romanization(self):
+        self.assertTrue(same_title("ひかりの港 (hikari no minato)", "Hikari no Minato"))
+        self.assertTrue(same_title("ひかりの港 (Hikari no Minato)", "ひかりの港"))
+        self.assertTrue(same_title("Песня ветра (Pesnya vetra)", "Pesnya Vetra"))
+        self.assertFalse(same_title("ひかりの港 (hikari no minato)", "Hikari"))
+        self.assertFalse(same_title("ひかりの港 (hikari no minato) (Instrumental)", "Hikari no Minato"))
+        self.assertFalse(same_title("Glass Harbour (Pier Song)", "Pier Song"))
+
     def test_artists_by_any_of_their_names(self):
         self.assertTrue(same_artist("ЗВЁЗДНЫЙ САД (ZVYOZDNY SAD)", "Звёздный сад"))
         self.assertTrue(same_artist("Ada Marsh", "Ada Marsh & Ben Tully"))

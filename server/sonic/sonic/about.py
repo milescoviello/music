@@ -70,12 +70,24 @@ def _names(artist: str) -> list[str]:
 OTHER_TAKE = re.compile(r"\b(live|remix|demo|acoustic|instrumental|cover|karaoke|sped up|slowed)\b", re.I)
 
 
+# "ひとりぼっち東京 (Hitoribocchi Tokyo)": Genius names a song in another script with its romanization after it.
+ROMANIZED = re.compile(r"^\s*(.*?[^\x00-\x7f].*?)\s*[(（]\s*([\x00-\x7f]+?)\s*[)）]\s*$")
+
+
 def same_title(theirs: str | None, ours: str) -> bool:
     # "Glass Harbour - Live in Leeds" is another recording's page, not the album track "Glass Harbour".
     take = OTHER_TAKE.search(theirs or "")
     if take and not re.search(rf"\b{re.escape(take.group(1))}\b", ours, re.I):
         return False
-    a, b = plain(lrclib.clean(theirs or "")), plain(lrclib.clean(ours))
+    # A song tagged by its romanization ("Hitoribocchi Tokyo"), or in its own script, is that page.
+    romanized = ROMANIZED.match(theirs or "")
+    if romanized and (_alike(romanized[2], ours) or _alike(romanized[1], ours)):
+        return True
+    return _alike(theirs or "", ours)
+
+
+def _alike(theirs: str, ours: str) -> bool:
+    a, b = plain(lrclib.clean(theirs)), plain(lrclib.clean(ours))
     if not a or not b:
         return False
     if a == b:
