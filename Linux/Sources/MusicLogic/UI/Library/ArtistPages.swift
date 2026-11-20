@@ -281,7 +281,7 @@ enum ArtistPage {
                 shelves.append(Shelf.make("Similar Artists", cards: similar.map { Cards.artist(env, $0, side: 96) }))
             }
             // Who the artist is; else the server agents' biography, when they have one.
-            if let about, let group = RecordAboutPage.group(about, kind: .artist, title: artist.name) {
+            if let about, let group = RecordAboutPage.group(app, about, kind: .artist, title: artist.name) {
                 shelves.append(group)
             } else if let biography = info?.plainBiography {
                 shelves.append(PreferencesGroup("About") { Label(biography, "dim").wrap().selectable().margin(12) })

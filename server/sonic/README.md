@@ -34,6 +34,7 @@ runtime.
 | `/v1/tracks/{id}/about?refresh=1` | `{id, title, artist, album, summary{text, basis}, released, writers[], sections[{source, heading, text, url}], notes[{fragment, text, url, reviewed}], links[], unavailable?}` — the About sheet: Genius's About and the song's Wikipedia sections quoted, Genius's notes on lines, and the summary in `data/song-about-summaries/{id}.json`; looked up on first ask, kept in `data/song-about.db` (`about.py`) |
 | `/v1/albums/{id}/about?refresh=1` | `{id, kind, title, artist, summary{text, basis}, released, sections[{source, heading, text, url}], links[], unavailable?}` — the album page's About: its Genius write-up and Wikipedia sections quoted, and the summary in `data/album-about-summaries/{id}.json` (`basis` "songs" when nothing is written about the album); kept in `data/record-about.db` (`record_about.py`). `name`/`artist` name an album newer than the last library pass |
 | `/v1/artists/{id}/about?refresh=1` | the same for an artist page: Genius, the Wikipedia article's story and style sections (the name's own language's when English has none), and `data/artist-about-summaries/{id}.json` |
+| `/v1/about/flags` | `{items[{kind, id, title, artist, note, at}]}` — the About summaries flagged in the apps as needing a fix and not written again since, oldest first (`flags.py`). Each About answer above carries `flagged{at, note}` while its flag is open |
 | `/v1/tracks/{id}/similar?limit=&exclude_artist=&max_distance=` | nearest tracks |
 | `/v1/tracks/{id}/distant?limit=` | related but not close, unplayed first |
 | `/v1/tracks/{id}/tags` | the strongest of the 50 tags |
@@ -130,6 +131,10 @@ and padded out looks like, which no decoder reports. Run at night at the lowest 
 |---|---|
 | `GET /v1/library/duplicates` | albums in both libraries, copies weakest first: `{items: [{name, artist, alike, copies: [{albumId, library, format, tracks, plays, size, folder, …}]}]}` (`duplicates.py`). Read-only. |
 | `GET /v1/shows` | concerts coming up near `SONIC_SHOWS_PLACE` (default Oakland) within `SONIC_SHOWS_RADIUS` miles by the radar's artists, from Ticketmaster's Discovery API, kept a day (`shows.py`). 404 without `SONIC_TICKETMASTER_KEY`, which goes in `.env` beside `compose.yaml`, never in git. |
+
+`POST /v1/about/flag` `{kind: "song"|"album"|"artist", id, note?, title?, artist?, clear?}` is the apps'
+"Flag for a fix" on an About summary, kept in `data/about-flags.json`; `clear` takes it back. A flag closes by
+itself once the summary's file is written again after it. Answers `{flagged}`.
 
 `POST /v1/logs` takes the plain-text report from the app's Diagnostics → Send Logs and
 keeps it as `data/logs/<UTC time>-<source>-<random>.txt`, where `source` is the app's

@@ -45,6 +45,25 @@ struct SongAbout: Decodable, Equatable, Sendable {
         var id: String { name }
     }
 
+    /// "Flag for a fix", sent from an app and still open: the summary hasn't been written again since.
+    struct Flag: Decodable, Equatable, Sendable {
+        var at: Double?
+        var note: String
+
+        init(at: Double?, note: String) {
+            self.at = at
+            self.note = note
+        }
+
+        private enum CodingKeys: String, CodingKey { case at, note }
+
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            at = try c.decodeIfPresent(Double.self, forKey: .at)
+            note = try c.decodeIfPresent(String.self, forKey: .note) ?? ""
+        }
+    }
+
     var id: String
     var title: String?
     var artist: String?
@@ -57,6 +76,8 @@ struct SongAbout: Decodable, Equatable, Sendable {
     var links: [Link]
     /// Genius and Wikipedia could not be reached when the service looked; it tries again within the hour.
     var unavailable: Bool
+    /// Flagged in an app as needing a fix, and not written again since (`flags.py`).
+    var flagged: Flag?
 
     var isEmpty: Bool { summary == nil && sections.isEmpty && notes.isEmpty }
 
@@ -69,7 +90,7 @@ struct SongAbout: Decodable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, artist, album, summary, released, writers, sections, notes, links, unavailable
+        case id, title, artist, album, summary, released, writers, sections, notes, links, unavailable, flagged
     }
 
     init(from decoder: any Decoder) throws {
@@ -85,6 +106,7 @@ struct SongAbout: Decodable, Equatable, Sendable {
         notes = try c.decodeIfPresent([Note].self, forKey: .notes) ?? []
         links = try c.decodeIfPresent([Link].self, forKey: .links) ?? []
         unavailable = try c.decodeIfPresent(Bool.self, forKey: .unavailable) ?? false
+        flagged = try? c.decodeIfPresent(Flag.self, forKey: .flagged)
     }
 }
 
@@ -92,6 +114,15 @@ struct SongAbout: Decodable, Equatable, Sendable {
 
 enum RecordKind: String, Sendable {
     case album, artist
+}
+
+/// What an About answer is about, as the service's flags name it.
+enum AboutKind: String, Sendable {
+    case song, album, artist
+}
+
+extension RecordKind {
+    var aboutKind: AboutKind { self == .album ? .album : .artist }
 }
 
 extension SongAbout {

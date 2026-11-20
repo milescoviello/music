@@ -19,18 +19,22 @@ enum SongAboutPage {
                 return StatusPage(icon: "dialog-question-symbolic", title: "The server doesn't know this song",
                                   description: "Songs on this computer alone have no background yet.")
             case .about(let about) where about.isEmpty:
-                return about.unavailable
-                    ? StatusPage(icon: "network-offline-symbolic", title: "Couldn't reach Genius or Wikipedia",
-                                 description: "The server tries again within the hour.")
-                    : StatusPage(icon: "system-search-symbolic", title: "Nothing written about this song yet",
-                                 description: "Neither Genius nor Wikipedia has a page for it.")
+                if about.unavailable {
+                    return StatusPage(icon: "network-offline-symbolic", title: "Couldn't reach Genius or Wikipedia",
+                                      description: "The server tries again within the hour.")
+                }
+                return Box.vertical(spacing: 12) {
+                    StatusPage(icon: "system-search-symbolic", title: "Nothing written about this song yet",
+                               description: "Neither Genius nor Wikipedia has a page for it.").vexpand()
+                    flagRow(app, about, kind: .song, title: song.title, artist: song.artist).margin(18)
+                }
             case .about(let about):
-                return ScrolledWindow(Clamp(page(song, about), maximum: 600)).vexpand()
+                return ScrolledWindow(Clamp(page(app, song, about), maximum: 600)).vexpand()
             }
         }
     }
 
-    private static func page(_ song: Song, _ about: SongAbout) -> Widget {
+    private static func page(_ app: AppState, _ song: Song, _ about: SongAbout) -> Widget {
         let box = Box.vertical(spacing: 22).margin(18)
         let byline = [song.artist, song.album].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         box.append(Box.vertical(spacing: 4) {
@@ -66,6 +70,7 @@ enum SongAboutPage {
         if let links = links(about.links) {
             box.append(links)
         }
+        box.append(flagRow(app, about, kind: .song, title: song.title, artist: song.artist))
         return box
     }
 
@@ -106,6 +111,55 @@ enum SongAboutPage {
             })
         }
         return row
+    }
+
+    /// "Flag for a fix", as the phone's `AboutFlagButton`: tells Claude a summary is wrong or weak, with what's
+    /// wrong if you say. Shown as flagged, with Unflag, until the summary is written again (`flags.py`).
+    static func flagRow(_ app: AppState, _ about: SongAbout, kind: AboutKind, title: String, artist: String?) -> Box {
+        let failed = Label("Couldn't reach the music server. Try again.", "caption", "error").wrap()
+        failed.isVisible = false
+        func send(note: String, clear: Bool) {
+            failed.isVisible = false
+            Task { @MainActor in
+                let sent = await app.sonic.flagAbout(about, kind: kind, title: title, artist: artist, note: note,
+                                                     clear: clear)
+                failed.isVisible = !sent
+            }
+        }
+        func ask() {
+            let entry = Entry(placeholder: "What's wrong? (optional)")
+            gtk_entry_set_activates_default(entry.widget.cast(), 1)
+            Dialogs.alert("Flag for a fix", body: "Claude rewrites flagged summaries from their sources.",
+                          responses: [("cancel", "Cancel", ADW_RESPONSE_DEFAULT), ("flag", "Flag", ADW_RESPONSE_SUGGESTED)],
+                          defaultResponse: "flag", extra: entry) { response in
+                guard response == "flag" else { return }
+                send(note: entry.text, clear: false)
+            }
+            entry.grabFocus()
+        }
+        let content = Box.vertical(spacing: 6)
+        content.observe {
+            let flag = app.sonic.flag(on: about, kind: kind)
+            content.set {
+                if let flag {
+                    Box.horizontal(spacing: 12) {
+                        Label("Flagged for a fix", "warning")
+                        Button("Unflag", "flat") { send(note: "", clear: true) }
+                    }
+                    if !flag.note.isEmpty {
+                        Label("\u{201C}\(flag.note)\u{201D}", "caption", "dim").wrap().halign(GTK_ALIGN_START)
+                    }
+                } else {
+                    Button("Flag for a fix", "flat") { ask() }.halign(GTK_ALIGN_START)
+                    Label("Wrong, thin or off? Flag it and Claude rewrites it from its sources.", "caption", "dim")
+                        .wrap().halign(GTK_ALIGN_START)
+                }
+            }
+        }
+        return Box.vertical(spacing: 6) {
+            content
+            failed
+        }
     }
 
     static func heading(_ title: String) -> Label {

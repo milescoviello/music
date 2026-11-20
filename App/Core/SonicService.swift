@@ -101,6 +101,33 @@ final class SonicService {
         }
     }
 
+    // MARK: - Flags on About summaries
+
+    /// Flags sent or taken back here since the answers were fetched, by "kind/id": `.some(nil)` is taken back. So
+    /// a page and its Sources sheet agree before either asks again.
+    private(set) var sentFlags: [String: SongAbout.Flag?] = [:]
+
+    /// The flag on an About answer as it stands: one just sent or taken back here, else what the answer said.
+    func flag(on about: SongAbout, kind: AboutKind) -> SongAbout.Flag? {
+        if let sent = sentFlags["\(kind.rawValue)/\(about.id)"] { return sent }
+        return about.flagged
+    }
+
+    /// "Flag for a fix" (`note` may be empty), or taken back with `clear`. False when the service didn't take it.
+    func flagAbout(_ about: SongAbout, kind: AboutKind, title: String, artist: String?, note: String = "",
+                   clear: Bool = false) async -> Bool {
+        let note = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            try await client.flagAbout(kind: kind, id: about.id, note: note.isEmpty ? nil : note, title: title,
+                                       artist: artist, clear: clear)
+        } catch {
+            return false
+        }
+        sentFlags["\(kind.rawValue)/\(about.id)"] = .some(clear ? nil : SongAbout.Flag(at: Date.now.timeIntervalSince1970,
+                                                                                         note: note))
+        return true
+    }
+
     // MARK: - Tracks
 
     /// Plexamp's Sonically Similar tracks.

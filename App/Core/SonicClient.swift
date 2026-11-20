@@ -457,6 +457,25 @@ struct SonicClient: Sendable {
         return try await getIfPresent("v1/artists/\(artistID)/about", query, as: SongAbout.self, timeout: 30)
     }
 
+    private struct AboutFlag: Encodable {
+        var kind: String
+        var id: String
+        var note: String?
+        var title: String?
+        var artist: String?
+        var clear: Bool?
+    }
+
+    /// "Flag for a fix" on an About summary, with what is wrong when it says; `clear` takes the flag back. The
+    /// service keeps it until the summary is written again (`flags.py`).
+    func flagAbout(kind: AboutKind, id: String, note: String?, title: String?, artist: String?,
+                   clear: Bool = false) async throws {
+        let body = AboutFlag(kind: kind.rawValue, id: id, note: note, title: title, artist: artist,
+                             clear: clear ? true : nil)
+        let (_, status) = try await post("v1/about/flag", body)
+        guard status == 200 else { throw SonicError.status(status) }
+    }
+
     // MARK: - Lyrics for a song with none
 
     private struct LyricsFind: Encodable {

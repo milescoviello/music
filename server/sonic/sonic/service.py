@@ -22,6 +22,7 @@ from .config import ANALYSIS_VERSION, MODEL_NAME, MODEL_URL, Config
 from .index import Index, bucket_levels, stored_levels
 from .lyrics import LyricIndex
 from .about import SongAbout
+from .flags import AboutFlags
 from .record_about import RecordAbout
 from .words import Readings, Translations
 from .radar import Radar
@@ -45,6 +46,7 @@ class Service:
         self.word_timings = WordTimings(config.data_dir / "word-timings.db")
         self.song_about = SongAbout(config.data_dir)
         self.record_about = RecordAbout(config.data_dir)
+        self.about_flags = AboutFlags(config.data_dir)
         # The library's songs at the last pass, for what a song is without a copy of the
         # database: title, artist, album, length.
         self.songs: dict = {}
@@ -192,7 +194,8 @@ class Service:
             language = json.loads((self.translations.songs / f"{track_id}.json").read_text()).get("language")
         except (OSError, ValueError, AttributeError):
             pass
-        return self.song_about.answer(track_id, song.title, song.artist, song.album, language, refresh)
+        return self._flagged("song", self.song_about.answer(track_id, song.title, song.artist, song.album, language,
+                                                              refresh))
 
     def album_about(self, album_id: str, refresh: bool = False, name: str = "", artist: str = "") -> dict | None:
         """What the album is about (`record_about`): its Genius and Wikipedia background and the summary written
@@ -203,7 +206,7 @@ class Service:
             artist = Counter(t.album_artist or t.artist for t in tracks).most_common(1)[0][0]
         if not name.strip():
             return None
-        return self.record_about.answer("album", album_id, name, artist, refresh)
+        return self._flagged("album", self.record_about.answer("album", album_id, name, artist, refresh))
 
     def artist_about(self, artist_id: str, refresh: bool = False, name: str = "") -> dict | None:
         """Who the artist is (`record_about`), as `album_about`. An album artist's id, or a track artist's."""
@@ -218,7 +221,15 @@ class Service:
         theirs = sorted((t for t in self.songs.values() if artist_id in (t.artist_id, t.track_artist_id)),
                         key=lambda t: -t.plays)
         titles = tuple(dict.fromkeys(t.title for t in theirs if t.title))[:3]
-        return self.record_about.answer("artist", artist_id, name, refresh=refresh, titles=titles)
+        return self._flagged("artist", self.record_about.answer("artist", artist_id, name, refresh=refresh,
+                                                                titles=titles))
+
+    def _flagged(self, kind: str, answer: dict) -> dict:
+        """An About answer with its open flag (`flags`), so the app shows it as flagged."""
+        flag = self.about_flags.state(kind, answer["id"])
+        if flag:
+            answer["flagged"] = flag
+        return answer
 
     def _index_lyrics(self, track_id: str, song, text: str) -> None:
         """Lyrics just written, into the search at once rather than at the next pass."""

@@ -81,4 +81,19 @@ struct SongAboutTests {
         #expect(SonicClient(configuration: .default).url("v1/tracks/abc/about", ["refresh": "1"])?.absoluteString
             == "http://192.168.1.148:8650/v1/tracks/abc/about?refresh=1")
     }
+
+    @Test func aFlagFromAnAppDecodes() throws {
+        let flagged = try JSONDecoder().decode(SongAbout.self, from: Data(#"""
+        {"id":"s","summary":{"text":"About the coast.","basis":"sources"},"flagged":{"at":1795000000.5,"note":"wrong band"}}
+        """#.utf8))
+        #expect(flagged.flagged == SongAbout.Flag(at: 1_795_000_000.5, note: "wrong band"))
+
+        let noNote = try JSONDecoder().decode(SongAbout.self, from: Data(#"{"id":"s","flagged":{"at":1}}"#.utf8))
+        #expect(noNote.flagged?.note == "")
+
+        let none = try JSONDecoder().decode(SongAbout.self, from: Data(#"{"id":"s"}"#.utf8))
+        #expect(none.flagged == nil)
+        #expect(RecordKind.album.aboutKind == .album)
+        #expect(RecordKind.artist.aboutKind == .artist)
+    }
 }

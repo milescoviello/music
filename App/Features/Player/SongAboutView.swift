@@ -93,6 +93,8 @@ struct SongAboutView: View {
         }
 
         AboutLinks(links: about.links)
+
+        AboutFlagButton(about: about, kind: .song, title: song.title, artist: song.artist)
     }
 
     @ViewBuilder
@@ -111,8 +113,13 @@ struct SongAboutView: View {
                 ContentUnavailableView("Couldn't reach Genius or Wikipedia", systemImage: "network.slash",
                                        description: Text("The server tries again within the hour."))
             } else {
-                ContentUnavailableView("Nothing written about this song yet", systemImage: "text.magnifyingglass",
-                                       description: Text("Neither Genius nor Wikipedia has a page for it."))
+                ContentUnavailableView {
+                    Label("Nothing written about this song yet", systemImage: "text.magnifyingglass")
+                } description: {
+                    Text("Neither Genius nor Wikipedia has a page for it.")
+                } actions: {
+                    AboutFlagButton(about: about, kind: .song, title: song.title, artist: song.artist)
+                }
             }
         default:
             EmptyView()

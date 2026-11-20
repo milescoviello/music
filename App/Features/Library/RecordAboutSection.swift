@@ -27,6 +27,7 @@ struct RecordAboutSection: View {
                     if about.hasSources {
                         Button("Sources") { showsSources = true }
                     }
+                    AboutFlagButton(about: about, kind: kind.aboutKind, title: title, artist: byline, compact: true)
                 }
                 .font(.subheadline.weight(.medium))
                 .buttonStyle(.borderless)
@@ -75,6 +76,7 @@ struct RecordAboutSheet: View {
                     }
                     AboutBackground(sections: about.sections)
                     AboutLinks(links: about.links)
+                    AboutFlagButton(about: about, kind: kind.aboutKind, title: title, artist: byline)
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
@@ -159,6 +161,93 @@ struct AboutLinks: View {
                 }
                 .font(.subheadline)
             }
+        }
+    }
+}
+
+/// "Flag for a fix": tells Claude a summary is wrong or weak, with what's wrong if you say. The server keeps the
+/// flag until the summary is written again (`flags.py`); until then it shows here as flagged, and can be taken back.
+/// `compact`: a "Flag" button for an album or artist page's About row; else a row of its own at the foot of a sheet.
+struct AboutFlagButton: View {
+    @Environment(AppState.self) private var appState
+
+    let about: SongAbout
+    let kind: AboutKind
+    let title: String
+    var artist: String?
+    var compact = false
+
+    @State private var asksNote = false
+    @State private var asksUnflag = false
+    @State private var note = ""
+    @State private var sending = false
+    @State private var failed = false
+
+    private var flag: SongAbout.Flag? { appState.sonic.flag(on: about, kind: kind) }
+
+    var body: some View {
+        Group {
+            if compact {
+                Button {
+                    if flag == nil { asksNote = true } else { asksUnflag = true }
+                } label: {
+                    Label(flag == nil ? "Flag" : "Flagged", systemImage: flag == nil ? "flag" : "flag.fill")
+                }
+                .tint(flag == nil ? nil : .orange)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let flag {
+                        HStack(spacing: 14) {
+                            Label("Flagged for a fix", systemImage: "flag.fill")
+                                .foregroundStyle(.orange)
+                            Button("Unflag") { asksUnflag = true }
+                        }
+                        if !flag.note.isEmpty {
+                            Text("\u{201C}\(flag.note)\u{201D}")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Button { asksNote = true } label: {
+                            Label("Flag for a fix", systemImage: "flag")
+                        }
+                        Text("Wrong, thin or off? Flag it and Claude rewrites it from its sources.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    if failed {
+                        Text("Couldn't reach the music server. Try again.")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                }
+                .font(.subheadline)
+            }
+        }
+        .disabled(sending)
+        .alert("Flag for a fix", isPresented: $asksNote) {
+            TextField("What's wrong? (optional)", text: $note)
+            Button("Flag") { send(clear: false) }
+            Button("Cancel", role: .cancel) { note = "" }
+        } message: {
+            Text("Claude rewrites flagged summaries from their sources.")
+        }
+        .alert("Take the flag back?", isPresented: $asksUnflag) {
+            Button("Unflag") { send(clear: true) }
+            Button("Keep", role: .cancel) {}
+        }
+    }
+
+    private func send(clear: Bool) {
+        sending = true
+        failed = false
+        let note = clear ? "" : note
+        Task {
+            let sent = await appState.sonic.flagAbout(about, kind: kind, title: title, artist: artist, note: note,
+                                                      clear: clear)
+            sending = false
+            failed = !sent
+            if sent { self.note = "" }
         }
     }
 }

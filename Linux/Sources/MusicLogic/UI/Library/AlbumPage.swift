@@ -220,7 +220,7 @@ enum AlbumPage {
                 similarPanel.isVisible = true
             }
             // What the album is about; else the server agents' review, when they have one.
-            if let about, let group = RecordAboutPage.group(about, kind: .album, title: album.name, byline: artist) {
+            if let about, let group = RecordAboutPage.group(app, about, kind: .album, title: album.name, byline: artist) {
                 extras.append(group)
             } else if let review {
                 extras.append(PreferencesGroup("About This Album") {

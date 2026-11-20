@@ -118,6 +118,7 @@ def make_handler(service):
                                                _int(q, "limit", 5000, 1, 5000))),
         (re.compile(r"^/v1/history/links$"),
          lambda match, q: {"links": history_links(service.config.data_dir / "history-links.json")}),
+        (re.compile(r"^/v1/about/flags$"), lambda match, q: {"items": service.about_flags.open_flags()}),
         (re.compile(r"^/healthz$"), lambda match, q: {"ok": True}),
     ]
 
@@ -302,6 +303,8 @@ def make_handler(service):
                 return self._save_lyrics()
             if path == "/v1/lyrics/find":
                 return self._find_lyrics()
+            if path == "/v1/about/flag":
+                return self._flag_about()
             if path != "/v1/logs":
                 return self._send(404, {"error": "no such endpoint"})
             try:
@@ -397,6 +400,16 @@ def make_handler(service):
             except Exception as error:  # noqa: BLE001
                 log.exception("could not find lyrics")
                 return self._send(500, {"error": f"Couldn't find lyrics: {error}"})
+
+        def _flag_about(self):
+            """`{"kind": "song"|"album"|"artist", "id", "note"?, "title"?, "artist"?, "clear"?}`: see `flags`."""
+            try:
+                return self._send(200, service.about_flags.flag(self._body(8 * 1024)))
+            except ValueError as error:
+                return self._send(400, {"error": str(error)})
+            except OSError as error:
+                log.exception("could not keep the flag")
+                return self._send(500, {"error": str(error)})
 
         def _send(self, status: int, body: dict):
             try:

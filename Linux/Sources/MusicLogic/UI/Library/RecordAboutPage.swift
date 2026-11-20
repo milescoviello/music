@@ -7,21 +7,23 @@ import Foundation
 @MainActor
 enum RecordAboutPage {
     /// Nil when there is nothing to say: then the page shows the server agents' review or biography, if any.
-    static func group(_ about: SongAbout, kind: RecordKind, title: String, byline: String? = nil) -> Widget? {
+    static func group(_ app: AppState, _ about: SongAbout, kind: RecordKind, title: String,
+                      byline: String? = nil) -> Widget? {
         guard let preview = about.preview(of: kind) else { return nil }
         let group = PreferencesGroup(kind == .album ? "About This Album" : "About") {
             Box.vertical(spacing: 8) {
                 Label(preview.text, "dim").wrap().selectable()
                 Label(preview.credit, "caption", "dim").wrap()
+                SongAboutPage.flagRow(app, about, kind: kind.aboutKind, title: title, artist: byline)
             }.margin(12)
         }
         if about.hasSources {
-            group.suffix(Button("Sources", "flat") { present(about, kind: kind, title: title, byline: byline) })
+            group.suffix(Button("Sources", "flat") { present(app, about, kind: kind, title: title, byline: byline) })
         }
         return group
     }
 
-    static func present(_ about: SongAbout, kind: RecordKind, title: String, byline: String?) {
+    static func present(_ app: AppState, _ about: SongAbout, kind: RecordKind, title: String, byline: String?) {
         let box = Box.vertical(spacing: 22).margin(18)
         box.append(Box.vertical(spacing: 4) {
             Label(title, "title-2").wrap().selectable()
@@ -34,6 +36,7 @@ enum RecordAboutPage {
         }
         if let background = SongAboutPage.background(about.sections) { box.append(background) }
         if let links = SongAboutPage.links(about.links) { box.append(links) }
+        box.append(SongAboutPage.flagRow(app, about, kind: kind.aboutKind, title: title, artist: byline))
         Dialogs.sheet(kind == .album ? "About This Album" : "About This Artist",
                       content: ScrolledWindow(Clamp(box, maximum: 600)).vexpand(), width: 560, height: 680)
     }
