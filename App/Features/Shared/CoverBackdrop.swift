@@ -7,17 +7,20 @@ import SwiftUI
 /// shows its own; every other page, the playing song's.
 ///
 /// The pools move a step a second, each too small to see, so the blend never quite
-/// repeats; nothing else on the page moves.
+/// repeats; nothing else on the page moves. Only while music plays, as on the desktop,
+/// and not in Low Power Mode: still, the page is not redrawn every second for nothing.
 struct CoverBackdrop: View {
     let cover: String?
 
     @Environment(ArtworkStore.self) private var artwork
+    @Environment(AppState.self) private var appState
     @State private var pools = CoverColours.resting
     /// Where in the drift this page starts, so two pages are not in step.
     @State private var start = Date().addingTimeInterval(-Double.random(in: 0..<1_000))
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
+        let drifts = appState.player.isPlaying && !ProcessInfo.processInfo.isLowPowerModeEnabled
+        TimelineView(Drift(moves: drifts)) { context in
             let time = context.date.timeIntervalSince(start)
             GeometryReader { geometry in
                 ZStack {
@@ -29,6 +32,8 @@ struct CoverBackdrop: View {
                 .drawingGroup()
             }
         }
+        // Started afresh when it stops or starts moving, from where it is then.
+        .id(drifts)
         .animation(.easeInOut(duration: 1.2), value: pools)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
@@ -67,6 +72,16 @@ struct CoverBackdrop: View {
 
     static func colour(_ rgb: VisualizerPalette.RGB) -> Color {
         Color(red: rgb.r / 255, green: rgb.g / 255, blue: rgb.b / 255)
+    }
+
+    /// A step a second while it moves; standing still, the moment it stopped and no other.
+    private struct Drift: TimelineSchedule {
+        let moves: Bool
+
+        func entries(from startDate: Date, mode: TimelineScheduleMode) -> UnfoldFirstSequence<Date> {
+            let moves = moves && mode == .normal
+            return sequence(first: startDate) { moves ? $0.addingTimeInterval(1) : nil }
+        }
     }
 }
 

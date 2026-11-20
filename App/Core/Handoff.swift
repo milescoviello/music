@@ -26,12 +26,15 @@ import Observation
 /// The same happens, without playing, when the app comes to the front or the desktop's
 /// window is focused, so the player already shows what a press of play will play.
 ///
-/// **Following.** While this device is idle -- the phone on screen, the desktop always --
-/// it follows the paired device that is playing: the same track, the time moving, on to
-/// the next track when that one moves on, the lyrics with it. Asked once a second
-/// (`/v1/now`, a few hundred bytes); nothing is fetched to play until play is pressed
-/// here. Play is still the one press that brings the music over. Starting anything else
-/// here pauses the device being followed: the music moved here.
+/// **Following.** While this device is idle -- the phone on screen, the desktop's window
+/// showing -- it follows the paired device that is playing: the same track, the time
+/// moving, on to the next track when that one moves on, the lyrics with it. Each paired
+/// device is watched over one open connection (`/v1/now/events`) that says something only
+/// when there is news -- a track, a pause, a seek -- and the time is worked out here in
+/// between, so the device playing is not woken every second to be asked. An older build
+/// without it is asked once a second while followed. Nothing is fetched to play until play
+/// is pressed here. Play is still the one press that brings the music over. Starting
+/// anything else here pauses the device being followed: the music moved here.
 @MainActor
 @Observable
 final class Handoff {
@@ -55,8 +58,6 @@ final class Handoff {
 
     /// When a paired device last answered: lately, a press of play asks before playing.
     @ObservationIgnored private var lastAnswerAt: Date?
-    /// How long the follower waits between looks for a device to follow.
-    @ObservationIgnored private var searchWait: TimeInterval = 3
 
     /// The device being followed, by name, while this one is idle.
     private(set) var following: String?
@@ -65,9 +66,16 @@ final class Handoff {
     @ObservationIgnored private var followedState: (state: RemoteState, readAt: Date)?
     /// This device's queue as it was made from the followed one, to know it still is.
     @ObservationIgnored private var followedList: UUID?
-    @ObservationIgnored private var followFailures = 0
-    @ObservationIgnored private var follower: Task<Void, Never>?
     @ObservationIgnored private var ticker: Task<Void, Never>?
+    /// One watch on each paired device, by id, while this one follows (`watch`).
+    @ObservationIgnored private var watchers: [String: Task<Void, Never>] = [:]
+    /// What each watched device said last, and what it has said that is not yet acted on.
+    @ObservationIgnored private var latest: [String: Answer] = [:]
+    @ObservationIgnored private var news: [String: Answer] = [:]
+    @ObservationIgnored private var isCatchingUp = false
+    @ObservationIgnored private var isObserving = false
+    /// For the watch streams: given up on after the silence a ping would have broken.
+    @ObservationIgnored private let streaming: URLSessionConfiguration
     /// On screen. The phone follows only then; the desktop has no such thing.
     #if canImport(UIKit)
     @ObservationIgnored private var isActive = false
@@ -81,6 +89,12 @@ final class Handoff {
 
     init(app: AppState) {
         self.app = app
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = RemoteControl.silence
+        #if !canImport(FoundationNetworking)
+        configuration.waitsForConnectivity = false
+        #endif
+        streaming = configuration
     }
 
     // MARK: - Entry points
@@ -153,7 +167,6 @@ final class Handoff {
     /// The app came to the front, or the desktop's window was focused. With nothing
     /// playing here, the player catches up with wherever the music is, paused.
     func look() {
-        searchWait = 3
         startFollowing()
         guard !isMoving, let player = app?.player, !player.isPlaying, player.remote == nil,
               player.video == nil, app?.credentials != nil
@@ -163,10 +176,9 @@ final class Handoff {
 
     /// The phone's app coming to the front (true) or going to the background (false).
     func setActive(_ active: Bool) {
-        guard active != isActive || (active && follower == nil) else { return }
+        guard active != isActive || (active && watchers.isEmpty) else { return }
         isActive = active
         if active {
-            searchWait = 3
             startFollowing()
         } else {
             stopFollowing()
@@ -184,6 +196,7 @@ final class Handoff {
                 await move(play: true)
             }
             isMoving = false
+            reconsider()
         }
     }
 
@@ -364,19 +377,176 @@ final class Handoff {
 
     // MARK: - Following
 
-    private var canFollow: Bool {
-        guard isActive, !isMoving, let app, app.credentials != nil else { return false }
+    /// Idle here, with somewhere to show it: the phone on screen, the desktop's window up.
+    private var shouldWatch: Bool {
+        guard isActive, let app, app.credentials != nil else { return false }
         let player = app.player
         return !player.isPlaying && player.remote == nil && player.video == nil
     }
 
+    private var canFollow: Bool { shouldWatch && !isMoving }
+
     private func startFollowing() {
-        guard isActive, follower == nil else { return }
-        follower = Task { [weak self] in
-            while !Task.isCancelled {
-                guard let wait = await self?.followStep() else { return }
-                try? await Task.sleep(for: .seconds(wait))
+        observeWatching()
+        updateWatching()
+    }
+
+    /// Keeps the watching in step with whether this device is idle: no polling for it,
+    /// the player and the paired devices say when it changes.
+    private func observeWatching() {
+        guard !isObserving, let app else { return }
+        isObserving = true
+        withObservationTracking {
+            _ = app.credentials != nil
+            _ = app.player.isPlaying
+            _ = app.player.remote == nil
+            _ = app.player.video == nil
+            _ = players?.paired.map(\.id)
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.isObserving = false
+                self.observeWatching()
+                self.updateWatching()
             }
+        }
+    }
+
+    private func updateWatching() {
+        guard shouldWatch, let players else {
+            // Playing here while the device followed was playing: the music has moved here,
+            // so that one stops.
+            if let followed, followedState?.state.isPlaying == true, app?.player.isPlaying == true,
+               let players {
+                Task {
+                    await players.release(followed.computer, at: followed.base)
+                    await record("started playing here, so paused \(followed.computer.name)")
+                }
+            }
+            stopWatching()
+            clearFollow()
+            return
+        }
+        let paired = players.paired
+        let ids = Set(paired.map(\.id))
+        for (id, watcher) in watchers where !ids.contains(id) {
+            watcher.cancel()
+            watchers[id] = nil
+            latest[id] = nil
+        }
+        if let followed, !ids.contains(followed.computer.id) { clearFollow() }
+        for computer in paired where watchers[computer.id] == nil {
+            let id = computer.id
+            watchers[id] = Task { [weak self] in await self?.watch(id) }
+        }
+    }
+
+    private func stopWatching() {
+        for watcher in watchers.values { watcher.cancel() }
+        watchers = [:]
+        latest = [:]
+        news = [:]
+    }
+
+    private func stopFollowing() {
+        stopWatching()
+        ticker?.cancel()
+        ticker = nil
+        clearFollow()
+    }
+
+    /// Keeps up with one paired device while this one watches. Asked once, where it
+    /// answers; then told, over a stream that stays open, whenever what it plays changes,
+    /// with a ping every fifteen seconds and nothing else. Out of reach, it is looked for
+    /// again less and less often, to every fifteen seconds -- a phone asleep in a pocket, a
+    /// laptop shut -- since each look wakes the network for nothing.
+    private func watch(_ id: String) async {
+        var wait: TimeInterval = 3
+        var streams = true
+        while !Task.isCancelled {
+            // As it is known now: where it was last reached, and every address it gave.
+            guard let players, let computer = players.paired.first(where: { $0.id == id }) else { return }
+            let quiet = silentSince[computer.id].map { Date.now.timeIntervalSince($0) < 300 } ?? false
+            let reply = await players.ask(computer, "v1/now", as: RemoteNow.self, within: quiet ? 0.5 : 1.2)
+            guard !Task.isCancelled else { return }
+            if let reply {
+                silentSince[computer.id] = nil
+                wait = 3
+                heard(Answer(computer: computer, now: reply.answer, base: reply.base, roundTrip: reply.roundTrip, at: reply.at))
+                if streams {
+                    let started = Date.now
+                    streams = await listen(to: computer, at: reply.base)
+                    guard !Task.isCancelled else { return }
+                    // Ended after a good while: asked again at once. Straight away, or not
+                    // there to listen to: a second's rest, so nothing spins.
+                    wait = streams && Date.now.timeIntervalSince(started) > 10 ? 0 : 1
+                } else {
+                    // An older build: asked each second while followed.
+                    wait = followed?.computer.id == computer.id ? 1 : 3
+                }
+            } else {
+                if silentSince[computer.id] == nil { silentSince[computer.id] = .now }
+                if followed?.computer.id == computer.id { standStill() }
+                wait = min(max(wait, 1.5) * 2, 15)
+            }
+            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+        }
+    }
+
+    /// Listens to `computer`'s news until the stream ends. False when it has no such
+    /// stream, being an older build.
+    private func listen(to computer: RemotePlayers.Computer, at base: URL) async -> Bool {
+        guard let token = computer.token else { return true }
+        var request = URLRequest(url: base.appendingPathComponent("v1/now/events"))
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = RemoteControl.silence
+        do {
+            let (status, lines) = try await RemoteLines.open(request, configuration: streaming)
+            if status == 404 { return false }
+            guard status == 200 else { return true }
+            var parser = EventStream.Parser()
+            let decoder = JSONDecoder()
+            for try await line in lines {
+                lastAnswerAt = .now
+                guard let event = parser.feed(line), event.name == "now",
+                      let now = try? decoder.decode(RemoteNow.self, from: Data(event.data.utf8))
+                else { continue }
+                heard(Answer(computer: computer, now: now, base: base, roundTrip: 0, at: .now))
+            }
+        } catch {}
+        return true
+    }
+
+    /// News from a watched device, acted on in order: following it may mean fetching its
+    /// queue, during which more may come.
+    private func heard(_ answer: Answer) {
+        lastAnswerAt = .now
+        latest[answer.computer.id] = answer
+        news[answer.computer.id] = answer
+        guard !isCatchingUp else { return }
+        isCatchingUp = true
+        Task {
+            while let next = news.first {
+                news[next.key] = nil
+                await consider(next.value)
+            }
+            isCatchingUp = false
+        }
+    }
+
+    /// What was heard while a move was under way, which was not acted on then.
+    private func reconsider() {
+        guard canFollow else { return }
+        for answer in latest.values { heard(answer) }
+    }
+
+    private func consider(_ answer: Answer) async {
+        guard canFollow else { return }
+        if followed?.computer.id == answer.computer.id {
+            await keepUp(with: answer)
+        } else if answer.now.state.isPlaying, answer.now.count > 0,
+                  followed == nil || followedState?.state.isPlaying != true {
+            await keepUp(with: answer)
         }
     }
 
@@ -399,21 +569,24 @@ final class Handoff {
         }
     }
 
-    private func stopFollowing() {
-        follower?.cancel()
-        ticker?.cancel()
-        follower = nil
-        ticker = nil
-        clearFollow()
-    }
-
     private func clearFollow() {
         followed = nil
         followedState = nil
         followedList = nil
-        followFailures = 0
         if following != nil { following = nil }
         app?.player.endFollowing()
+        updateTicker()
+    }
+
+    /// The device followed has gone quiet: the last of it stays on screen, standing still.
+    private func standStill() {
+        if var last = followedState {
+            last.state.elapsed = last.state.elapsed(after: Date.now.timeIntervalSince(last.readAt))
+            last.state.isPlaying = false
+            followedState = (last.state, .now)
+        }
+        followed = nil
+        if following != nil { following = nil }
         updateTicker()
     }
 
@@ -422,64 +595,8 @@ final class Handoff {
         followed = (answer.computer, answer.base)
         followedState = (answer.now.state, answer.at.addingTimeInterval(-answer.roundTrip / 2))
         followedList = app?.player.queue.listID
-        followFailures = 0
         if following != answer.now.name { following = answer.now.name }
         updateTicker()
-    }
-
-    /// One look at the followed device, or for one to follow. How long to wait after.
-    private func followStep() async -> TimeInterval {
-        guard let app, let players else { return 5 }
-        let player = app.player
-        if player.isPlaying {
-            // Something started here while a device was being followed as it played: the
-            // music has moved here, so that one stops.
-            if let followed, followedState?.state.isPlaying == true {
-                await players.release(followed.computer, at: followed.base)
-                await record("started playing here, so paused \(followed.computer.name)")
-            }
-            clearFollow()
-            return 2
-        }
-        guard canFollow else {
-            clearFollow()
-            return 2
-        }
-
-        if let current = followed {
-            guard let reply = await players.ask(current.computer, "v1/now", as: RemoteNow.self, within: 1.5) else {
-                followFailures += 1
-                // Gone quiet: the last of it stays on screen, standing still.
-                if followFailures >= 3 {
-                    if var last = followedState {
-                        last.state.elapsed = last.state.elapsed(after: Date.now.timeIntervalSince(last.readAt))
-                        last.state.isPlaying = false
-                        followedState = (last.state, .now)
-                    }
-                    followed = nil
-                    if following != nil { following = nil }
-                    updateTicker()
-                }
-                return 1
-            }
-            guard canFollow, followed?.computer.id == current.computer.id else { return 1 }
-            followFailures = 0
-            await keepUp(with: Answer(computer: current.computer, now: reply.answer, base: reply.base, roundTrip: reply.roundTrip, at: reply.at))
-            return 1
-        }
-
-        // Following nothing: is any paired device playing? Every few seconds while one
-        // answers; less and less often, to every fifteen, while none does -- a phone asleep
-        // in a pocket, a laptop shut -- since each look wakes the network for nothing.
-        let computers = players.paired
-        guard !computers.isEmpty else { return 15 }
-        let answers = await askAll(computers, players: players)
-        searchWait = answers.isEmpty ? min(searchWait * 2, 15) : 3
-        guard canFollow, followed == nil,
-              let playing = answers.first(where: { $0.now.state.isPlaying && $0.now.count > 0 })
-        else { return searchWait }
-        await keepUp(with: playing)
-        return 1
     }
 
     /// Shows what the followed device says: its track, and the time from it.

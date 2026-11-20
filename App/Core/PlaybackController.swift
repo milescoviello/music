@@ -873,24 +873,25 @@ final class PlaybackController {
     /// Whether the time shown moves on by itself: playing here, or following another
     /// device that is. What anything animated with the time should tick for.
     var isTimeMoving: Bool { (isPlaying && !isBuffering) || showsFollowedPlaying }
-    /// The device followed is playing: see `elapsedNow`.
-    @ObservationIgnored private var showsFollowedPlaying = false
+    /// The device followed is playing: see `elapsedNow`. Observed, so what ticks with the
+    /// time starts and stops with it; set only when it changes.
+    private var showsFollowedPlaying = false
 
     /// The followed device's time, shown as this one's while it waits -- the seek bar,
     /// the lyrics, the lock screen's -- and whether it is moving.
     func showFollowed(elapsed seconds: Double, playing: Bool) {
         guard remote == nil, video == nil, !isPlaying else {
-            showsFollowedPlaying = false
+            if showsFollowedPlaying { showsFollowedPlaying = false }
             return
         }
-        showsFollowedPlaying = playing
+        if showsFollowedPlaying != playing { showsFollowedPlaying = playing }
         let place = duration > 0 ? min(max(0, seconds), duration) : max(0, seconds)
         if abs(elapsed - place) >= 0.05 { elapsed = place }
     }
 
     /// No longer following: the time stands still again unless this device plays.
     func endFollowing() {
-        showsFollowedPlaying = false
+        if showsFollowedPlaying { showsFollowedPlaying = false }
     }
 
     /// Until the current track has opened, or `seconds` have gone: a handoff starts it

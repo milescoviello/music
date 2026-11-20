@@ -646,7 +646,8 @@ struct LyricsView: View {
 }
 
 /// The line being sung, lit word by word as each is sung: the words still to come dimmer.
-/// Redrawn by a timeline of its own, a dozen times a second, so only this line is.
+/// Redrawn by a timeline of its own, a dozen times a second, so only this line is -- and
+/// only while the time moves: paused, it changes with a seek and not otherwise.
 private struct SungWords: View {
     @Environment(AppState.self) private var appState
     let words: [WordCue]
@@ -654,12 +655,21 @@ private struct SungWords: View {
     let start: Int
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.08)) { _ in
-            let count = WordTiming.sung(words, at: Int(appState.player.elapsedNow * 1000) - start)
-            let done = words.prefix(count).map(\.text).joined()
-            let rest = words.dropFirst(count).map(\.text).joined()
-            Text(done) + Text(rest).foregroundStyle(.white.opacity(0.45))
+        let player = appState.player
+        if player.isTimeMoving {
+            TimelineView(.periodic(from: .now, by: 0.08)) { _ in
+                line(at: player.elapsedNow)
+            }
+        } else {
+            line(at: player.elapsed)
         }
+    }
+
+    private func line(at seconds: Double) -> Text {
+        let count = WordTiming.sung(words, at: Int(seconds * 1000) - start)
+        let done = words.prefix(count).map(\.text).joined()
+        let rest = words.dropFirst(count).map(\.text).joined()
+        return Text(done) + Text(rest).foregroundStyle(.white.opacity(0.45))
     }
 }
 

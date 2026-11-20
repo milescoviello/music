@@ -20,9 +20,13 @@ enum RemoteLines {
         let (lines, continuation) = AsyncThrowingStream<String, any Error>.makeStream()
         reader.continuation = continuation
         let task = session.dataTask(with: request)
+        // Cancelled on a queue of its own, never the caller's: on Linux `cancel` waits on
+        // URLSession's work queue, and a main actor waiting there deadlocked the app.
         continuation.onTermination = { _ in
-            task.cancel()
-            session.invalidateAndCancel()
+            DispatchQueue.global().async {
+                task.cancel()
+                session.invalidateAndCancel()
+            }
         }
         let status = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (headers: CheckedContinuation<Int, any Error>) in
@@ -30,7 +34,7 @@ enum RemoteLines {
                 task.resume()
             }
         } onCancel: {
-            task.cancel()
+            DispatchQueue.global().async { task.cancel() }
         }
         return (status, lines)
     }

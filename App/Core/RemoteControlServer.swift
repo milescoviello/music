@@ -81,6 +81,8 @@ final class RemoteControlServer {
     @ObservationIgnored private var server: HTTPServer?
     @ObservationIgnored private var advertiser: (any RemoteAdvertising)?
     @ObservationIgnored private var streams: [ObjectIdentifier: HTTPConnection] = [:]
+    /// Paired devices following what plays here for a handoff (`/v1/now/events`).
+    @ObservationIgnored private var watchers: [ObjectIdentifier: HTTPConnection] = [:]
     @ObservationIgnored private var observer: ChangeTracker?
     /// The app's own volume, 0...1, as the other device's slider sets it: the sound
     /// server's stream on the desktop (set in `MusicApplication`). The phone's volume is
@@ -91,6 +93,7 @@ final class RemoteControlServer {
     /// What the phones were last told, to say only what they could not work out.
     @ObservationIgnored private var sentState: (state: RemoteState, at: Date)?
     @ObservationIgnored private var sentWindow: (list: UUID, range: Range<Int>)?
+    @ObservationIgnored private var sentNow: (now: RemoteNow, at: Date)?
 
     private enum Keys {
         static let enabled = "remote.enabled"
@@ -195,7 +198,7 @@ final class RemoteControlServer {
         pinger = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(RemoteControl.pingInterval))
-                self?.broadcast(EventStream.ping)
+                self?.ping()
             }
         }
     }
@@ -208,7 +211,9 @@ final class RemoteControlServer {
         pinger?.cancel()
         pinger = nil
         for connection in streams.values { connection.close() }
+        for connection in watchers.values { connection.close() }
         streams = [:]
+        watchers = [:]
         listenerCount = 0
         stopFollowing()
         cancelPairing()
@@ -275,6 +280,9 @@ final class RemoteControlServer {
         case ("GET", "/v1/now"):
             guard device(for: request) != nil else { return connection.respond(401) }
             connection.respond(200, json: encode(now()))
+        case ("GET", "/v1/now/events"):
+            guard device(for: request) != nil else { return connection.respond(401) }
+            watch(on: connection)
         case ("GET", "/v1/queue"):
             guard device(for: request) != nil else { return connection.respond(401) }
             guard let queue = handoffQueue() else { return connection.respond(404) }
@@ -519,7 +527,6 @@ final class RemoteControlServer {
         }
         streams[key] = connection
         listenerCount = streams.count
-        startPinging()
         connection.startEvents()
         connection.send(EventStream.frame("hello", json(RemoteHello(
             id: id, name: name, server: app?.credentials?.baseURL.absoluteString
@@ -528,17 +535,35 @@ final class RemoteControlServer {
         // can take; it keeps one record of what was last said.
         sentWindow = nil
         sentState = nil
-        if observer == nil {
-            observer = ChangeTracker { [weak self] in self?.publish() }
-        } else {
-            publish()
+        track()
+    }
+
+    /// A paired device following what plays here (`Handoff`): told `now` at once, and
+    /// again only when it has news.
+    private func watch(on connection: HTTPConnection) {
+        let key = ObjectIdentifier(connection)
+        connection.onClose = {
+            Task { @MainActor in RemoteControlServer.shared.drop(key) }
         }
+        watchers[key] = connection
+        connection.startEvents()
+        sentNow = nil
+        track()
+    }
+
+    /// Follows the player afresh, so that whatever a newcomer is told is read, and so
+    /// watched, from now on.
+    private func track() {
+        startPinging()
+        observer?.cancel()
+        observer = ChangeTracker { [weak self] in self?.publish() }
     }
 
     private func drop(_ key: ObjectIdentifier) {
         streams[key] = nil
+        watchers[key] = nil
         listenerCount = streams.count
-        if streams.isEmpty {
+        if streams.isEmpty, watchers.isEmpty {
             stopFollowing()
             pinger?.cancel()
             pinger = nil
@@ -550,12 +575,15 @@ final class RemoteControlServer {
         observer = nil
         sentState = nil
         sentWindow = nil
+        sentNow = nil
     }
 
     /// Runs whenever anything it reads changes, which while playing is the elapsed time,
     /// four times a second; says something only when that is news.
     private func publish() {
         guard let player = app?.player else { return }
+        if !watchers.isEmpty { publishNow() }
+        guard !streams.isEmpty else { return }
         let queue = player.queue
         let range = RemoteQueue.range(around: queue.position, count: queue.order.count)
         if sentWindow?.list != queue.listID || sentWindow?.range != range {
@@ -581,8 +609,32 @@ final class RemoteControlServer {
         broadcast(EventStream.frame("state", json(state)))
     }
 
+    /// What plays here, to the devices following it, when it is news: closer than the
+    /// remote's second, since the lyrics there are lit word by word from it.
+    private func publishNow() {
+        guard let player = app?.player else { return }
+        let now = now()
+        let at = Date.now
+        // Following another device itself, its time is that one's, which the follower can
+        // hear from there: only what changes here is news.
+        let tolerance = !player.isPlaying && player.isTimeMoving ? Double.infinity : 0.3
+        if let sent = sentNow, sent.now.listID == now.listID, sent.now.count == now.count,
+           sent.now.name == now.name,
+           !now.state.differs(from: sent.now.state, after: at.timeIntervalSince(sent.at), by: tolerance) {
+            return
+        }
+        sentNow = (now, at)
+        let frame = EventStream.frame("now", json(now))
+        for connection in watchers.values { connection.send(frame) }
+    }
+
     private func broadcast(_ text: String) {
         for connection in streams.values { connection.send(text) }
+    }
+
+    private func ping() {
+        for connection in streams.values { connection.send(EventStream.ping) }
+        for connection in watchers.values { connection.send(EventStream.ping) }
     }
 
     // MARK: - Encoding

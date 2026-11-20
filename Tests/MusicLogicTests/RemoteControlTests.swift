@@ -166,6 +166,32 @@ struct RemoteControlTests {
         #expect(louder.differs(from: previous, after: 3))
     }
 
+    /// A device following another for its lyrics is told of a smaller slip than a remote.
+    @Test func aTighterToleranceHearsASmallerSlip() {
+        var previous = RemoteState()
+        previous.isPlaying = true
+        previous.elapsed = 10
+        previous.duration = 200
+
+        var slipped = previous
+        slipped.elapsed = 13.5
+        #expect(!slipped.differs(from: previous, after: 3))
+        #expect(slipped.differs(from: previous, after: 3, by: 0.3))
+
+        var onTime = previous
+        onTime.elapsed = 13.1
+        #expect(!onTime.differs(from: previous, after: 3, by: 0.3))
+
+        // Its time following yet another device: only what changes here is news.
+        var paused = previous
+        paused.isPlaying = false
+        var moved = paused
+        moved.elapsed = 40
+        #expect(!moved.differs(from: paused, after: 3, by: .infinity))
+        moved.position = 1
+        #expect(moved.differs(from: paused, after: 3, by: .infinity))
+    }
+
     // MARK: - Event stream
 
     @Test func eventsAreReadAtTheirDataLine() {

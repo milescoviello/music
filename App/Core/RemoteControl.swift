@@ -103,6 +103,11 @@ struct RemotePeer: Codable, Equatable, Sendable {
 
 /// What a device is playing right now, for a handoff to decide on: `GET /v1/now`. Small,
 /// so it can be asked of every paired device on each press of play.
+///
+/// `GET /v1/now/events` is the same as a server-sent event stream, for a device following
+/// this one: a `now` event at once and then only with news -- another track or list, a
+/// pause, a seek, a time a third of a second from where the last one puts it -- and a
+/// `: ping` every 15 seconds. An older build answers 404, and is asked instead.
 struct RemoteNow: Codable, Equatable, Sendable {
     var id: String
     var name: String
@@ -436,12 +441,12 @@ struct RemoteState: Codable, Equatable, Sendable {
 
     /// Whether `self`, read `interval` seconds after `previous`, says anything a listener
     /// of `previous` could not have worked out: any change but the time, or a time more
-    /// than a second from where extrapolating `previous` puts it.
-    func differs(from previous: RemoteState, after interval: TimeInterval) -> Bool {
+    /// than `tolerance` seconds from where extrapolating `previous` puts it.
+    func differs(from previous: RemoteState, after interval: TimeInterval, by tolerance: Double = 1) -> Bool {
         var timeless = self
         timeless.elapsed = previous.elapsed
         guard timeless == previous else { return true }
-        return abs(previous.elapsed(after: interval) - elapsed) > 1
+        return abs(previous.elapsed(after: interval) - elapsed) > tolerance
     }
 }
 
