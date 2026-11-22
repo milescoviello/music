@@ -78,7 +78,7 @@ struct LyricsView: View {
             let offset = lyrics.offset ?? 0
             let sung = lyrics.lines.map { LyricLine(start: $0.start.map { $0 - offset }, value: $0.value) }
             let found = await appState.wordTimings.cues(for: keptID, lines: sung, sonic: appState.sonic.configuration,
-                                                        keep: appState.downloads.isDownloaded(keptID))
+                                                        keepIn: appState.downloads.isDownloaded(keptID) ? .download : .cache)
             guard !Task.isCancelled, loadedSongID == id else { return }
             cues = found
         }
@@ -621,11 +621,16 @@ struct LyricsView: View {
                 } catch let error as SubsonicClient.ClientError where error.isTransport {
                     unanswered = true
                 } catch {}
-                // Downloaded with none kept -- fetched before there were any, or the fetch
-                // lost: kept now, with the rest of what goes with them.
-                if !sets.isEmpty, appState.downloads.isDownloaded(song.id) {
-                    await LyricsStore.shared.save(sets, for: song.id)
-                    appState.downloadExtras.keep([song])
+                // Kept now: with a download that has none -- fetched before there were any,
+                // or the fetch lost -- along with the rest of what goes with them; for any
+                // other song in Caches, so it has them offline if it plays from the cache.
+                if !sets.isEmpty {
+                    if appState.downloads.isDownloaded(song.id) {
+                        await LyricsStore.shared.save(sets, for: song.id)
+                        appState.downloadExtras.keep([song])
+                    } else {
+                        await LyricsStore.shared.save(sets, for: song.id, in: .cache)
+                    }
                 }
             }
             guard !Task.isCancelled else { return }
@@ -711,7 +716,7 @@ struct LyricsView: View {
         guard !appState.isServerSilent else { return }
         let server = try? await appState.client.lyrics(songID: songID)
         guard let fresh = LyricsStore.update(kept: kept, server: server) else { return }
-        await LyricsStore.shared.save(fresh, for: songID)
+        await LyricsStore.shared.save(fresh, for: songID, in: await LyricsStore.shared.place(of: songID) ?? .cache)
         // Their translation and word timing too, for the new lines.
         if let entry = appState.downloads.catalog.entries[songID] { appState.downloadExtras.keep([entry.song]) }
         // Not over a song moved on from, or one being timed by hand.

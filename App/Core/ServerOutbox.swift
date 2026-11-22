@@ -20,6 +20,12 @@ actor ServerOutbox {
         case rating
         /// A resume position for a long track. `positionMs` carries it.
         case bookmark
+        /// A song put on a playlist (`target`) with no server to tell. Added at the end
+        /// unless it is there by then.
+        case playlistAdd
+        /// A song taken off a playlist (`target`); `index` is where it was shown, which
+        /// picks the copy when a song is on it twice.
+        case playlistRemove
     }
 
     struct Pending: Codable, Sendable {
@@ -45,6 +51,8 @@ actor ServerOutbox {
         /// `scrobble` only: an earlier send got no answer -- a timeout, a dropped
         /// connection -- so the server may already have counted it. Optional like the rest.
         var unconfirmed: Bool?
+        /// `playlistRemove` only: where the song was shown. Optional like the rest.
+        var index: Int?
         /// Same reasoning as `kind_`, though this one has been present since the start.
         private var attempts_: Int?
 
@@ -63,6 +71,7 @@ actor ServerOutbox {
             case rating
             case positionMs
             case unconfirmed
+            case index
             case attempts_ = "attempts"
         }
 
@@ -73,6 +82,7 @@ actor ServerOutbox {
             target: String? = nil,
             rating: Int? = nil,
             positionMs: Int? = nil,
+            index: Int? = nil,
             unconfirmed: Bool? = nil
         ) {
             kind_ = kind
@@ -82,6 +92,7 @@ actor ServerOutbox {
             self.rating = rating
             self.positionMs = positionMs
             self.unconfirmed = unconfirmed
+            self.index = index
             attempts_ = 0
         }
     }
@@ -147,6 +158,27 @@ actor ServerOutbox {
         write(Pending(
             kind: .bookmark, songID: id, listenedAt: .now, positionMs: positionMilliseconds
         ))
+    }
+
+    /// A playlist edit made with no server to tell, sent once it answers: songs added, or
+    /// one taken off from where it was shown.
+    func enqueuePlaylist(adding songIDs: [String], to playlistID: String) {
+        for id in songIDs {
+            write(Pending(kind: .playlistAdd, songID: id, listenedAt: .now, target: playlistID))
+        }
+    }
+
+    func enqueuePlaylist(removing songID: String, shownAt index: Int, from playlistID: String) {
+        write(Pending(kind: .playlistRemove, songID: songID, listenedAt: .now, target: playlistID, index: index))
+    }
+
+    /// Whether any playlist edit is still waiting: a playlist page should show it made.
+    func hasPlaylistEdits() -> Bool {
+        files().contains { file in
+            guard let data = try? Data(contentsOf: file),
+                  let pending = try? JSONDecoder().decode(Pending.self, from: data) else { return false }
+            return pending.kind == .playlistAdd || pending.kind == .playlistRemove
+        }
     }
 
     /// Drops what is still waiting for `id` of these kinds, because a newer change to the
@@ -268,6 +300,20 @@ actor ServerOutbox {
             } else {
                 try await client.deleteBookmark(id: pending.songID)
             }
+        case .playlistAdd:
+            guard let playlistID = pending.target else { return }
+            let present = try await client.playlistDetail(id: playlistID).songs.map(\.id)
+            guard !present.contains(pending.songID) else { return }
+            try await client.addToPlaylist(id: playlistID, songIDs: [pending.songID])
+        case .playlistRemove:
+            // By position, looked up as the server has the playlist now: the copy nearest
+            // where it was shown, as `PlaylistStore.remove` does online.
+            guard let playlistID = pending.target else { return }
+            let ids = try await client.playlistDetail(id: playlistID).songs.map(\.id)
+            let shown = pending.index ?? 0
+            guard let position = ids.indices.filter({ ids[$0] == pending.songID })
+                .min(by: { abs($0 - shown) < abs($1 - shown) }) else { return }
+            try await client.removeFromPlaylist(id: playlistID, indices: [position])
         }
     }
 

@@ -181,7 +181,7 @@ class Service:
         lines = self.word_timings.answer(track_id, title, artist, duration)
         return None if lines is None else {"id": track_id, "lines": lines}
 
-    def about(self, track_id: str, refresh: bool = False) -> dict | None:
+    def about(self, track_id: str, refresh: bool = False, stored_only: bool = False) -> dict | None:
         """What the song is about (`about`): quoted background, Genius's notes on lines, and the summary
         written ahead of time; None for a song unknown."""
         song = self.songs.get(track_id)
@@ -194,10 +194,11 @@ class Service:
             language = json.loads((self.translations.songs / f"{track_id}.json").read_text()).get("language")
         except (OSError, ValueError, AttributeError):
             pass
-        return self._flagged("song", self.song_about.answer(track_id, song.title, song.artist, song.album, language,
-                                                              refresh))
+        answer = self.song_about.answer(track_id, song.title, song.artist, song.album, language, refresh, stored_only)
+        return None if answer is None else self._flagged("song", answer)
 
-    def album_about(self, album_id: str, refresh: bool = False, name: str = "", artist: str = "") -> dict | None:
+    def album_about(self, album_id: str, refresh: bool = False, name: str = "", artist: str = "",
+                    stored_only: bool = False) -> dict | None:
         """What the album is about (`record_about`): its Genius and Wikipedia background and the summary written
         ahead of time. Named as the library names it; the app's names only for an album newer than the last pass."""
         tracks = [track for track in self.songs.values() if track.album_id == album_id]
@@ -206,7 +207,8 @@ class Service:
             artist = Counter(t.album_artist or t.artist for t in tracks).most_common(1)[0][0]
         if not name.strip():
             return None
-        return self._flagged("album", self.record_about.answer("album", album_id, name, artist, refresh))
+        answer = self.record_about.answer("album", album_id, name, artist, refresh, stored_only=stored_only)
+        return None if answer is None else self._flagged("album", answer)
 
     def artist_about(self, artist_id: str, refresh: bool = False, name: str = "") -> dict | None:
         """Who the artist is (`record_about`), as `album_about`. An album artist's id, or a track artist's."""

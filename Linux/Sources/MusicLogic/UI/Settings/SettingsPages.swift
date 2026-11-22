@@ -641,6 +641,8 @@ enum SettingsPages {
             case .unstar: return "Favourites removed"
             case .rating: return "Ratings"
             case .bookmark: return "Resume positions"
+            case .playlistAdd: return "Songs added to playlists"
+            case .playlistRemove: return "Songs taken off playlists"
             }
         }
         func fill(pending: [ServerOutbox.Kind: Int], lines: [Diagnostics.Line], export: String) {

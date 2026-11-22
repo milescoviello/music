@@ -104,21 +104,13 @@ struct MusicApp: App {
                         // foreground, so it has to be set again on the way back.
                         appState.screenAwake.apply()
                         // Coming back is the most likely moment to have a network
-                        // again after listening offline.
-                        Task { await appState.flushOutbox() }
-                        Task { await appState.refreshRequests() }
-                        Task { await appState.sonic.refreshStatus() }
-                        Task { await appState.playlistSync.sync() }
-                        appState.downloads.resumeWaiting()
-                        Task { await appState.mostPlayed.refresh() }
-                        Task { await appState.playlistStore.refreshIfStale() }
+                        // again after listening offline: what is owed and what moved
+                        // on, once a quick question says the server is there.
+                        appState.cameBack()
                         // Siri's names for playlists, artists and albums, read again.
                         MusicShortcuts.refreshNamesIfStale()
                         SiriPlayMedia.askForSiriIfNeeded()
-                        // Nothing playing here: catch up with wherever the music
-                        // is, so a press of play carries on from it.
                         appState.handoff?.setActive(true)
-                        appState.handoff?.look()
                     case .background:
                         appState.handoff?.setActive(false)
                         Task { await Diagnostics.shared.record("app", "background") }

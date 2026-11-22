@@ -165,8 +165,12 @@ class SongAbout:
     # MARK: - The answer
 
     def answer(self, track_id: str, title: str, artist: str, album: str = "", language: str | None = None,
-               refresh: bool = False) -> dict:
-        found = self._found(track_id, title, artist, album, language, refresh)
+               refresh: bool = False, stored_only: bool = False) -> dict | None:
+        """`stored_only`: what was looked up before, however old, or None -- nothing fetched. For the apps keeping
+        About with every download, which would otherwise send hundreds of lookups to Genius in a row."""
+        found = self._found(track_id, title, artist, album, language, refresh, stored_only)
+        if found is None:
+            return None
         summary = self.summary(track_id)
         answer = {"id": track_id, "title": title, "artist": artist, "album": album, **found,
                   "summary": summary and {k: summary[k] for k in ("text", "basis")}}
@@ -192,9 +196,12 @@ class SongAbout:
                  if isinstance(link, dict) and link.get("name") and str(link.get("url", "")).startswith("http")]
         return {"text": text.strip(), "basis": "lyrics" if stored.get("basis") == "lyrics" else "sources", "links": links}
 
-    def _found(self, track_id: str, title: str, artist: str, album: str, language: str | None, refresh: bool) -> dict:
+    def _found(self, track_id: str, title: str, artist: str, album: str, language: str | None, refresh: bool,
+               stored_only: bool = False) -> dict | None:
         with self._db() as db:
             row = db.execute("select at, found, data from about where id = ?", (track_id,)).fetchone()
+        if stored_only:
+            return (json.loads(row[2]) if row[2] else {}) if row else None
         now = self._clock()
         if row and not refresh:
             at, found, data = row

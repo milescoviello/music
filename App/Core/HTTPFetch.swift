@@ -10,7 +10,9 @@ extension URLSession {
     /// was most of what a launch's requests cost. The phone keeps Apple's URLSession.
     func fetch(_ request: URLRequest) async throws -> (Data, URLResponse) {
         #if os(Linux) && canImport(CCurl)
-        try await CurlFetch.data(for: request, timeout: configuration.timeoutIntervalForRequest)
+        // The shorter of the session's and the request's own, as URLSession would: a quick
+        // question (`SubsonicClient.ping(timeout:)`) waited the session's whole eight seconds.
+        try await CurlFetch.data(for: request, timeout: min(request.timeoutInterval, configuration.timeoutIntervalForRequest))
         #else
         try await data(for: request)
         #endif

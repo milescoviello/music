@@ -28,6 +28,17 @@ final class AppState {
     /// the copy it could have shown from the start (11-22).
     private(set) var serverSilentSince: Date?
     var isServerSilent: Bool { serverSilentSince != nil }
+    /// No server to be had: no network at all, or one that reaches nothing.
+    var isServerUnreachable: Bool { isServerSilent || reachability.network == .offline }
+
+    /// Whether the song plays with no server: downloaded (or its copy in the other library),
+    /// or held by the stream cache.
+    func isPlayableHere(_ song: Song) -> Bool {
+        downloads.localURL(for: song) != nil || streamCache.anyFile(for: song.id) != nil
+    }
+
+    /// Launch's server work, held because the server answered nothing (`restore`).
+    @ObservationIgnored private var launchWaits = false
 
     let client = SubsonicClient()
     let artwork = ArtworkStore()
@@ -153,6 +164,11 @@ final class AppState {
             let network = reachability.network
             Task { await Diagnostics.shared.record("network", "now \(network)") }
             player.networkChanged()
+            // Whether this network reaches the server, told in seconds, before anything
+            // asks and waits out its whole timeout.
+            if network != .offline, credentials != nil {
+                Task { _ = await self.serverAnswersQuickly() }
+            }
         }
 
         // Plays recorded while offline reach the server the moment there is one.
@@ -163,6 +179,11 @@ final class AppState {
         // Intents cannot be injected into, so the running app is published here for
         // them to find. Set last, once everything above is wired.
         MusicIntentBridge.appState = self
+
+        // Lyrics for what the stream cache takes, as for downloads.
+        streamCache.onSongCached = { [weak self] song in self?.downloadExtras.keepCached(song) }
+        // Queue uploads wait while the server answers nothing; `catchUp` sends the queue.
+        queueSync.isHeld = { [weak self] in self?.isServerSilent ?? false }
 
         // Any answer after saved copies went up means the server is there again.
         let client = client
@@ -199,6 +220,9 @@ final class AppState {
         artwork.configure(signer: signer)
         downloads.resumeWaiting()
         phase = .ready
+        // Whether the server answers, asked at once: screens opened from three seconds on show
+        // their saved copies straight away when it doesn't.
+        async let answers = serverAnswersQuickly()
         // Once a day, and not in the launch's own rush of requests.
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 20 * 1_000_000_000)
@@ -211,6 +235,17 @@ final class AppState {
         // Before any sync: files a lost catalog left behind come back as downloads.
         await downloads.readoptUntracked()
         await player.restore()
+        // A server answering nothing held each of these for a request's whole timeout, one
+        // after another. They wait for it instead (`serverAnswered`), and the saved copies
+        // show meanwhile.
+        guard await answers else {
+            launchWaits = true
+            return
+        }
+        await finishLaunch()
+    }
+
+    private func finishLaunch() async {
         await sonic.refreshStatus(force: true)
         await flushOutbox()
         await refreshRequests()
@@ -221,6 +256,46 @@ final class AppState {
         handoff?.look()
         await playlistSync.sync()
         await loadServerContext()
+    }
+
+    /// Back in the foreground (the phone), or the window shown again (the desktop): what is
+    /// owed, and what moved on meanwhile. One quick question first, as at launch: while the
+    /// server answers nothing, it all waits for it to answer. Before, every return to the
+    /// app sent about ten requests that each waited out eight seconds on a link that reached
+    /// nothing (11-22).
+    func cameBack() {
+        guard phase == .ready else { return }
+        Task {
+            guard await serverAnswersQuickly() else { return }
+            catchUp()
+        }
+    }
+
+    /// Whether the server answers within a few seconds. When it doesn't, it is silent from
+    /// now (`serverSilentSince`): saved copies show at once, and what waits on it waits.
+    func serverAnswersQuickly() async -> Bool {
+        do {
+            try await client.ping(timeout: 3)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// What `cameBack` and the end of a silence bring up to date.
+    private func catchUp() {
+        Task { await flushOutbox() }
+        Task { await refreshRequests() }
+        Task { await sonic.refreshStatus() }
+        Task { await playlistSync.sync() }
+        downloads.resumeWaiting()
+        Task { await mostPlayed.refresh() }
+        Task { await playlistStore.refreshIfStale() }
+        // The queue as it is now, which waited (`QueueSync.isHeld`).
+        queueSync.pushNow(queue: player.queue, elapsed: player.elapsed)
+        // Nothing playing here: catch up with wherever the music is, so a press of play
+        // carries on from it.
+        handoff?.look()
     }
 
     #if targetEnvironment(simulator)
@@ -302,11 +377,18 @@ final class AppState {
     /// Called at launch, on foreground, and on regaining a network. Cheap when the
     /// outbox is empty, which is the normal case.
     func flushOutbox() async {
-        guard credentials != nil else { return }
+        // Sent once it answers (`catchUp`): each kind would wait out its timeout first.
+        guard credentials != nil, !isServerSilent else { return }
         // What downloads still lack -- lyrics, a translation, covers -- once there is a
         // server to ask; returns at once, as it runs on its own.
         downloadExtras.sweep()
+        let hadPlaylistEdits = await outbox.hasPlaylistEdits()
         _ = await outbox.flush(using: client)
+        // Playlist edits made offline, now on the server: the lists and downloads follow.
+        if hadPlaylistEdits {
+            await playlistStore.load()
+            playlistSync.syncSoon()
+        }
         await flushUnsentLogs()
         await taste.sync()
         // After the sync, which may bring in other devices' plays under old ids too.
@@ -355,6 +437,12 @@ final class AppState {
             let quiet = Diagnostics.duration(Date.now.timeIntervalSince(silent))
             Task { await Diagnostics.shared.record("network", "the server answers again, after \(quiet) without") }
             downloadExtras.serverAnswered()
+            if launchWaits {
+                launchWaits = false
+                Task { await finishLaunch() }
+            } else {
+                catchUp()
+            }
         }
         guard isShowingCachedData, let since = cachedDataSince, sent > since else { return }
         isShowingCachedData = false
@@ -365,6 +453,7 @@ final class AppState {
         serverSilentSince = .now
         Task { await Diagnostics.shared.record("network", "the server isn't answering: saved copies first until it does") }
         probeWhileSilent()
+        player.serverWentSilent()
     }
 
     /// The smallest request there is, now and then while the server answers nothing: what

@@ -1342,7 +1342,16 @@ final class PlaybackController {
         guard submission else {
             // "Now playing" is ephemeral -- it expires on the server in minutes, so
             // queueing a stale one would be worse than losing it.
-            Task { try? await appState.client.scrobble(id: event.songID, submission: false) }
+            if !appState.isServerSilent {
+                Task { try? await appState.client.scrobble(id: event.songID, submission: false) }
+            }
+            return
+        }
+
+        // Straight to the outbox while the server answers nothing, rather than after a
+        // request has waited out its timeout. Sent once it answers.
+        if appState.isServerSilent {
+            Task { await appState.outbox.enqueue(songID: event.songID, listenedAt: event.listenedAt) }
             return
         }
 
@@ -1388,6 +1397,14 @@ final class PlaybackController {
             isPlaying = false
             appState?.streamCache.pause()
             return
+        }
+
+        // With no server, a song that would have to be streamed can't start: on to the next
+        // one on this device, rather than handing the output a stream that never comes. The
+        // desktop's reconnects forever and never says it failed, so it waited there for good.
+        if startPlaying, let appState, appState.isServerUnreachable, streams(current), !appState.isPlayableHere(current) {
+            unreachableSongID = current.id
+            if moveToPlayableHere(from: current.id) { return }
         }
 
         openingSongID = startPlaying && streams(current) ? current.id : nil
@@ -1646,10 +1663,26 @@ final class PlaybackController {
         if unreachableSongID != songID { retryAttempt = 0 }
         unreachableSongID = songID
         let title = current.title
-        Task { await Diagnostics.shared.record("playback", "\(title): server unreachable, holding it") }
 
         // Loaded paused — a restore at launch — so nothing was asked for yet.
-        guard isPlaying else { return }
+        guard isPlaying else {
+            Task { await Diagnostics.shared.record("playback", "\(title): server unreachable, holding it") }
+            return
+        }
+        // With no server, though, a song on this device further down the queue plays where
+        // this one can't: downloaded, or in the stream cache. The music goes on.
+        if appState?.isServerUnreachable == true, moveToPlayableHere(from: songID) { return }
+        Task { await Diagnostics.shared.record("playback", "\(title): server unreachable, holding it") }
+        // Not known to be silent yet: a quick question, and on to a song here if it is.
+        if appState?.isServerUnreachable == false {
+            let generation = playGeneration
+            Task { [weak self] in
+                guard let self, let appState, !(await appState.serverAnswersQuickly()),
+                      playGeneration == generation, unreachableSongID == songID, queue.current?.id == songID
+                else { return }
+                moveToPlayableHere(from: songID)
+            }
+        }
         output.pause()
         isPlaying = false
         tracker.interrupted(at: elapsed)
@@ -1668,6 +1701,53 @@ final class PlaybackController {
             else { return }
             play(handingOff: false)
         }
+    }
+
+    /// The server stopped answering. A song still waiting for its stream to open won't get
+    /// it: on to one on this device. One already playing keeps what it has buffered, and a
+    /// stream that gives out partway is `handleFailedMidTrack`'s.
+    func serverWentSilent() {
+        guard remote == nil, video == nil, isPlaying, let appState, let current = queue.current,
+              openingSongID == current.id, !appState.isPlayableHere(current) else { return }
+        unreachableSongID = current.id
+        moveToPlayableHere(from: current.id)
+    }
+
+    /// The next song in the queue that plays with no server, started; when there is none
+    /// left, what Autoplay puts on from this device (`AutoplayService.extend`), once it has.
+    /// True when it moved on at once.
+    @discardableResult
+    private func moveToPlayableHere(from songID: String) -> Bool {
+        guard let appState else { return false }
+        func nextHere() -> Int? {
+            ((queue.position + 1)..<queue.order.count).first { appState.isPlayableHere(queue.tracks[queue.order[$0]]) }
+        }
+        func play(_ index: Int) {
+            let from = queue.current?.title ?? songID
+            let next = queue.tracks[queue.order[index]]
+            let passed = index - queue.position - 1
+            Task {
+                await Diagnostics.shared.record("playback", "“\(from)” can't be reached: on to “\(next.title)”, which is on this device"
+                    + (passed > 0 ? ", past \(passed) that aren't" : ""))
+            }
+            unreachableSongID = nil
+            retryTask?.cancel()
+            queue.jump(toOrderIndex: index)
+            rebuildOutput(startPlaying: true, seekTo: 0)
+        }
+        if let index = nextHere() {
+            play(index)
+            return true
+        }
+        guard appState.autoplay.isActive else { return false }
+        let generation = playGeneration
+        Task { [weak self] in
+            guard let self, await appState.autoplay.extend(), playGeneration == generation,
+                  queue.current?.id == songID, unreachableSongID == songID, let index = nextHere()
+            else { return }
+            play(index)
+        }
+        return false
     }
 
     /// When the last tries at a track that gave out partway were made: two in two minutes,

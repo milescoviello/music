@@ -112,6 +112,9 @@ final class SongRowView {
         let isCurrent = song.isSameRecording(as: app.player.currentSong)
         title.setCSS("current", isCurrent)
         title.setCSS("accent", isCurrent)
+        // With no server, a song neither downloaded nor cached can't play: dimmed, so the
+        // ones that can stand out.
+        root.opacity(app.isServerUnreachable && !app.isPlayableHere(song) ? 0.4 : 1)
         if style == .numbered {
             playing.isVisible = isCurrent
             number.isVisible = !isCurrent

@@ -106,11 +106,21 @@ class RecordAbout:
     # MARK: - The answer
 
     def answer(self, kind: str, item_id: str, name: str, artist: str = "", refresh: bool = False,
-               titles: tuple = ()) -> dict:
+               titles: tuple = (), stored_only: bool = False) -> dict | None:
         """kind "album" (name = the album, artist = its album artist) or "artist" (name = the artist; `titles` = a few
         of its songs, which a Genius artist page of that name must have to count as this artist's)."""
         summary = self.summary(kind, item_id)
-        found = {} if summary and summary["own"] else self._found(kind, item_id, name, artist, refresh, titles)
+        if summary and summary["own"]:
+            found = {}
+        elif stored_only:
+            # What was looked up before, however old, or nothing: as `about.SongAbout.answer`.
+            with self._db() as db:
+                row = db.execute("select data from about where kind = ? and id = ?", (kind, item_id)).fetchone()
+            if row is None and not summary:
+                return None
+            found = json.loads(row[0]) if row and row[0] else {}
+        else:
+            found = self._found(kind, item_id, name, artist, refresh, titles)
         answer = {"id": item_id, "kind": kind, "title": name, "artist": artist if kind == "album" else name,
                   **found, "summary": summary and {k: summary[k] for k in ("text", "basis")}}
         known = {link.get("url") for link in answer.get("links") or []}

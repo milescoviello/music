@@ -444,15 +444,23 @@ struct SonicClient: Sendable {
 
     /// The About sheet's content; nil when the service doesn't know the song. The first ask for a song looks it up on
     /// Genius and Wikipedia, which takes a few seconds; later asks answer at once. `refresh` looks again.
-    func about(songID: String, refresh: Bool = false) async throws -> SongAbout? {
-        try await getIfPresent("v1/tracks/\(songID)/about", refresh ? ["refresh": "1"] : [:], as: SongAbout.self, timeout: 30)
+    ///
+    /// `storedOnly`: what the service looked up before, or nil, with nothing looked up now -- for keeping About with
+    /// every download, which would otherwise send hundreds of lookups to Genius in a row.
+    func about(songID: String, refresh: Bool = false, storedOnly: Bool = false) async throws -> SongAbout? {
+        var query: [String: String] = [:]
+        if refresh { query["refresh"] = "1" }
+        if storedOnly { query["stored"] = "1" }
+        return try await getIfPresent("v1/tracks/\(songID)/about", query, as: SongAbout.self, timeout: storedOnly ? 15 : 30)
     }
 
     /// An album page's About, as `about(songID:)`. The name and artist name an album the service has not read yet.
-    func about(albumID: String, name: String, artist: String?, refresh: Bool = false) async throws -> SongAbout? {
+    func about(albumID: String, name: String, artist: String?, refresh: Bool = false,
+               storedOnly: Bool = false) async throws -> SongAbout? {
         var query = ["name": name]
         if let artist, !artist.isEmpty { query["artist"] = artist }
         if refresh { query["refresh"] = "1" }
+        if storedOnly { query["stored"] = "1" }
         return try await getIfPresent("v1/albums/\(albumID)/about", query, as: SongAbout.self, timeout: 30)
     }
 

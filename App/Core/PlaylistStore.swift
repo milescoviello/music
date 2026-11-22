@@ -145,6 +145,8 @@ final class PlaylistStore {
             lastMessage = skipped == 0 ? added : "\(added) · \(skipped) already there"
         case .failed:
             lastMessage = "Could not add to “\(playlist.name)”"
+        case .queued:
+            lastMessage = "Adding to “\(playlist.name)” once the server answers"
         }
         if case .added = outcome { await didAdd() }
     }
@@ -157,16 +159,19 @@ final class PlaylistStore {
 
         var added: [String] = []
         var failed: [String] = []
+        var queued: [String] = []
         for playlist in chosen {
             switch await insert(songs, into: playlist) {
             case .added: added.append(playlist.name)
             case .alreadyThere: break
             case .failed: failed.append(playlist.name)
+            case .queued: queued.append(playlist.name)
             }
         }
 
         var parts: [String] = []
         if !added.isEmpty { parts.append("Added to \(Self.naming(added))") }
+        if !queued.isEmpty { parts.append("Adding to \(Self.naming(queued)) once the server answers") }
         if !failed.isEmpty { parts.append("Could not add to \(Self.naming(failed))") }
         lastMessage = parts.isEmpty ? "Already in all of them" : parts.joined(separator: " · ")
         if !added.isEmpty { await didAdd() }
@@ -176,19 +181,64 @@ final class PlaylistStore {
         case added(Int, skipped: Int)
         case alreadyThere
         case failed
+        /// No server to tell: waiting in the outbox, and on the saved copy already.
+        case queued
     }
 
     private func insert(_ songs: [Song], into playlist: Playlist) async -> Outcome {
         guard let client else { return .failed }
-        let present = (try? await client.playlistDetail(id: playlist.id))?.songs ?? []
+        if appState?.isServerUnreachable == true { return await queueAdding(songs, to: playlist) }
+        let present: [Song]
+        do {
+            present = try await client.playlistDetail(id: playlist.id).songs
+        } catch let error as SubsonicClient.ClientError where error.isTransport {
+            return await queueAdding(songs, to: playlist)
+        } catch {
+            present = []
+        }
         let adding = PlaylistMembership.missing(songs, from: present)
         guard !adding.isEmpty else { return .alreadyThere }
         do {
             try await client.addToPlaylist(id: playlist.id, songIDs: adding.map(\.id))
             return .added(adding.count, skipped: songs.count - adding.count)
+        } catch let error as SubsonicClient.ClientError where error.isTransport {
+            return await queueAdding(adding, to: playlist)
         } catch {
             return .failed
         }
+    }
+
+    /// Songs for a playlist with no server to tell: they wait in the outbox, which adds what
+    /// the playlist doesn't have by then once the server answers, and the saved copy -- what
+    /// its page shows meanwhile -- has them now.
+    private func queueAdding(_ songs: [Song], to playlist: Playlist) async -> Outcome {
+        guard let appState else { return .failed }
+        let saved = await appState.savedPlaylist(playlist.id)
+        let adding = PlaylistMembership.missing(songs, from: saved?.songs ?? [])
+        guard !adding.isEmpty else { return .alreadyThere }
+        await appState.outbox.enqueuePlaylist(adding: adding.map(\.id), to: playlist.id)
+        if var saved {
+            saved.entry = saved.songs + adding
+            saved.songCount = saved.entry?.count
+            await appState.cache.store(saved, for: CacheKey.playlist(playlist.id))
+        }
+        return .queued
+    }
+
+    /// As `queueAdding`, for a song taken off: the saved copy loses the copy nearest where it
+    /// was shown, and the outbox takes it off the server's once it answers.
+    private func queueRemoving(_ song: Song, shownAt index: Int, from playlistID: String) async -> Bool {
+        guard let appState else { return false }
+        await appState.outbox.enqueuePlaylist(removing: song.id, shownAt: index, from: playlistID)
+        if var saved = await appState.savedPlaylist(playlistID),
+           let position = saved.songs.indices.filter({ saved.songs[$0].id == song.id })
+               .min(by: { abs($0 - index) < abs($1 - index) }) {
+            saved.entry?.remove(at: position)
+            saved.songCount = saved.entry?.count
+            await appState.cache.store(saved, for: CacheKey.playlist(playlistID))
+        }
+        lastMessage = "Taking it off once the server answers"
+        return true
     }
 
     private func didAdd() async {
@@ -282,6 +332,7 @@ final class PlaylistStore {
 
     private func removeNow(_ song: Song, shownAt index: Int, from playlistID: String) async -> Bool {
         guard let client else { return false }
+        if appState?.isServerUnreachable == true { return await queueRemoving(song, shownAt: index, from: playlistID) }
         do {
             let ids = try await client.playlistDetail(id: playlistID).songs.map(\.id)
             // The same song can be on a playlist twice: the copy nearest where it was shown.
@@ -293,6 +344,8 @@ final class PlaylistStore {
             // And its download: the song leaves it, deleted unless something else has it.
             appState?.playlistSync.syncSoon()
             return true
+        } catch let error as SubsonicClient.ClientError where error.isTransport {
+            return await queueRemoving(song, shownAt: index, from: playlistID)
         } catch {
             lastMessage = "Could not remove that track"
             return false

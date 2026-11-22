@@ -59,6 +59,9 @@ enum Paths {
     static let seekbarLevels = caches.appendingPathComponent("Levels", isDirectory: true)
     /// English translations of lyrics, made on the phone.
     static let lyricTranslations = caches.appendingPathComponent("Translations", isDirectory: true)
+    /// Lyrics, word timing and readings for songs the stream cache holds, which play offline
+    /// too: as `lyrics`, but in Caches, which iOS may purge -- as it may the songs.
+    static let cachedLyrics = caches.appendingPathComponent("Lyrics", isDirectory: true)
     /// Every cover fetched, as the server sent it, so a cover is only ever fetched once.
     /// Offline covers for downloads live in `artwork` instead, where iOS cannot purge them.
     static let covers = caches.appendingPathComponent("Covers", isDirectory: true)
@@ -72,7 +75,7 @@ enum Paths {
     /// download session's delegate can fire before any UI exists. The exclusion flag
     /// is re-applied every launch: it is lost whenever a directory is recreated.
     static func bootstrap() {
-        for directory in [root, media, incoming, artwork, outbox, lyrics, metadata, streamCache, trackShapes, seekbarLevels, lyricTranslations, covers] {
+        for directory in [root, media, incoming, artwork, outbox, lyrics, metadata, streamCache, trackShapes, seekbarLevels, lyricTranslations, covers, cachedLyrics] {
             try? FileManager.default.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true
@@ -110,8 +113,8 @@ enum Paths {
         incoming.appendingPathComponent("\(songID).\(suffix).part")
     }
 
-    static func lyricsFile(songID: String) -> URL {
-        lyrics.appendingPathComponent("\(songID).json")
+    static func lyricsFile(songID: String, in directory: URL = lyrics) -> URL {
+        directory.appendingPathComponent("\(songID).json")
     }
 
     /// What else a download keeps beside its lyrics (`DownloadExtras`), so they work offline
@@ -125,8 +128,8 @@ enum Paths {
         case noTranslation = "no-translation"
     }
 
-    static func keptLyricsFile(_ kind: KeptLyrics, songID: String) -> URL {
-        lyrics.appendingPathComponent("\(songID).\(kind.rawValue)")
+    static func keptLyricsFile(_ kind: KeptLyrics, songID: String, in directory: URL = lyrics) -> URL {
+        directory.appendingPathComponent("\(songID).\(kind.rawValue)")
     }
 
     /// Every file kept for a downloaded song's lyrics, for when the download goes.

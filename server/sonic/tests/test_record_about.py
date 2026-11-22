@@ -71,6 +71,17 @@ class Answers(unittest.TestCase):
         self.assertEqual((answer["kind"], answer["title"], answer["artist"]), ("album", "Harbour Nights", "The Velvet Oranges"))
         self.assertIsNone(answer["summary"])
 
+    def test_stored_only_answers_from_before_and_looks_nothing_up(self):
+        web = Web(album_pages())
+        about = self.about(web)
+        self.assertIsNone(about.answer("album", "al", "Harbour Nights", "The Velvet Oranges", stored_only=True))
+        self.assertEqual(web.asked, [])
+        about.answer("album", "al", "Harbour Nights", "The Velvet Oranges")
+        asked = len(web.asked)
+        stored = about.answer("album", "al", "Harbour Nights", "The Velvet Oranges", stored_only=True)
+        self.assertEqual(stored["sections"][0]["text"], "A warm sonic wave.")
+        self.assertEqual(len(web.asked), asked)
+
     def test_an_artists_story_without_members_or_discography(self):
         answer = self.about(Web(artist_pages())).answer("artist", "ar", "Low Orbit Choir")
         self.assertEqual([s["heading"] for s in answer["sections"]],

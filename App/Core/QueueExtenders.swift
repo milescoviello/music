@@ -163,6 +163,8 @@ final class AutoplayService {
     }
 
     private func compute() async {
+        // Every option asks the server; with none, `extend` picks from this device instead.
+        guard appState?.isServerUnreachable != true else { return }
         guard let appState else { return }
         let queue = appState.player.queue
         guard let lastIndex = queue.order.last, queue.tracks.indices.contains(lastIndex) else { return }
@@ -232,7 +234,9 @@ final class AutoplayService {
     private func pick() async -> (option: Option, songs: [Song])? {
         guard let appState else { return nil }
         for choice in AutoplayRules.attempts(selected: selected, available: options.map(\.choice)) {
-            guard !Task.isCancelled else { return nil }
+            // The server stopped answering part-way: each option left would wait out its
+            // own timeout, one after another.
+            guard !Task.isCancelled, !appState.isServerUnreachable else { return nil }
             let option = options.first { $0.choice == choice } ?? Option(
                 choice: .libraryRadio, title: AutoplayChoice.libraryRadio.title,
                 subtitle: "Anything from your library", plan: .library
@@ -378,6 +382,25 @@ final class AutoplayService {
             // The queue this is for. One put on while the options were worked out or the
             // songs fetched -- an album tapped meanwhile -- gets nothing added to its end.
             let generation = appState.player.playGeneration
+            // No server to ask: songs on this device, the last one's artist and genre first,
+            // so the music keeps going rather than stopping where the queue ends.
+            if appState.isServerUnreachable {
+                var generator = SystemRandomNumberGenerator()
+                let songs = OfflinePicks.pick(
+                    from: appState.downloads.catalog.entries.values.map(\.song), after: appState.player.queue.tracks.last,
+                    queued: Set(appState.player.queue.tracks.map(\.id)), recent: self.memory.recent(), limit: 10,
+                    using: &generator
+                )
+                guard !songs.isEmpty else {
+                    await Diagnostics.shared.record("autoplay", "no server, and nothing on this device to add")
+                    return false
+                }
+                appState.player.append(songs)
+                self.memory.note(songs)
+                UserDefaults.standard.set(self.memory.added, forKey: Key.memory)
+                await Diagnostics.shared.record("autoplay", "no server: added \(songs.count) songs on this device")
+                return true
+            }
             if self.options.isEmpty {
                 self.computeTask?.cancel()
                 await self.compute()

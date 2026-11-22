@@ -34,7 +34,16 @@ final class DownloadExtras {
         var words = 0
         var translations = 0
         var readings = 0
-        var isEmpty: Bool { lyrics + noLyrics + words + translations + readings == 0 }
+        var abouts = 0
+        /// Of the songs above, how many the stream cache holds rather than Downloads.
+        var cached = 0
+        var isEmpty: Bool { lyrics + noLyrics + words + translations + readings + abouts == 0 }
+    }
+
+    /// A song to look at, and where what it lacks is kept.
+    private struct Job {
+        let song: Song
+        let place: LyricsStore.Place
     }
 
     /// The desktop reads some scripts through the service (`SonicClient.readings`); the
@@ -51,8 +60,9 @@ final class DownloadExtras {
     static let sweepEvery: TimeInterval = 6 * 3600
 
     private weak var appState: AppState?
-    /// Songs to look at, in turn; new downloads go ahead of what a sweep found.
-    private var waiting: [Song] = []
+    /// Songs to look at, in turn; new downloads go ahead of what a sweep found, and songs
+    /// the stream cache just took after both.
+    private var waiting: [Job] = []
     private var queued: Set<String> = []
     private var running = 0
     /// Looked at this session and lacking nothing: a sweep passes them without reading
@@ -65,6 +75,8 @@ final class DownloadExtras {
     /// A sweep the server's silence stopped, to carry on when it answers.
     private var stoppedBySilence = false
     private var tally = Tally()
+    /// Albums whose About was looked for this session.
+    private var aboutAlbums: Set<String> = []
 
     func attach(_ appState: AppState) {
         self.appState = appState
@@ -78,19 +90,36 @@ final class DownloadExtras {
             queued.insert(song.id)
             complete.remove(song.id)
         }
-        waiting.insert(contentsOf: new, at: 0)
+        waiting.insert(contentsOf: new.map { Job(song: $0, place: .download) }, at: 0)
         pump()
     }
 
-    /// The server answers again: a sweep it stopped carries on.
+    /// A song the stream cache just took, ahead of playing it: offline it plays from there,
+    /// and its lyrics, translation and word timing should be there too. Kept in Caches with
+    /// it. Not for a downloaded song, which has its own.
+    func keepCached(_ song: Song) {
+        guard let appState, !appState.downloads.isDownloaded(song.id), !queued.contains(song.id),
+              !complete.contains(song.id) else { return }
+        queued.insert(song.id)
+        waiting.append(Job(song: song, place: .cache))
+        pump()
+    }
+
+    /// The server answers again: what its silence held up carries on.
     func serverAnswered() {
         if stoppedBySilence { sweep() }
+        pump()
     }
 
     /// Every download, for what it lacks. Returns at once; cheap when a sweep went through
     /// them all a little while ago.
     func sweep() {
         guard !isSweeping, let appState, appState.credentials != nil else { return }
+        // Every song's first request would wait out its timeout; picked up when it answers.
+        if appState.isServerSilent {
+            stoppedBySilence = true
+            return
+        }
         if !stoppedBySilence, let sweptAt, Date.now.timeIntervalSince(sweptAt) < Self.sweepEvery { return }
         isSweeping = true
         Task { [weak self] in
@@ -120,7 +149,7 @@ final class DownloadExtras {
                     + "their translation or word timing: fetching them")
                 sweepQueued = true
                 for song in lacking { queued.insert(song.id) }
-                waiting.append(contentsOf: lacking)
+                waiting.append(contentsOf: lacking.map { Job(song: $0, place: .download) })
                 pump()
             }
             await keepCovers(of: songs)
@@ -140,13 +169,16 @@ final class DownloadExtras {
     }
 
     private func pump() {
+        // Held while the server answers nothing, rather than each asking and timing out.
+        guard appState?.isServerSilent != true else { return }
         while running < Self.concurrency, !waiting.isEmpty {
-            let song = waiting.removeFirst()
+            let job = waiting.removeFirst()
             running += 1
             Task(priority: .utility) { [weak self] in
                 guard let self else { return }
-                let outcome = await keepExtras(of: song)
-                finished(song, outcome)
+                let outcome = await keepExtras(of: job.song, in: job.place)
+                if job.place == .cache, outcome == .kept { tally.cached += 1 }
+                finished(job.song, outcome)
             }
         }
     }
@@ -165,29 +197,53 @@ final class DownloadExtras {
                 let left = waiting.count + 1
                 Task { await Diagnostics.shared.record("downloads", "the server isn't answering: \(left) downloads' lyrics left for when it does") }
             }
-            for left in waiting { queued.remove(left.id) }
+            // Downloads are found again by the next sweep; cached songs when next cached.
+            for left in waiting { queued.remove(left.song.id) }
             waiting.removeAll()
         }
         guard running == 0, waiting.isEmpty else { return pump() }
         if sweepQueued, !stoppedBySilence { sweptAt = .now }
         sweepQueued = false
+        guard !tally.isEmpty, summary == nil else { return }
+        // Once for a run of them: the stream cache takes songs one at a time, and each was a
+        // line of its own in the log.
+        summary = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(30))
+            self?.logTally()
+        }
+    }
+
+    private var summary: Task<Void, Never>?
+
+    private func logTally() {
+        summary = nil
         guard !tally.isEmpty else { return }
         let done = tally
         tally = Tally()
         Task {
             await Diagnostics.shared.record("downloads", "kept with downloads: lyrics for \(done.lyrics) "
                 + "(\(done.noLyrics) with none on the server), word timing for \(done.words), "
-                + "\(done.translations) translations" + (Self.readsOnServer ? ", readings for \(done.readings)" : ""))
+                + "\(done.translations) translations" + (Self.readsOnServer ? ", readings for \(done.readings)" : "")
+                + ", About for \(done.abouts)" + (done.cached > 0 ? "; \(done.cached) of the songs are cached, not downloaded" : ""))
         }
     }
 
-    private func keepExtras(of song: Song) async -> Outcome {
-        guard let appState, appState.downloads.status(for: song.id) != .none else { return .kept }
+    private func keepExtras(of song: Song, in place: LyricsStore.Place) async -> Outcome {
+        guard let appState else { return .kept }
         let id = song.id
-        // Its covers first: a file check once the album's are kept.
-        if !appState.isServerSilent { await appState.artwork.persistAll(id: song.coverArt) }
+        // Removed meanwhile: from Downloads, or from the stream cache.
+        switch place {
+        case .download: guard appState.downloads.status(for: id) != .none else { return .kept }
+        case .cache: guard appState.streamCache.anyFile(for: id) != nil, !appState.downloads.isDownloaded(id) else { return .kept }
+        }
+        if place == .download, !appState.isServerSilent {
+            // Its covers first: a file check once the album's are kept.
+            await appState.artwork.persistAll(id: song.coverArt)
+            // The seekbar's shape, which the phone could only measure itself offline.
+            appState.seekbarLevels.request([id])
+        }
         var sets = await LyricsStore.shared.load(songID: id) ?? []
-        if sets.isEmpty, !LyricsStore.isMarked(.noLyrics, songID: id, retry: LyricsStore.lyricsRetry) {
+        if sets.isEmpty, !LyricsStore.isMarked(.noLyrics, songID: id, retry: LyricsStore.lyricsRetry, in: place) {
             do {
                 sets = try await appState.client.lyrics(songID: id)
             } catch let error as SubsonicClient.ClientError where error.isTransport {
@@ -195,29 +251,29 @@ final class DownloadExtras {
             } catch {
                 return .partly
             }
-            // Removed while it was asked for.
-            guard appState.downloads.status(for: id) != .none else { return .kept }
             if sets.isEmpty {
-                LyricsStore.mark(.noLyrics, songID: id)
+                LyricsStore.mark(.noLyrics, songID: id, in: place)
                 tally.noLyrics += 1
             } else {
-                await LyricsStore.shared.save(sets, for: id)
+                await LyricsStore.shared.save(sets, for: id, in: place)
                 tally.lyrics += 1
             }
         }
 
-        let wants = await DownloadLyrics.wants(id, readsOnServer: Self.readsOnServer).subtracting(.lyrics)
-        guard !wants.isEmpty, let shown = StructuredLyrics.shown(from: sets) else { return .kept }
         guard appState.sonic.isAvailable else { return .partly }
         let sonic = SonicClient(configuration: appState.sonic.configuration)
+        var outcome = Outcome.kept
+        if place == .download, !(await keepAbout(of: song, sonic: sonic)) { outcome = .partly }
+
+        let wants = await DownloadLyrics.wants(id, readsOnServer: Self.readsOnServer, in: place).subtracting(.lyrics)
+        guard !wants.isEmpty, let shown = StructuredLyrics.shown(from: sets) else { return outcome }
         let text = shown.lines.map(\.value)
         let language = LyricsLanguage.detect(text, tag: shown.lang)
-        var outcome = Outcome.kept
 
         if wants.contains(.words) {
             do {
                 let found = try await sonic.words(songID: id) ?? []
-                await LyricsStore.shared.saveWords(found, for: id)
+                await LyricsStore.shared.saveWords(found, for: id, in: place)
                 if !found.isEmpty { tally.words += 1 }
             } catch {
                 outcome = .partly
@@ -236,13 +292,13 @@ final class DownloadExtras {
                 if case let .done(made) = answer, made.isWholeSong || (Self.readsOnServer && !made.draft) {
                     let placed = LyricTranslationStore.placed(made.lines, notes: made.notes, asked: asked, of: text)
                     await LyricTranslationStore.shared.save(placed.lines, notes: placed.notes, engine: made.engine,
-                                                            of: text, songID: id, keep: true)
+                                                            of: text, songID: id, keep: place == .download)
                     tally.translations += 1
                 } else {
-                    LyricsStore.mark(.noTranslation, songID: id)
+                    LyricsStore.mark(.noTranslation, songID: id, in: place)
                 }
             } catch SonicError.notFound {
-                LyricsStore.mark(.noTranslation, songID: id)
+                LyricsStore.mark(.noTranslation, songID: id, in: place)
             } catch {
                 outcome = .partly
             }
@@ -251,12 +307,39 @@ final class DownloadExtras {
         if wants.contains(.readings) {
             do {
                 let tokens = try await sonic.readings(text)
-                await LyricsStore.shared.saveReadings(tokens, of: text, for: id)
+                await LyricsStore.shared.saveReadings(tokens, of: text, for: id, in: place)
                 tally.readings += 1
             } catch {
                 outcome = .partly
             }
         }
         return outcome
+    }
+
+    /// The song's About, and its album's once a session, as the service has them already
+    /// (`storedOnly`: nothing looked up for this). Kept where the About sheet and the album
+    /// page look when the service can't be reached. False when the service could not answer.
+    private func keepAbout(of song: Song, sonic: SonicClient) async -> Bool {
+        guard let appState else { return true }
+        let cache = appState.cache
+        let songKey = CacheKey.about(.song, song.id)
+        do {
+            if await cache.load(SongAbout.self, for: songKey) == nil,
+               let about = try await sonic.about(songID: song.id, storedOnly: true) {
+                await cache.store(about, for: songKey)
+                tally.abouts += 1
+            }
+            if let albumID = song.albumId, aboutAlbums.insert(albumID).inserted {
+                let albumKey = CacheKey.about(.album, albumID)
+                if await cache.load(SongAbout.self, for: albumKey) == nil,
+                   let about = try await sonic.about(albumID: albumID, name: song.album ?? "", artist: song.albumArtists?.first?.name ?? song.artist,
+                                                     storedOnly: true) {
+                    await cache.store(about, for: albumKey)
+                }
+            }
+            return true
+        } catch {
+            return false
+        }
     }
 }

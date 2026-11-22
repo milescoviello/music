@@ -78,13 +78,15 @@ final class SonicService {
     }
 
     /// The About sheet's content. Asks even before the analysis has started: it needs the service, not its index.
+    /// Each answer is kept (`LibraryCache`), and shown when the service can't be reached: offline, a song's About is
+    /// what it was last time, or what was kept with its download (`DownloadExtras`).
     func about(_ song: Song, refresh: Bool = false) async -> AboutAnswer {
-        await answer { try await client.about(songID: song.id, refresh: refresh) }
+        await answer(keptAs: CacheKey.about(.song, song.id)) { try await client.about(songID: song.id, refresh: refresh) }
     }
 
     /// An album page's About section.
     func about(album id: String, name: String, artist: String?) async -> AboutAnswer {
-        await answer { try await client.about(albumID: id, name: name, artist: artist) }
+        await answer(keptAs: CacheKey.about(.album, id)) { try await client.about(albumID: id, name: name, artist: artist) }
     }
 
     /// An artist page's About section.
@@ -92,11 +94,14 @@ final class SonicService {
         await answer { try await client.about(artistID: id, name: name) }
     }
 
-    private func answer(_ ask: () async throws -> SongAbout?) async -> AboutAnswer {
+    private func answer(keptAs key: String? = nil, _ ask: () async throws -> SongAbout?) async -> AboutAnswer {
+        let cache = appState?.cache
         do {
             guard let about = try await ask() else { return .unknown }
+            if let key, let cache { await cache.store(about, for: key) }
             return .about(about)
         } catch {
+            if let key, let kept = await cache?.load(SongAbout.self, for: key) { return .about(kept) }
             return .unreachable
         }
     }

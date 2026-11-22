@@ -6,8 +6,8 @@ import Foundation
 ///
 /// An album's or an artist's About (`record_about.py`) is the same answer without the notes: `title` is the album
 /// or the artist, and `preview(of:)` is what their page shows before "Sources" opens the rest.
-struct SongAbout: Decodable, Equatable, Sendable {
-    struct Summary: Decodable, Equatable, Sendable {
+struct SongAbout: Codable, Equatable, Sendable {
+    struct Summary: Codable, Equatable, Sendable {
         var text: String
         /// "sources" when it rests on the background quoted below it; "lyrics" when there was nothing to go on
         /// but the words, which the sheet says.
@@ -19,7 +19,7 @@ struct SongAbout: Decodable, Equatable, Sendable {
     }
 
     /// A passage quoted from one of the song's pages: Genius's About, or a section of its Wikipedia article.
-    struct Section: Decodable, Equatable, Sendable, Identifiable {
+    struct Section: Codable, Equatable, Sendable, Identifiable {
         var source: String
         var heading: String
         var text: String
@@ -29,7 +29,7 @@ struct SongAbout: Decodable, Equatable, Sendable {
     }
 
     /// A Genius note on a fragment of the lyrics, mostly a listener's.
-    struct Note: Decodable, Equatable, Sendable, Identifiable {
+    struct Note: Codable, Equatable, Sendable, Identifiable {
         var fragment: String
         var text: String
         var url: String?
@@ -38,7 +38,7 @@ struct SongAbout: Decodable, Equatable, Sendable {
         var id: String { "\(fragment)\u{1f}\(text.prefix(40))" }
     }
 
-    struct Link: Decodable, Equatable, Sendable, Identifiable {
+    struct Link: Codable, Equatable, Sendable, Identifiable {
         var name: String
         var url: String?
 
@@ -46,7 +46,7 @@ struct SongAbout: Decodable, Equatable, Sendable {
     }
 
     /// "Flag for a fix", sent from an app and still open: the summary hasn't been written again since.
-    struct Flag: Decodable, Equatable, Sendable {
+    struct Flag: Codable, Equatable, Sendable {
         var at: Double?
         var note: String
 

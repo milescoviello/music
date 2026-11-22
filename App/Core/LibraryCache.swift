@@ -92,4 +92,6 @@ enum CacheKey {
     static func genres(_ scope: String) -> String { "genres-\(scope)" }
     static func starred(_ scope: String) -> String { "starred-\(scope)" }
     static func shelf(_ name: String, _ scope: String) -> String { "shelf-\(name)-\(scope)" }
+    /// A song's or album's About, from the sonic service.
+    static func about(_ kind: AboutKind, _ id: String) -> String { "about-\(kind.rawValue)-\(id)" }
 }

@@ -212,6 +212,8 @@ struct DiagnosticsView: View {
         case .unstar: return "Favourites removed"
         case .rating: return "Ratings"
         case .bookmark: return "Resume positions"
+        case .playlistAdd: return "Songs added to playlists"
+        case .playlistRemove: return "Songs taken off playlists"
         }
     }
 

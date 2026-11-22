@@ -45,6 +45,8 @@ final class StreamCache {
 
     /// A file landed. The player swaps it in for a stream it has not started yet.
     @ObservationIgnored var onCached: ((_ songID: String, _ file: URL) -> Void)?
+    /// The same, with the song: its lyrics are kept alongside (`DownloadExtras.keepCached`).
+    @ObservationIgnored var onSongCached: ((Song) -> Void)?
 
     /// The space the cache may use, past what is protected. Set from the settings.
     @ObservationIgnored var maxBytes: Int64 = 1 << 30 {
@@ -283,6 +285,7 @@ final class StreamCache {
         evict()
         scheduleSave()
         onCached?(songID, destination)
+        onSongCached?(request.song)
     }
 
     private func evict() {

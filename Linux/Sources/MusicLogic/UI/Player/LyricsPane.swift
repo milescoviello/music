@@ -194,11 +194,16 @@ final class LyricsPane {
                 } catch let error as SubsonicClient.ClientError where error.isTransport {
                     unanswered = true
                 } catch {}
-                // Downloaded with none kept -- fetched before there were any, or the fetch
-                // lost: kept now, with the rest of what goes with them.
-                if !sets.isEmpty, env.app.downloads.isDownloaded(song.id) {
-                    await LyricsStore.shared.save(sets, for: song.id)
-                    env.app.downloadExtras.keep([song])
+                // Kept now: with a download that has none -- fetched before there were any,
+                // or the fetch lost -- along with the rest of what goes with them; for any
+                // other song in Caches, so it has them offline if it plays from the cache.
+                if !sets.isEmpty {
+                    if env.app.downloads.isDownloaded(song.id) {
+                        await LyricsStore.shared.save(sets, for: song.id)
+                        env.app.downloadExtras.keep([song])
+                    } else {
+                        await LyricsStore.shared.save(sets, for: song.id, in: .cache)
+                    }
                 }
             }
             guard songID == song.id, timing == nil else { return }
@@ -238,7 +243,7 @@ final class LyricsPane {
         guard !env.app.isServerSilent else { return }
         let server = try? await env.app.client.lyrics(songID: keptID)
         guard let fresh = LyricsStore.update(kept: kept, server: server) else { return }
-        await LyricsStore.shared.save(fresh, for: keptID)
+        await LyricsStore.shared.save(fresh, for: keptID, in: await LyricsStore.shared.place(of: keptID) ?? .cache)
         // Their translation, readings and word timing too, for the new lines.
         if let entry = env.app.downloads.catalog.entries[keptID] { env.app.downloadExtras.keep([entry.song]) }
         // Not over a song moved on from, or one being timed by hand.
@@ -269,11 +274,11 @@ final class LyricsPane {
         let offset = lyrics.offset ?? 0
         let sung = lyrics.lines.map { LyricLine(start: $0.start.map { $0 - offset }, value: $0.value) }
         let configuration = env.app.sonic.configuration
-        let keep = env.app.downloads.isDownloaded(keptID)
+        let place: LyricsStore.Place = env.app.downloads.isDownloaded(keptID) ? .download : .cache
         let reference = WeakReference(self)
         Task { @MainActor in
             guard let pane = reference.value else { return }
-            let found = await pane.env.app.wordTimings.cues(for: keptID, lines: sung, sonic: configuration, keep: keep)
+            let found = await pane.env.app.wordTimings.cues(for: keptID, lines: sung, sonic: configuration, keepIn: place)
             guard let pane = reference.value, pane.loadedID == id, pane.timing == nil else { return }
             pane.cues = found
             pane.active = nil
@@ -400,7 +405,7 @@ final class LyricsPane {
         let language = language(of: lyrics)
         let id = songID
         let keptID = shownID ?? id ?? ""
-        let keep = env.app.downloads.isDownloaded(keptID)
+        let place: LyricsStore.Place = env.app.downloads.isDownloaded(keptID) ? .download : .cache
         let silent = env.app.isServerSilent
         let sonic = SonicClient(configuration: env.app.sonic.configuration)
         let reference = WeakReference(self)
@@ -412,7 +417,7 @@ final class LyricsPane {
                 var tokens = await LyricsStore.shared.readings(songID: keptID, lines: text)
                 if tokens == nil, !silent, let read = try? await sonic.readings(text) {
                     tokens = read
-                    if keep { await LyricsStore.shared.saveReadings(read, of: text, for: keptID) }
+                    await LyricsStore.shared.saveReadings(read, of: text, for: keptID, in: place)
                 }
                 if let tokens {
                     romanized = zip(text, tokens).map { line, tokens in

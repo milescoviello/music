@@ -90,8 +90,12 @@ final class QueueSync {
     ///
     /// Uploads only when the list or the track playing has changed since the last
     /// upload. A pause or a resume on its own is not worth re-sending the whole queue.
+    /// True while the server answers nothing: an upload would only wait out its timeout. The
+    /// queue as it is then goes up once it answers (`AppState.catchUp`).
+    @ObservationIgnored var isHeld: () -> Bool = { false }
+
     func push(queue: PlaybackQueue, elapsed: Double) {
-        guard client != nil, !queue.isEmpty, !TestCopy.isOn, holdUntil < .now else { return }
+        guard client != nil, !queue.isEmpty, !TestCopy.isOn, holdUntil < .now, !isHeld() else { return }
         let upload = Upload(listID: queue.listID, currentID: queue.current?.id)
         guard upload != lastPushed else { return }
         schedule(queue, elapsed: elapsed, as: upload)
@@ -101,7 +105,7 @@ final class QueueSync {
     /// when another device is most likely to pick up — so the position goes too, if it
     /// has moved since the last upload.
     func pushNow(queue: PlaybackQueue, elapsed: Double) {
-        guard client != nil, !queue.isEmpty, !TestCopy.isOn, holdUntil < .now else { return }
+        guard client != nil, !queue.isEmpty, !TestCopy.isOn, holdUntil < .now, !isHeld() else { return }
         let upload = Upload(listID: queue.listID, currentID: queue.current?.id)
         guard upload != lastPushed || Int(elapsed) != lastPushedSeconds else { return }
         schedule(queue, elapsed: elapsed, as: upload)

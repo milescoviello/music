@@ -56,9 +56,10 @@ final class WordTimingCache {
     private var failedAt: [String: Date] = [:]
     static let failureRetry: TimeInterval = 120
 
-    /// `keep`: the song is downloaded, so what the service says is kept with it, for
-    /// offline. A downloaded song's kept timing is used without asking.
-    func cues(for songID: String, lines: [LyricLine], sonic: SonicClient.Configuration, keep: Bool = false) async -> [Int: [WordCue]] {
+    /// `keepIn`: where what the service says is kept, for offline -- with the download, or
+    /// in Caches for any other song. A kept timing is used without asking.
+    func cues(for songID: String, lines: [LyricLine], sonic: SonicClient.Configuration,
+              keepIn place: LyricsStore.Place? = nil) async -> [Int: [WordCue]] {
         guard lines.contains(where: { $0.start != nil }) else { return [:] }
         if kept[songID] == nil, let stored = await LyricsStore.shared.words(songID: songID) {
             remember(songID, stored)
@@ -67,7 +68,7 @@ final class WordTimingCache {
             do {
                 let found = try await SonicClient(configuration: sonic).words(songID: songID) ?? []
                 remember(songID, found)
-                if keep { await LyricsStore.shared.saveWords(found, for: songID) }
+                if let place { await LyricsStore.shared.saveWords(found, for: songID, in: place) }
             } catch {
                 failedAt[songID] = .now
             }

@@ -362,7 +362,9 @@ final class DownloadCenter {
     /// loaded, when the server's signer is ready, on coming back to the foreground, and
     /// a minute after a transfer is interrupted. Cheap when there is nothing to do.
     func resumeWaiting() {
-        guard !isResuming, !catalog.pending.isEmpty, let signer = appState?.signer else { return }
+        // Nothing would come while the server answers nothing; it is called again when it does.
+        guard !isResuming, !catalog.pending.isEmpty, let signer = appState?.signer,
+              appState?.isServerSilent != true else { return }
         isResuming = true
         Task {
             defer { isResuming = false }
@@ -408,6 +410,10 @@ final class DownloadCenter {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(120))
                 guard let self, !progress.isEmpty || !catalog.pending.isEmpty else { break }
+                // A transfer with nothing coming while the server answers nothing is not
+                // stalled, it is waiting: cancelled and asked for again every few minutes,
+                // the same songs went round for hours on a link that reached nothing (11-21).
+                if appState?.isServerSilent == true { continue }
                 await checkStalls()
                 resumeWaiting()
             }

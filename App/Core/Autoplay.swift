@@ -252,6 +252,36 @@ enum PlaylistRadio {
 /// The songs Autoplay added, and when, for two weeks: what `AutoplayRules.fresh` holds back.
 /// By recording (`MixEngine.identity`), so the other library's copy of a song is the same
 /// song. Kept in the defaults; a few hundred entries at most.
+/// What Autoplay puts on when there is no server to ask: songs on this device, nearest the
+/// last song first -- its artist, then its genre, then anything -- each group shuffled, one
+/// copy of a recording, none already queued. Songs put on lately go last rather than out:
+/// offline the choice is only what is here.
+enum OfflinePicks {
+    static func pick<G: RandomNumberGenerator>(
+        from here: [Song], after last: Song?, queued: Set<String>, recent: Set<String>, limit: Int,
+        using generator: inout G
+    ) -> [Song] {
+        var seen = Set<String>()
+        let candidates = here.filter { song in
+            !queued.contains(song.id) && seen.insert(MixEngine.identity(song)).inserted
+        }
+        func rank(_ song: Song) -> Int {
+            let late = recent.contains(song.id) ? 3 : 0
+            guard let last else { return late + 2 }
+            if let artist = song.artist, artist == last.artist { return late }
+            if let genre = song.mainGenre, genre == last.mainGenre { return late + 1 }
+            return late + 2
+        }
+        let grouped = Dictionary(grouping: candidates, by: rank)
+        var picked: [Song] = []
+        for tier in grouped.keys.sorted() {
+            picked += grouped[tier, default: []].shuffled(using: &generator)
+            if picked.count >= limit { break }
+        }
+        return Array(picked.prefix(limit))
+    }
+}
+
 struct AutoplayMemory: Equatable, Sendable {
     static let span: TimeInterval = 14 * 86_400
 

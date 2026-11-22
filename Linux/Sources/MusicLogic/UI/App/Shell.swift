@@ -420,16 +420,8 @@ final class Shell {
     private func becameActive() {
         guard app.phase == .ready else { return }
         app.player.appBecameActive()
-        Task { await app.flushOutbox() }
-        Task { await app.refreshRequests() }
-        Task { await app.sonic.refreshStatus() }
-        Task { await app.playlistSync.sync() }
-        app.downloads.resumeWaiting()
-        Task { await app.mostPlayed.refresh() }
-        Task { await app.playlistStore.refreshIfStale() }
-        // Nothing playing here: catch up with wherever the music is, so a press of play
-        // carries on from it.
-        app.handoff?.look()
+        // What is owed and what moved on, once a quick question says the server is there.
+        app.cameBack()
     }
 
     private func restoreSize() {

@@ -384,6 +384,22 @@ actor SubsonicClient {
         try await perform("ping.view")
     }
 
+    /// The smallest question, with a short wait: whether the server answers at all, told in
+    /// seconds rather than in a request's full timeout. Its answer or silence goes to the same
+    /// hooks as every request's.
+    func ping(timeout: TimeInterval) async throws {
+        var request = URLRequest(url: try dataURL("ping.view"))
+        request.timeoutInterval = timeout
+        let started = Date.now
+        do {
+            _ = try await session.fetch(request)
+            onAnswer?(started)
+        } catch {
+            if !Self.isCancellation(error) { onSilence?() }
+            throw ClientError.network(error)
+        }
+    }
+
     /// Cached at sign-in so features can gate on advertised extensions instead of
     /// trying an endpoint and interpreting the failure.
     func loadCapabilities() async {

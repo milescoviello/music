@@ -107,6 +107,18 @@ class Answers(unittest.TestCase):
         self.assertEqual([link["name"] for link in answer["links"]], ["Genius", "Wikipedia"])
         self.assertIsNone(answer["summary"])
 
+    def test_stored_only_answers_from_before_and_looks_nothing_up(self):
+        web = Web(everything())
+        about = self.about(web)
+        self.assertIsNone(about.answer("a", "Glass Harbour", "The Velvet Oranges", stored_only=True))
+        self.assertEqual(web.asked, [])
+        about.answer("a", "Glass Harbour", "The Velvet Oranges")
+        asked = len(web.asked)
+        self.now += 400 * 86_400  # long past fresh: still what was found, and no new lookup
+        stored = about.answer("a", "Glass Harbour", "The Velvet Oranges", stored_only=True)
+        self.assertEqual([s["source"] for s in stored["sections"]], ["Genius", "Wikipedia", "Wikipedia"])
+        self.assertEqual(len(web.asked), asked)
+
     def test_notes_without_the_empty_and_the_voted_down(self):
         notes = self.about(Web(everything())).answer("a", "Glass Harbour", "The Velvet Oranges")["notes"]
         self.assertEqual(notes, [{"fragment": "Out past the glass harbour lights", "text": "The singer's hometown pier.",

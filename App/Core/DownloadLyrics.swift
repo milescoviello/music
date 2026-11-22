@@ -11,10 +11,13 @@ enum DownloadLyrics {
         static let readings = Wants(rawValue: 1 << 3)
     }
 
-    /// What a downloaded song lacks, from its files alone.
-    static func wants(_ songID: String, readsOnServer: Bool, now: Date = .now) async -> Wants {
+    /// What a downloaded song lacks, from its files alone. `place`: a song the stream cache
+    /// holds, whose are kept in Caches.
+    static func wants(_ songID: String, readsOnServer: Bool, now: Date = .now,
+                      in place: LyricsStore.Place = .download) async -> Wants {
         guard let sets = await LyricsStore.shared.load(songID: songID), !sets.isEmpty else {
-            return LyricsStore.isMarked(.noLyrics, songID: songID, retry: LyricsStore.lyricsRetry, now: now) ? [] : .lyrics
+            return LyricsStore.isMarked(.noLyrics, songID: songID, retry: LyricsStore.lyricsRetry, now: now, in: place)
+                ? [] : .lyrics
         }
         guard let shown = StructuredLyrics.shown(from: sets), !shown.lines.isEmpty else { return [] }
         var wants: Wants = []
@@ -22,17 +25,20 @@ enum DownloadLyrics {
 
         if shown.synced {
             // An empty list is the service having none: asked again after a while.
-            let file = Paths.keptLyricsFile(.words, songID: songID)
+            let file = Paths.keptLyricsFile(.words, songID: songID, in: place.directory)
             let size = ((try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? NSNumber)?.intValue
-            if size == nil || (size ?? 0) <= 2 && !LyricsStore.isMarked(.words, songID: songID, retry: LyricsStore.wordsRetry, now: now) {
+            if size == nil || (size ?? 0) <= 2
+                && !LyricsStore.isMarked(.words, songID: songID, retry: LyricsStore.wordsRetry, now: now, in: place) {
                 wants.insert(.words)
             }
         }
 
         let language = LyricsLanguage.detect(text, tag: shown.lang)
         if !LyricsLanguage.isEnglish(language), !LyricsLanguage.linesToTranslate(text).isEmpty,
-           await LyricTranslationStore.shared.keptWithDownload(songID: songID, lines: text) == nil,
-           !LyricsStore.isMarked(.noTranslation, songID: songID, retry: LyricsStore.translationRetry, now: now) {
+           await (place == .download
+               ? LyricTranslationStore.shared.keptWithDownload(songID: songID, lines: text)
+               : LyricTranslationStore.shared.kept(songID: songID, lines: text)) == nil,
+           !LyricsStore.isMarked(.noTranslation, songID: songID, retry: LyricsStore.translationRetry, now: now, in: place) {
             wants.insert(.translation)
         }
 

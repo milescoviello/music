@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SongRow: View {
     @Environment(UserStateStore.self) private var userState
+    @Environment(AppState.self) private var appState
 
     enum Style {
         /// Album detail: track number, no artwork, no album line.
@@ -56,9 +57,17 @@ struct SongRow: View {
             }
         }
         .contentShape(Rectangle())
+        // With no server, a song neither downloaded nor cached can't play: dimmed, so the
+        // ones that can stand out.
+        .opacity(isOutOfReach ? 0.4 : 1)
         // One element, one announcement. Left as separate views, VoiceOver reads the
         // number, title, artist, badge and duration as five stops per row.
         .accessibilityElement(children: .combine)
+        .accessibilityHint(isOutOfReach ? "Not on this device, and the server can't be reached" : "")
+    }
+
+    private var isOutOfReach: Bool {
+        appState.isServerUnreachable && !appState.isPlayableHere(song)
     }
 
     @ViewBuilder
