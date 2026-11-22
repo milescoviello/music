@@ -426,6 +426,13 @@ actor DownloadCatalogStore {
         return catalog
     }
 
+    /// The lyrics and all that was kept with them (`Paths.keptLyricsFiles`).
+    static func removeKeptLyrics(songID: String) {
+        for file in Paths.keptLyricsFiles(songID: songID) {
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
     func remove(songIDs: [String]) -> DownloadCatalog {
         _ = load()
         for id in songIDs {
@@ -433,7 +440,7 @@ actor DownloadCatalogStore {
                 try? FileManager.default.removeItem(at: entry.url)
             }
             catalog.pending.removeValue(forKey: id)
-            try? FileManager.default.removeItem(at: Paths.lyricsFile(songID: id))
+            Self.removeKeptLyrics(songID: id)
         }
         save()
         return catalog
@@ -457,7 +464,11 @@ actor DownloadCatalogStore {
         let gone = catalog.leave(groupID, songIDs: songIDs)
         for entry in gone.finished {
             try? FileManager.default.removeItem(at: entry.url)
-            try? FileManager.default.removeItem(at: Paths.lyricsFile(songID: entry.song.id))
+        }
+        // A song still waiting may have its lyrics kept already: they are fetched when the
+        // download is asked for, not when it lands.
+        for entry in gone.finished + gone.waiting {
+            Self.removeKeptLyrics(songID: entry.song.id)
         }
         save()
         return (catalog, (gone.finished + gone.waiting).map(\.song.id))

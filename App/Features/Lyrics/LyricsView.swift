@@ -32,8 +32,15 @@ struct LyricsView: View {
     /// Asking LRCLIB for lyrics the song has none of, and what came of it.
     @State private var isFindingLyrics = false
     @State private var findNote: String?
+    /// The song whose lyrics, translation and word timing are on screen: this one's, or
+    /// its downloaded copy's from the other library when only that one has them kept.
+    @State private var lyricsID: String?
+    /// Bumped to load again: Try Again, or the server answering after it had not.
+    @State private var loadAttempt = 0
 
-    private enum LoadState { case loading, loaded, missing }
+    /// `unreachable`: no lyrics kept, and the server answered nothing -- not the same as a
+    /// song with none, which offers to find some.
+    private enum LoadState { case loading, loaded, missing, unreachable }
 
     private var player: PlaybackController { appState.player }
     private var lines: [LyricLine] { timing?.lines ?? lyrics?.lines ?? [] }
@@ -51,19 +58,27 @@ struct LyricsView: View {
                 ProgressView()
             case .missing:
                 missingState
+            case .unreachable:
+                unreachableState
             case .loaded:
                 lyricsScroller
             }
         }
-        .task(id: song.id) { await load() }
-        // The words' timing, once the lyrics are on screen: a request of its own, which a
-        // song without any answers quickly.
+        .task(id: LoadRequest(songID: song.id, attempt: loadAttempt)) { await load() }
+        // Lyrics the server could not be asked for, once it answers again.
+        .onChange(of: appState.isServerSilent) { _, silent in
+            if !silent, state == .unreachable { loadAttempt += 1 }
+        }
+        // The words' timing, once the lyrics are on screen: kept with a download, or a
+        // request of its own, which a song without any answers quickly.
         .task(id: loadedSongID) {
             cues = [:]
             guard let id = loadedSongID, let lyrics, lyrics.synced else { return }
+            let keptID = lyricsID ?? id
             let offset = lyrics.offset ?? 0
             let sung = lyrics.lines.map { LyricLine(start: $0.start.map { $0 - offset }, value: $0.value) }
-            let found = await appState.wordTimings.cues(for: id, lines: sung, sonic: appState.sonic.configuration)
+            let found = await appState.wordTimings.cues(for: keptID, lines: sung, sonic: appState.sonic.configuration,
+                                                        keep: appState.downloads.isDownloaded(keptID))
             guard !Task.isCancelled, loadedSongID == id else { return }
             cues = found
         }
@@ -485,6 +500,26 @@ struct LyricsView: View {
         }
     }
 
+    private var unreachableState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.largeTitle)
+                .foregroundStyle(.tertiary)
+            Text("Can't reach the music server")
+                .font(.callout)
+                .foregroundStyle(.white.opacity(0.7))
+            Text("The lyrics show once it answers. Downloaded songs keep theirs for offline.")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.6))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Button("Try Again", systemImage: "arrow.clockwise") { loadAttempt += 1 }
+                .buttonStyle(.bordered)
+                .tint(.white)
+                .padding(.top, 8)
+        }
+    }
+
     private func findLyrics() {
         let songID = song.id
         isFindingLyrics = true
@@ -559,56 +594,93 @@ struct LyricsView: View {
         activeIndex = nil
         resumeAutoScrollAt = nil
 
-        // A downloaded song's own copy, checked against the server once it is on screen.
+        // A downloaded song's own copy, checked against the server once it is on screen;
+        // else its downloaded copy's from the other library, which is what plays offline.
         var kept: [StructuredLyrics] = []
+        var shownID = song.id
+        var unanswered = false
         if let saved {
             lyrics = saved
         } else {
             // Disk first: for a downloaded track it is already there, and it removes a
             // request plus a visible delay on every track change.
             var sets = await LyricsStore.shared.load(songID: song.id) ?? []
+            let copyID = appState.downloads.lyricsID(for: song)
+            if sets.isEmpty, copyID != song.id, let copy = await LyricsStore.shared.load(songID: copyID), !copy.isEmpty {
+                sets = copy
+                shownID = copyID
+            }
             kept = sets
 
             if sets.isEmpty {
-                sets = (try? await appState.client.lyrics(songID: song.id)) ?? []
+                // Said at once while the server has been answering nothing, rather than
+                // after a request's whole timeout; shown all the same if it answers.
+                if appState.isServerSilent { state = .unreachable }
+                do {
+                    sets = try await appState.client.lyrics(songID: song.id)
+                } catch let error as SubsonicClient.ClientError where error.isTransport {
+                    unanswered = true
+                } catch {}
+                // Downloaded with none kept -- fetched before there were any, or the fetch
+                // lost: kept now, with the rest of what goes with them.
+                if !sets.isEmpty, appState.downloads.isDownloaded(song.id) {
+                    await LyricsStore.shared.save(sets, for: song.id)
+                    appState.downloadExtras.keep([song])
+                }
             }
             guard !Task.isCancelled else { return }
-
-            // Prefer a synced set, then one matching the device language.
-            let preferredLanguage = Locale.preferredLanguages.first?.prefix(2).lowercased()
-            let synced = sets.filter(\.synced)
-            lyrics = synced.first { $0.lang?.lowercased().hasPrefix(preferredLanguage ?? "") == true }
-                ?? synced.first
-                ?? sets.first
+            lyrics = StructuredLyrics.shown(from: sets)
         }
 
         guard let lyrics, !lyrics.lines.isEmpty else {
-            await Diagnostics.shared.record("lyrics", "\(song.id) “\(song.title)”: no lyrics"
-                + (saved == nil ? (kept.isEmpty ? " (none kept, none from the server)" : " (kept copy empty)") : ""))
-            state = .missing
+            let why: String
+            if saved != nil {
+                why = ""
+            } else if !kept.isEmpty {
+                why = " (kept copy empty)"
+            } else {
+                why = unanswered ? " (none kept, and the server didn't answer)" : " (none kept, none from the server)"
+            }
+            await Diagnostics.shared.record("lyrics", "\(song.id) “\(song.title)”: no lyrics\(why)")
+            state = unanswered ? .unreachable : .missing
             return
         }
-        await Diagnostics.shared.record("lyrics", "\(song.id) “\(song.title)”: "
-            + (saved != nil ? "just saved" : kept.isEmpty ? "from the server" : "the downloaded copy")
-            + ", \(lyrics.synced ? "synced" : "unsynced"), \(lyrics.lines.count) lines, tagged \(lyrics.lang ?? "no language")")
+        let source: String
+        if saved != nil {
+            source = "just saved"
+        } else if kept.isEmpty {
+            source = "from the server"
+        } else {
+            source = shownID == song.id ? "the downloaded copy" : "the other library's downloaded copy (\(shownID))"
+        }
+        await Diagnostics.shared.record("lyrics", "\(song.id) “\(song.title)”: \(source), "
+            + "\(lyrics.synced ? "synced" : "unsynced"), \(lyrics.lines.count) lines, tagged \(lyrics.lang ?? "no language")")
+        lyricsID = shownID
 
         // Worked out before the lyrics appear, so a romanization, or a translation made
         // on an earlier visit, does not arrive a moment later and push every line down.
         // Only what is quick: a translation still to be made starts once they show.
-        readAlong.show(lyrics, songID: song.id)
+        readAlong.show(lyrics, songID: shownID)
         await readAlong.update(romanize: settings.romanizesLyrics)
         await Diagnostics.shared.record("lyrics", "\(song.id): read as \(readAlong.language ?? "unknown")"
             + (settings.romanizesLyrics ? ", romanized" : ""))
         // The server's whole-song translation, when it has one; short wait, so the phone's
-        // own translation is not held up away from home.
+        // own translation is not held up away from home, and none while the server is
+        // answering nothing. A downloaded song's is kept with it, for offline.
         let sonic = SonicClient(configuration: appState.sonic.configuration)
-        let songID = song.id
+        let songID = shownID
+        let silent = { @MainActor [appState] in appState.isServerSilent }
         await translation.prepare(
-            songID: song.id,
+            songID: shownID,
             lines: lyrics.lines.map(\.value),
             language: readAlong.language,
             wanted: false,
+            keep: appState.downloads.isDownloaded(shownID),
             server: { lines, language in
+                if await silent() {
+                    await Diagnostics.shared.record("lyrics", "\(songID): the server isn't answering; no whole-song translation asked")
+                    return nil
+                }
                 do {
                     switch try await sonic.translate(lines, language: language, songID: songID, timeout: 6) {
                     case .done(let answer):
@@ -628,7 +700,7 @@ struct LyricsView: View {
 
         state = .loaded
         loadedSongID = song.id
-        if !kept.isEmpty { await refreshKept(kept, songID: song.id) }
+        if !kept.isEmpty { await refreshKept(kept, songID: shownID) }
     }
 
     /// A downloaded song's lyrics come from the copy saved with it, at once and offline
@@ -636,11 +708,14 @@ struct LyricsView: View {
     /// take the saved copy's place and come on screen. Without this a downloaded song kept
     /// the lyrics it was downloaded with for good, whatever was fixed on the server.
     private func refreshKept(_ kept: [StructuredLyrics], songID: String) async {
+        guard !appState.isServerSilent else { return }
         let server = try? await appState.client.lyrics(songID: songID)
         guard let fresh = LyricsStore.update(kept: kept, server: server) else { return }
         await LyricsStore.shared.save(fresh, for: songID)
+        // Their translation and word timing too, for the new lines.
+        if let entry = appState.downloads.catalog.entries[songID] { appState.downloadExtras.keep([entry.song]) }
         // Not over a song moved on from, or one being timed by hand.
-        guard !Task.isCancelled, loadedSongID == songID, timing == nil else { return }
+        guard !Task.isCancelled, loadedSongID == song.id, timing == nil else { return }
         await load()
     }
 }
@@ -675,6 +750,11 @@ private struct SungWords: View {
 
 /// What the read-along is asked to bring up to date: the lyrics on screen, and the
 /// reader's choices for them.
+private struct LoadRequest: Equatable {
+    var songID: String
+    var attempt: Int
+}
+
 private struct ReadAlongRequest: Equatable {
     var songID: String?
     var romanizes: Bool

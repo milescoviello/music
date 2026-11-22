@@ -114,6 +114,26 @@ enum Paths {
         lyrics.appendingPathComponent("\(songID).json")
     }
 
+    /// What else a download keeps beside its lyrics (`DownloadExtras`), so they work offline
+    /// as they do online: when each word is sung, the server's translation, the desktop's
+    /// readings, and markers for what the server had none of, and since when.
+    enum KeptLyrics: String, CaseIterable {
+        case words = "words.json"
+        case translation = "translation.json"
+        case readings = "readings.json"
+        case noLyrics = "no-lyrics"
+        case noTranslation = "no-translation"
+    }
+
+    static func keptLyricsFile(_ kind: KeptLyrics, songID: String) -> URL {
+        lyrics.appendingPathComponent("\(songID).\(kind.rawValue)")
+    }
+
+    /// Every file kept for a downloaded song's lyrics, for when the download goes.
+    static func keptLyricsFiles(songID: String) -> [URL] {
+        [lyricsFile(songID: songID)] + KeptLyrics.allCases.map { keptLyricsFile($0, songID: songID) }
+    }
+
     /// Room for something the user explicitly asked for.
     ///
     /// `volumeAvailableCapacityForImportantUsage`, not the raw free bytes: it is the

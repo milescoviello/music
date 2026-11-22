@@ -165,6 +165,14 @@ actor SubsonicClient {
     func setOnAnswer(_ hook: @escaping @Sendable (Date) -> Void) {
         onAnswer = hook
     }
+
+    /// Told of every request that got no answer at all -- refused, timed out, no route --
+    /// so the app can stop waiting on the server for things it has a copy of.
+    private var onSilence: (@Sendable () -> Void)?
+
+    func setOnSilence(_ hook: @escaping @Sendable () -> Void) {
+        onSilence = hook
+    }
     private var credentials: Credentials?
     private(set) var capabilities: ServerCapabilities = .init()
 
@@ -230,6 +238,7 @@ actor SubsonicClient {
             // Recorded rather than only thrown: most callers use `try?` so the screen
             // can fall back to cache, which means the reason would otherwise vanish.
             await Self.recordFailure(endpoint, error, since: started)
+            if !Self.isCancellation(error) { onSilence?() }
             throw ClientError.network(error)
         }
     }
@@ -310,6 +319,7 @@ actor SubsonicClient {
             return data
         } catch {
             await Self.recordFailure(endpoint, error, since: started)
+            if !Self.isCancellation(error) { onSilence?() }
             throw ClientError.network(error)
         }
     }

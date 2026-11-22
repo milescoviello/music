@@ -42,6 +42,8 @@ final class LyricTranslation {
 
     @ObservationIgnored private var job: Job?
     @ObservationIgnored private var server: Server?
+    /// The song is downloaded: what is made is kept with it, for offline.
+    @ObservationIgnored private var keep = false
     /// What made the translation on screen ("flash-next" for the server's whole-song one).
     @ObservationIgnored private var engine: String?
     /// What the lyrics are in, as `LyricsLanguage.resolve` gave it: "ja", "zh-Hans".
@@ -59,11 +61,13 @@ final class LyricTranslation {
 
     /// A new song's lyrics. A translation made before is shown straight away; one made on
     /// the phone gives way to the server's whole-song translation once there is one.
-    func prepare(songID: String, lines: [String], language: String?, wanted: Bool, server: Server? = nil) async {
+    func prepare(songID: String, lines: [String], language: String?, wanted: Bool, keep: Bool = false,
+                 server: Server? = nil) async {
         let job = Job(songID: songID, lines: lines)
         self.job = job
         self.language = language
         self.server = server
+        self.keep = keep
         self.lines = []
         self.notes = []
         self.engine = nil
@@ -118,13 +122,7 @@ final class LyricTranslation {
         }
         log("\(job.songID): whole-song translation by \(answer.engine ?? "?"): \(wanted.count) lines, "
             + "\(answer.notes.compactMap { $0 }.count) notes (\(Self.took(asked)))")
-        var lines = [String?](repeating: nil, count: job.lines.count)
-        var notes = [String?](repeating: nil, count: job.lines.count)
-        for (k, index) in wanted.enumerated() {
-            lines[index] = Self.shown(answer.lines[k], for: job.lines[index])
-            notes[index] = lines[index] == nil ? nil : answer.notes[k]
-        }
-        return (lines, notes)
+        return LyricTranslationStore.placed(answer.lines, notes: answer.notes, asked: wanted, of: job.lines)
     }
 
     /// The toggle. Turning it off part-way stops the translation; one already made is
@@ -198,7 +196,11 @@ final class LyricTranslation {
     }
 
     private func finish(_ job: Job, with translations: [String?], notes: [String?]? = nil, engine: String? = nil) {
-        Task { await LyricTranslationStore.shared.save(translations, notes: notes, engine: engine, of: job.lines, songID: job.songID) }
+        let keep = keep
+        Task {
+            await LyricTranslationStore.shared.save(translations, notes: notes, engine: engine, of: job.lines,
+                                                    songID: job.songID, keep: keep)
+        }
         guard job == self.job else { return }
         lines = translations
         self.notes = notes ?? []
@@ -251,22 +253,9 @@ final class LyricTranslation {
             guard let id = response.clientIdentifier, let index = Int(id), result.indices.contains(index) else {
                 continue
             }
-            result[index] = shown(response.targetText, for: lines[index])
+            result[index] = LyricTranslationStore.shown(response.targetText, for: lines[index])
         }
         return result
-    }
-
-    /// A translation worth showing under its line, or nil when it would only repeat it:
-    /// a name, "la la la", a phrase in English already.
-    private nonisolated static func shown(_ translated: String, for original: String) -> String? {
-        let trimmed = translated.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, comparable(trimmed) != comparable(original) else { return nil }
-        return trimmed
-    }
-
-    private nonisolated static func comparable(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
-            .filter { $0.isLetter || $0.isNumber }
     }
 
     /// Asked up front, so a language the framework cannot translate is a note on the

@@ -113,6 +113,15 @@ final class LyricsPane {
             _ = settings.translatesLyrics
             reference.value?.applyTranslation()
         }
+        // Lyrics the server could not be asked for, once it answers again.
+        let app = env.app
+        root.observe {
+            let silent = app.isServerSilent
+            Task { @MainActor in
+                guard !silent, let pane = reference.value, pane.isUnreachable else { return }
+                await pane.load(stack: stack)
+            }
+        }
 
         // Loaded while hidden behind the cover, the lyrics had nowhere to scroll to, and
         // opened at the top with the line being sung out of sight.
@@ -134,6 +143,12 @@ final class LyricsPane {
     /// The song whose lyrics are on screen; nil while they load. Not `songID`, which
     /// changes a moment before the lyrics do.
     private var loadedID: String?
+    /// The song whose kept lyrics, translation, readings and word timing are on screen:
+    /// this one's, or its downloaded copy's from the other library when only that one has
+    /// them kept (`DownloadCenter.lyricsID`).
+    private var shownID: String?
+    /// Showing "Can't reach the music server", to load again when it answers.
+    private var isUnreachable = false
     /// Whether the timing bar last said the song being timed was playing.
     private var timingShowedPlaying: Bool?
 
@@ -153,27 +168,46 @@ final class LyricsPane {
         cues = [:]
         translating?.cancel()
         translationNote.isVisible = false
+        isUnreachable = false
 
-        // A downloaded song's own copy, checked against the server once it is on screen.
+        // A downloaded song's own copy, checked against the server once it is on screen;
+        // else its downloaded copy's from the other library, which is what plays offline.
         var kept: [StructuredLyrics] = []
+        var keptID = song.id
+        var unanswered = false
         if let saved {
             lyrics = saved
         } else {
             var sets = await LyricsStore.shared.load(songID: song.id) ?? []
+            let copyID = env.app.downloads.lyricsID(for: song)
+            if sets.isEmpty, copyID != song.id, let copy = await LyricsStore.shared.load(songID: copyID), !copy.isEmpty {
+                sets = copy
+                keptID = copyID
+            }
             kept = sets
             if sets.isEmpty {
-                sets = (try? await env.app.client.lyrics(songID: song.id)) ?? []
+                // Said at once while the server has been answering nothing, rather than
+                // after a request's whole timeout; shown all the same if it answers.
+                if env.app.isServerSilent, songID == song.id { showUnreachable(stack: stack) }
+                do {
+                    sets = try await env.app.client.lyrics(songID: song.id)
+                } catch let error as SubsonicClient.ClientError where error.isTransport {
+                    unanswered = true
+                } catch {}
+                // Downloaded with none kept -- fetched before there were any, or the fetch
+                // lost: kept now, with the rest of what goes with them.
+                if !sets.isEmpty, env.app.downloads.isDownloaded(song.id) {
+                    await LyricsStore.shared.save(sets, for: song.id)
+                    env.app.downloadExtras.keep([song])
+                }
             }
             guard songID == song.id, timing == nil else { return }
-
-            // A synced set first, then one in the reader's language.
-            let preferred = Locale.preferredLanguages.first?.prefix(2).lowercased() ?? ""
-            let synced = sets.filter(\.synced)
-            lyrics = synced.first { $0.lang?.lowercased().hasPrefix(preferred) == true } ?? synced.first ?? sets.first
+            lyrics = StructuredLyrics.shown(from: sets)
         }
+        shownID = keptID
 
         guard let lyrics, !lyrics.lines.isEmpty else {
-            showMissing(stack: stack, songID: song.id)
+            if unanswered { showUnreachable(stack: stack) } else { showMissing(stack: stack, songID: song.id) }
             return
         }
 
@@ -193,33 +227,53 @@ final class LyricsPane {
         // into view, and it only tries again when the line changes: paused, the view
         // stayed at the top with the line out of sight.
         if let active { scrollOnceLaidOut(to: active) }
-        if lyrics.synced { loadWords(for: song.id, lyrics: lyrics) }
-        if !kept.isEmpty { await refreshKept(kept, songID: song.id, stack: stack) }
+        if lyrics.synced { loadWords(for: song.id, keptID: keptID, lyrics: lyrics) }
+        if !kept.isEmpty { await refreshKept(kept, keptID: keptID, songID: song.id, stack: stack) }
     }
 
     /// A downloaded song's lyrics come from the copy saved with it, at once and offline
     /// too; online, the server is asked as well. Lyrics fixed or retimed since the download
     /// take the saved copy's place and come on screen (the phone's `refreshKept`).
-    private func refreshKept(_ kept: [StructuredLyrics], songID id: String, stack: Stack) async {
-        let server = try? await env.app.client.lyrics(songID: id)
+    private func refreshKept(_ kept: [StructuredLyrics], keptID: String, songID id: String, stack: Stack) async {
+        guard !env.app.isServerSilent else { return }
+        let server = try? await env.app.client.lyrics(songID: keptID)
         guard let fresh = LyricsStore.update(kept: kept, server: server) else { return }
-        await LyricsStore.shared.save(fresh, for: id)
+        await LyricsStore.shared.save(fresh, for: keptID)
+        // Their translation, readings and word timing too, for the new lines.
+        if let entry = env.app.downloads.catalog.entries[keptID] { env.app.downloadExtras.keep([entry.song]) }
         // Not over a song moved on from, or one being timed by hand.
         guard loadedID == id, songID == id, timing == nil else { return }
         await load(stack: stack)
     }
 
+    /// No lyrics kept, and the server answered nothing: not "No Lyrics", which offers to
+    /// find some for a song that may well have them.
+    private func showUnreachable(stack: Stack) {
+        isUnreachable = true
+        let retry = Button("Try Again", "pill").halign(GTK_ALIGN_CENTER)
+        status.child = StatusPage(
+            icon: "network-offline-symbolic", title: "Can't Reach the Music Server",
+            description: "The lyrics show once it answers. Downloaded songs keep theirs for offline.", child: retry
+        )
+        stack.visibleName = "status"
+        let reference = WeakReference(self)
+        retry.onClicked {
+            Task { @MainActor in await reference.value?.load(stack: stack) }
+        }
+    }
+
     // MARK: - Word by word
 
-    private func loadWords(for id: String, lyrics: StructuredLyrics) {
+    private func loadWords(for id: String, keptID: String, lyrics: StructuredLyrics) {
         // Where each line is sung: its stamp less the set's offset (`follow`).
         let offset = lyrics.offset ?? 0
         let sung = lyrics.lines.map { LyricLine(start: $0.start.map { $0 - offset }, value: $0.value) }
         let configuration = env.app.sonic.configuration
+        let keep = env.app.downloads.isDownloaded(keptID)
         let reference = WeakReference(self)
         Task { @MainActor in
             guard let pane = reference.value else { return }
-            let found = await pane.env.app.wordTimings.cues(for: id, lines: sung, sonic: configuration)
+            let found = await pane.env.app.wordTimings.cues(for: keptID, lines: sung, sonic: configuration, keep: keep)
             guard let pane = reference.value, pane.loadedID == id, pane.timing == nil else { return }
             pane.cues = found
             pane.active = nil
@@ -345,15 +399,25 @@ final class LyricsPane {
         let text = lyrics.lines.map(\.value)
         let language = language(of: lyrics)
         let id = songID
+        let keptID = shownID ?? id ?? ""
+        let keep = env.app.downloads.isDownloaded(keptID)
+        let silent = env.app.isServerSilent
         let sonic = SonicClient(configuration: env.app.sonic.configuration)
         let reference = WeakReference(self)
         Task { @MainActor in
             var romanized: [String?]?
-            // Japanese from the service, read as the phone reads it; on its own, kanji
-            // came out as Mandarin.
-            if LyricsLanguage.base(of: language) == "ja", let tokens = try? await sonic.readings(text) {
-                romanized = zip(text, tokens).map { line, tokens in
-                    Romanizer.needsRomanization(line) ? Romanizer.romanize(tokens: tokens, line: line) : nil
+            // Read by the service, as the phone reads it (`LyricsLanguage.readsOnServer`):
+            // the letters alone gave the wrong readings. A downloaded song's are kept with it.
+            if LyricsLanguage.readsOnServer(language) {
+                var tokens = await LyricsStore.shared.readings(songID: keptID, lines: text)
+                if tokens == nil, !silent, let read = try? await sonic.readings(text) {
+                    tokens = read
+                    if keep { await LyricsStore.shared.saveReadings(read, of: text, for: keptID) }
+                }
+                if let tokens {
+                    romanized = zip(text, tokens).map { line, tokens in
+                        Romanizer.needsRomanization(line) ? Romanizer.romanize(tokens: tokens, line: line) : nil
+                    }
                 }
             }
             if romanized == nil {
@@ -373,8 +437,7 @@ final class LyricsPane {
     /// No language recognizer here: the letters, the script and the server's tag decide.
     /// Enough for the Cyrillic spellings and for Japanese, which are what differ.
     private func language(of lyrics: StructuredLyrics) -> String? {
-        let text = lyrics.lines.map(\.value)
-        return LyricsLanguage.resolve(lines: text, tag: lyrics.lang, detected: LyricsLanguage.guess(text))
+        LyricsLanguage.detect(lyrics.lines.map(\.value), tag: lyrics.lang)
     }
 
     /// Each line's English beneath it, from the sonic service, kept on this computer once
@@ -399,6 +462,10 @@ final class LyricsPane {
             return
         }
         let sonic = SonicClient(configuration: env.app.sonic.configuration)
+        // A downloaded song's (or its other-library copy's) is kept with it, for offline.
+        let keptID = shownID ?? id
+        let keep = env.app.downloads.isDownloaded(keptID)
+        let app = env.app
         let reference = WeakReference(self)
         translating = Task { @MainActor in
             @MainActor func show(_ translations: [String?], _ notes: [String?]) {
@@ -417,33 +484,32 @@ final class LyricsPane {
                 pane.translationNote.text = note
                 pane.translationNote.isVisible = true
             }
-            /// Placed by line: each answer is for `wanted`, the lines asked about.
+            /// Placed by line, as the phone and the downloads place them: each answer is
+            /// for `wanted`, the lines asked about.
             func placed(_ answer: SonicClient.Translated) -> (lines: [String?], notes: [String?]) {
-                var translations = [String?](repeating: nil, count: text.count)
-                var notes = [String?](repeating: nil, count: text.count)
-                for (k, index) in wanted.enumerated() where k < answer.lines.count {
-                    guard answer.lines[k] != text[index] else { continue }
-                    translations[index] = answer.lines[k]
-                    notes[index] = answer.notes.indices.contains(k) ? answer.notes[k] : nil
-                }
-                return (translations, notes)
+                LyricTranslationStore.placed(answer.lines, notes: answer.notes, asked: wanted, of: text)
             }
             let source = wanted.map { text[$0] }
-            if let kept = await LyricTranslationStore.shared.kept(songID: id, lines: text) {
+            if let kept = await LyricTranslationStore.shared.kept(songID: keptID, lines: text) {
                 show(kept.translations, kept.notes)
                 await Diagnostics.shared.record("lyrics", "\(id): kept translation by \(kept.engine ?? "the service")\(kept.isFinal ? "" : ", not final: asking for the whole-song one")")
+                guard !app.isServerSilent else { return }
                 // One quiet ask for the server's whole-song translation, even over a kept whole-song
                 // one: those get redone (Claude's replaced Flash-Next's, fixed lyrics get theirs
                 // again), and the kept one used to be shown forever.
-                if case let .done(answer)? = try? await sonic.translate(source, language: language ?? "", songID: id),
+                if case let .done(answer)? = try? await sonic.translate(source, language: language ?? "", songID: keptID),
                    answer.isWholeSong, !Task.isCancelled {
                     let made = placed(answer)
                     if kept.isFinal, made.lines == kept.translations, made.notes == kept.notes { return }
                     show(made.lines, made.notes)
-                    await LyricTranslationStore.shared.save(made.lines, notes: made.notes, engine: answer.engine, of: text, songID: id)
+                    await LyricTranslationStore.shared.save(made.lines, notes: made.notes, engine: answer.engine, of: text,
+                                                            songID: keptID, keep: keep)
                     await Diagnostics.shared.record("lyrics", "\(id): whole-song translation by \(answer.engine ?? "?") in place of the kept one")
                 }
                 return
+            }
+            if app.isServerSilent {
+                return say("Translations come from the music server, which isn't answering.")
             }
             await Diagnostics.shared.record("lyrics", "\(id): asking for \(source.count) \(language ?? "?") lines")
             say("Translating…")
@@ -452,14 +518,15 @@ final class LyricsPane {
             for attempt in 0..<75 {
                 guard !Task.isCancelled else { return }
                 do {
-                    switch try await sonic.translate(source, language: language ?? "", songID: id) {
+                    switch try await sonic.translate(source, language: language ?? "", songID: keptID) {
                     case let .done(answer):
                         let made = placed(answer)
                         show(made.lines, made.notes)
                         await Diagnostics.shared.record("lyrics", "\(id): translation by \(answer.engine ?? "?")\(answer.draft ? " (draft)" : ""), "
                             + "\(made.lines.compactMap { $0 }.count) lines, \(made.notes.compactMap { $0 }.count) notes")
                         guard answer.draft else {
-                            await LyricTranslationStore.shared.save(made.lines, notes: made.notes, engine: answer.engine, of: text, songID: id)
+                            await LyricTranslationStore.shared.save(made.lines, notes: made.notes, engine: answer.engine, of: text,
+                                                                    songID: keptID, keep: keep)
                             return
                         }
                         // A draft is shown and not kept; the better one replaces it when it

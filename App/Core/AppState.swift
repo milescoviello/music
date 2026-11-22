@@ -20,6 +20,14 @@ final class AppState {
     private(set) var signer: SubsonicSigner?
     /// True when the last library fetch fell back to disk. Drives the offline banner.
     var isShowingCachedData = false
+    /// Since when the music server has answered nothing: set by a request that got no
+    /// answer at all, cleared by the next answer to anything. While it is set, whatever has
+    /// a saved copy shows it at once instead of waiting out every request's eight seconds
+    /// first -- the library screens (`cached`) and the lyrics. Away from home over a link
+    /// that reaches nothing, each screen opened was a spinner for eight seconds and then
+    /// the copy it could have shown from the start (11-22).
+    private(set) var serverSilentSince: Date?
+    var isServerSilent: Bool { serverSilentSince != nil }
 
     let client = SubsonicClient()
     let artwork = ArtworkStore()
@@ -41,6 +49,8 @@ final class AppState {
     let radar = ReleaseRadar()
     let shows = NearbyShows()
     let wordTimings = WordTimingCache()
+    /// Lyrics, their translation and word timing, and covers, kept with every download.
+    let downloadExtras = DownloadExtras()
     let mixes = DailyMixes()
     let hermes = HermesAsk()
     let recentSearches = RecentSearches()
@@ -161,7 +171,11 @@ final class AppState {
                 guard let self else { return }
                 Task { @MainActor in self.serverAnswered(sentAt: sent) }
             }
+            await client.setOnSilence { [weak self] in
+                Task { @MainActor in self?.serverWentSilent() }
+            }
         }
+        downloadExtras.attach(self)
 
         Task { await restore() }
     }
@@ -289,6 +303,9 @@ final class AppState {
     /// outbox is empty, which is the normal case.
     func flushOutbox() async {
         guard credentials != nil else { return }
+        // What downloads still lack -- lyrics, a translation, covers -- once there is a
+        // server to ask; returns at once, as it runs on its own.
+        downloadExtras.sweep()
         _ = await outbox.flush(using: client)
         await flushUnsentLogs()
         await taste.sync()
@@ -303,6 +320,15 @@ final class AppState {
         _ key: String,
         _ fetch: @escaping @Sendable () async throws -> T
     ) async -> T? {
+        // The server answering nothing: the saved copy at once, and the server asked all the
+        // same, behind it, so the next look is fresh and an answer ends the silence.
+        if isServerSilent, let saved = await cache.load(T.self, for: key) {
+            let cache = cache
+            Task.detached(priority: .utility) { _ = await cache.value(for: key, fetch: fetch) }
+            isShowingCachedData = true
+            cachedDataSince = .now
+            return saved
+        }
         let (value, isStale) = await cache.value(for: key, fetch: fetch)
         // Only ever raised here, never lowered. Home loads four shelves concurrently, so
         // an assignment here meant the last fetch to finish decided the answer for all of
@@ -324,9 +350,42 @@ final class AppState {
     /// only a few screens' reloads lowered it, never Search's, which said "Offline" over
     /// results that had just come from the server (2026-11-08).
     func serverAnswered(sentAt sent: Date) {
+        if let silent = serverSilentSince {
+            serverSilentSince = nil
+            let quiet = Diagnostics.duration(Date.now.timeIntervalSince(silent))
+            Task { await Diagnostics.shared.record("network", "the server answers again, after \(quiet) without") }
+            downloadExtras.serverAnswered()
+        }
         guard isShowingCachedData, let since = cachedDataSince, sent > since else { return }
         isShowingCachedData = false
     }
+
+    private func serverWentSilent() {
+        guard serverSilentSince == nil else { return }
+        serverSilentSince = .now
+        Task { await Diagnostics.shared.record("network", "the server isn't answering: saved copies first until it does") }
+        probeWhileSilent()
+    }
+
+    /// The smallest request there is, now and then while the server answers nothing: what
+    /// waits on it ("Can't reach the music server" over the lyrics) comes back by itself
+    /// when it does. It used to wait for something else to happen to ask -- a song change,
+    /// coming back to the foreground -- and a paused screen could say "can't reach" for good.
+    private func probeWhileSilent() {
+        guard silenceProbe == nil else { return }
+        silenceProbe = Task { [weak self] in
+            var wait: Double = 15
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(wait))
+                guard let self, self.isServerSilent else { break }
+                try? await self.client.ping()
+                wait = min(wait * 2, 60)
+            }
+            self?.silenceProbe = nil
+        }
+    }
+
+    @ObservationIgnored private var silenceProbe: Task<Void, Never>?
 
     /// Call before a screen begins a round of loads. Resets the staleness flag so it
     /// reflects this pass rather than the last one.

@@ -16,12 +16,20 @@ extension AppState {
     }
 
     /// The playlist from the server, or the saved copy when the server doesn't answer, and
-    /// which one it is. Offline, the server isn't asked.
+    /// which one it is. Offline, the server isn't asked; while it has been answering nothing,
+    /// the saved copy shows at once and the server is asked behind it, for next time.
     func playlist(_ id: String) async -> (detail: PlaylistDetail?, isSaved: Bool) {
         if reachability.network == .offline {
             return (await savedPlaylist(id), true)
         }
         let client = client
+        if isServerSilent, let saved = await savedPlaylist(id) {
+            let cache = cache
+            Task.detached(priority: .utility) {
+                _ = await cache.value(for: CacheKey.playlist(id)) { try await client.playlistDetail(id: id) }
+            }
+            return (saved, true)
+        }
         let result = await cache.value(for: CacheKey.playlist(id)) {
             try await client.playlistDetail(id: id)
         }

@@ -100,6 +100,24 @@ class TranslationQueue(unittest.TestCase):
         self.assertEqual(translations.answer("ja", ["kimi"], "abc"), (200, {"lines": ["you"], "engine": "flash-next"}))
         self.assertEqual(translations.answer("ja", ["kimi"], "../abc")[0], 202)
 
+    def test_made_only_answers_from_what_is_made_and_starts_nothing(self):
+        translations = FakeTranslations(self.dir, drafts=True)
+        (self.dir / "song-translations" / "abc.json").write_text(json.dumps({
+            "language": "xx", "source": ["zorvat mil"], "english": ["the far hill"], "engine": "claude"}))
+        self.assertEqual(translations.answer("xx", ["zorvat mil"], "abc", made_only=True),
+                         (200, {"lines": ["the far hill"], "engine": "claude"}))
+        # Nothing made for these: no draft, nothing queued for the model.
+        self.assertEqual(translations.answer("xx", ["kelu tasa"], "abc", made_only=True)[0], 404)
+        self.assertEqual(translations.answer("xx", ["kelu tasa"], None, made_only=True)[0], 404)
+        self.assertFalse(list((self.dir / "translations").glob("*.draft.json")))
+        time.sleep(0.1)
+        self.assertEqual(translations.calls, 0)
+        # Made the usual way, it is then there for a made-only ask too.
+        translations = FakeTranslations(self.dir)
+        translations.answer("xx", ["kelu tasa"])
+        self.settled(translations, "xx", ["kelu tasa"])
+        self.assertEqual(translations.answer("xx", ["kelu tasa"], None, made_only=True), (200, {"lines": ["KELU TASA"]}))
+
     def test_nonsense_is_refused(self):
         translations = FakeTranslations(self.dir)
         self.assertEqual(translations.answer("ja", [])[0], 400)

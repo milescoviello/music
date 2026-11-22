@@ -204,10 +204,15 @@ class Translations:
             answer["notes"] = out_notes
         return answer
 
-    def answer(self, language: str, lines: list[str], song_id: str | None = None) -> tuple[int, dict]:
+    def answer(self, language: str, lines: list[str], song_id: str | None = None,
+               made_only: bool = False) -> tuple[int, dict]:
         """200 with one English line per line (`"draft": true` while it is Argos's), 202
         while a language Argos has no model for is being done, 503 when that failed. A song
-        with a whole-song translation (`song`) answers from it, with its notes."""
+        with a whole-song translation (`song`) answers from it, with its notes.
+
+        `made_only`: a translation already made or nothing (404), and no work started. For
+        the apps keeping the lyrics of every downloaded song, which would otherwise set the
+        model going on hundreds of songs nobody has opened."""
         if not lines or len(lines) > 400 or not all(isinstance(line, str) for line in lines):
             return 400, {"error": "between 1 and 400 lines of text"}
         if song_id:
@@ -219,6 +224,8 @@ class Translations:
         draft = self.dir / f"{key}.draft.json"
         if final.exists():
             return 200, {"lines": json.loads(final.read_text())}
+        if made_only:
+            return 404, {"error": "no translation made yet"}
         if draft.exists():
             self._enqueue(key, language, lines)
             return 200, {"lines": json.loads(draft.read_text()), "draft": True}

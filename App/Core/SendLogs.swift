@@ -35,6 +35,7 @@ extension AppState {
             .init(label: "Server", value: credentials?.baseURL.host ?? "Not signed in"),
             .init(label: "Network", value: reachability.isOnline ? "Online (\(reachability.network))" : "Offline"),
             .init(label: "Showing cached data", value: isShowingCachedData ? "Yes" : "No"),
+            .init(label: "Server answering", value: serverSilentSince.map { "No, since \(Self.logTime($0))" } ?? "Yes"),
             .init(label: "Sonic", value: sonic.status.map { "\($0.analysed) of \($0.tracks) analysed" }
                 ?? "Not connected\(sonic.lastError.map { ": \($0)" } ?? "")"),
         ]

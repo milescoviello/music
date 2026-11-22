@@ -367,7 +367,8 @@ def make_handler(service):
                 if path == "/v1/lyrics/readings":
                     return self._send(200, service.readings.tokens(lines))
                 song_id = body.get("id") if isinstance(body.get("id"), str) else None
-                status, answer = service.translations.answer(str(body.get("language") or ""), lines, song_id)
+                status, answer = service.translations.answer(str(body.get("language") or ""), lines, song_id,
+                                                             made_only=body.get("made_only") is True)
                 return self._send(status, answer)
             except Exception as error:  # noqa: BLE001
                 log.exception("request failed: %s", self.path)

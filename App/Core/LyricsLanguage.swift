@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(NaturalLanguage)
+import NaturalLanguage
+#endif
 
 /// Which language a song's lyrics are in, and which of their lines are worth translating.
 enum LyricsLanguage {
@@ -23,6 +26,13 @@ enum LyricsLanguage {
         base(of: code) == "en"
     }
 
+    /// Lyrics the desktop romanizes from the sonic service's readings (`SonicClient.readings`):
+    /// a script written without spaces whose characters have several readings, which the
+    /// letters alone cannot spell out. The phone's own tokenizer reads it there.
+    static func readsOnServer(_ code: String?) -> Bool {
+        base(of: code) == "ja"
+    }
+
     /// The lyrics' language. In a song written mostly in kana or hangul, the script
     /// settles it outright -- no other language writes in them, and a recognizer can
     /// mistake kanji-heavy Japanese for Chinese. Otherwise the recognizer's guess from the
@@ -37,6 +47,21 @@ enum LyricsLanguage {
             if scripts.hangul * 2 >= scripts.other { return "ko" }
         }
         return detected ?? code(fromTag: tag)
+    }
+
+    /// The lyrics' language as both lyrics screens and the downloads' keeping read it: the
+    /// system's recognizer over the whole song where there is one (a single line is too
+    /// short to tell close languages apart), the letters alone on the desktop, then
+    /// `resolve`.
+    static func detect(_ lines: [String], tag: String?) -> String? {
+        #if canImport(NaturalLanguage)
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(lines.joined(separator: "\n"))
+        let detected = recognizer.dominantLanguage.flatMap { $0 == .undetermined ? nil : $0.rawValue }
+        #else
+        let detected = guess(lines)
+        #endif
+        return resolve(lines: lines, tag: tag, detected: detected)
     }
 
     /// A guess from the letters alone, for where there is no language recognizer (the
@@ -58,13 +83,34 @@ enum LyricsLanguage {
                 }
             }
         }
-        guard cyrillic >= 20 else { return nil }
+        guard cyrillic >= 20 else { return looksEnglish(lines) ? "en" : nil }
         if belarusian > 0 { return "be" }
         if ukrainian > 0, ukrainian >= russian { return "uk" }
         if russian > 0 { return "ru" }
         if hard * 100 >= cyrillic { return "bg" }
         return nil
     }
+
+    /// English, told by its commonest small words: lyrics in English are full of them, and
+    /// lyrics in another language written in the same letters have next to none. Only words
+    /// no other language writes the same way. For the desktop, which has no recognizer: it
+    /// took every untagged song in Latin letters for one in an unknown language, offered to
+    /// translate it, and asked the server for a translation of every English download.
+    static func looksEnglish(_ lines: [String]) -> Bool {
+        let words = lines.joined(separator: " ").lowercased()
+            .split { !$0.isLetter && $0 != "'" && $0 != "’" }
+            .map { $0.replacingOccurrences(of: "’", with: "'") }
+        guard words.count >= 12 else { return false }
+        let common = words.filter(englishWords.contains).count
+        return common * 8 >= words.count
+    }
+
+    private static let englishWords: Set<String> = [
+        "the", "and", "you", "your", "you're", "to", "of", "is", "that", "it", "it's", "i'm", "don't",
+        "my", "with", "what", "this", "be", "for", "we", "when", "are", "was", "have", "can", "just",
+        "know", "like", "all", "but", "they", "she", "he", "her", "his", "there", "if", "not", "get",
+        "got", "want", "never", "feel", "yeah", "baby", "love", "can't", "i'll", "i've", "won't",
+    ]
 
     /// The lines to send for translation. Lines with no letters ("♪", blank) never are.
     /// When the song is mostly in another script, only the lines in that script are --

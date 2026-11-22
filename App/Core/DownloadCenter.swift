@@ -61,6 +61,14 @@ final class DownloadCenter {
     func localURL(for song: Song) -> URL? {
         localURL(for: song.id) ?? copy(of: song).flatMap { localURL(for: $0) }
     }
+
+    /// The song whose kept lyrics, translation and word timing go with this one: its own
+    /// when it is downloaded, else its copy's from the other library when that is, so the
+    /// copy that plays offline also has its lyrics offline. Its own id otherwise.
+    func lyricsID(for song: Song) -> String {
+        guard !isDownloaded(song.id), let copy = copy(of: song), isDownloaded(copy) else { return song.id }
+        return copy
+    }
     /// The albums and playlists with a download here or on its way, by group id. Its own
     /// property, changed only when one appears or goes, for the long-press menus on every
     /// album card: reading `catalog` there redrew every card on screen per finished song.
@@ -308,39 +316,11 @@ final class DownloadCenter {
             }
         }
 
-        // Lyrics and cover art are fetched now rather than at play time: offline is
-        // exactly when they cannot be fetched, and a downloaded album that loses its
-        // artwork on the train is the kind of half-measure this app exists to avoid.
-        fetchExtras(for: wanted)
-    }
-
-    /// Songs whose lyrics and cover are still to fetch, oldest asked first.
-    @ObservationIgnored private var extras: [Song] = []
-    @ObservationIgnored private var extrasRunning = 0
-
-    /// Lyrics and covers for downloads, two songs at a time. One task per song asked for
-    /// a 366-song playlist's lyrics and covers all at once: over a slow link most of them
-    /// timed out, and everything else the app asked for waited behind them (11-10). The
-    /// songs of an album share a cover, which after the first is a file check.
-    private func fetchExtras(for songs: [Song]) {
-        extras.append(contentsOf: songs)
-        while extrasRunning < 2, !extras.isEmpty {
-            let song = extras.removeFirst()
-            extrasRunning += 1
-            Task(priority: .utility) { [weak self] in
-                await self?.fetchExtras(song)
-            }
-        }
-    }
-
-    private func fetchExtras(_ song: Song) async {
-        // Not for a download removed while it waited its turn.
-        if status(for: song.id) != .none {
-            await cacheLyrics(for: song)
-            await appState?.artwork.persistAll(id: song.coverArt)
-        }
-        extrasRunning -= 1
-        fetchExtras(for: [])
+        // Lyrics, their translation and word timing, and cover art are fetched now rather
+        // than at play time: offline is exactly when they cannot be fetched, and a
+        // downloaded album that loses its artwork on the train is the kind of half-measure
+        // this app exists to avoid. Two songs at a time, and asked again until kept.
+        appState?.downloadExtras.keep(wanted)
     }
 
     /// What to fetch for a song, and the extension its file is stored under.
@@ -602,12 +582,6 @@ final class DownloadCenter {
                 task.cancel()
             }
         }
-    }
-
-    private func cacheLyrics(for song: Song) async {
-        guard let client = appState?.client else { return }
-        guard let sets = try? await client.lyrics(songID: song.id), !sets.isEmpty else { return }
-        await LyricsStore.shared.save(sets, for: song.id)
     }
 
     // MARK: - Delegate callbacks (already on the main actor)

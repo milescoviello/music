@@ -233,6 +233,8 @@ struct SonicClient: Sendable {
         var language: String?
         /// The song, so a whole-song translation made ahead of time can answer.
         var id: String?
+        /// A translation already made or a 404: nothing started (`translate(madeOnly:)`).
+        var made_only: Bool?
     }
 
     private struct ReadingLines: Decodable {
@@ -280,10 +282,14 @@ struct SonicClient: Sendable {
     /// One English line per line: the song's whole-song translation when the server has
     /// one (`songID`), else from the service's local model. The first ask starts the work;
     /// it can take a minute or two on a busy server, and is kept after.
+    ///
+    /// `madeOnly`: only a translation the service already has, and a 404 (`notFound`) if
+    /// it has none, with no work started -- for keeping downloads' lyrics, which asks about
+    /// every downloaded song, opened or not.
     func translate(_ lines: [String], language: String, songID: String? = nil,
-                   timeout: TimeInterval = 20) async throws -> Translation {
-        let (data, status) = try await post("v1/lyrics/translate", LyricLines(lines: lines, language: language, id: songID),
-                                            timeout: timeout)
+                   timeout: TimeInterval = 20, madeOnly: Bool = false) async throws -> Translation {
+        let body = LyricLines(lines: lines, language: language, id: songID, made_only: madeOnly ? true : nil)
+        let (data, status) = try await post("v1/lyrics/translate", body, timeout: timeout)
         let answer = try? JSONDecoder().decode(TranslatedLines.self, from: data)
         switch status {
         case 200:
@@ -413,8 +419,8 @@ struct SonicClient: Sendable {
     // MARK: - Word by word
 
     /// A line of lyrics as LRCLIB times it word by word (`wordsync.py`), in milliseconds.
-    struct WordLine: Decodable, Sendable, Equatable {
-        struct Word: Decodable, Sendable, Equatable {
+    struct WordLine: Codable, Sendable, Equatable {
+        struct Word: Codable, Sendable, Equatable {
             var start: Int
             var text: String
         }

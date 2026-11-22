@@ -1,5 +1,4 @@
 import Foundation
-import NaturalLanguage
 import Observation
 
 /// What the lyrics screen shows beneath each line for a song not in English: the line
@@ -61,9 +60,6 @@ final class LyricsReadAlong {
     /// The recognizer reads the whole song at once: a single line is too short to tell
     /// Spanish from Portuguese.
     nonisolated static func detectLanguage(_ lines: [String], tag: String?) -> String? {
-        let recognizer = NLLanguageRecognizer()
-        recognizer.processString(lines.joined(separator: "\n"))
-        let detected = recognizer.dominantLanguage.flatMap { $0 == .undetermined ? nil : $0.rawValue }
-        return LyricsLanguage.resolve(lines: lines, tag: tag, detected: detected)
+        LyricsLanguage.detect(lines, tag: tag)
     }
 }
