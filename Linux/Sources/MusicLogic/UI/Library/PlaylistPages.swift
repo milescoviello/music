@@ -232,6 +232,7 @@ enum PlaylistPage {
             }
         }
         load()
+        page.reloadsWhenServerReturns(app) { load() }
 
         // The playlist as the store has it: renamed from here, or a song added from the
         // player laid over this page, the title and the songs stayed as they were.

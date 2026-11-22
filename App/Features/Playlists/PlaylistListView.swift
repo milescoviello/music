@@ -123,6 +123,7 @@ struct PlaylistListView: View {
         }
         .refreshable { await store.load() }
         .task { await store.refreshIfStale() }
+        .onChange(of: appState.serverReturns) { Task { await store.load() } }
     }
 
     /// The same toggle as the download button on the playlist's own screen: Download,
@@ -421,6 +422,8 @@ struct PlaylistDetailView: View {
             self.pickedItem = nil
         }
         .task { await load() }
+        // The server back after a silence: the saved copy shown meanwhile, fresh.
+        .onChange(of: appState.serverReturns) { Task { await load() } }
     }
 
     private var header: some View {

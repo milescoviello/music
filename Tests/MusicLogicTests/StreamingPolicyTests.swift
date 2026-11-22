@@ -58,8 +58,18 @@ struct StreamingPolicyTests {
         var policy = StreamingPolicy()
         policy.wifiCacheAhead = 0
         #expect(policy.tracksAhead(on: .wifi) == 1)
-        #expect(policy.tracksAhead(on: .cellular) == 5)
+        #expect(policy.tracksAhead(on: .cellular) == 25)
         #expect(policy.tracksAhead(on: .offline) == 0)
+    }
+
+    @Test func cellularNeverCachesLessFarAheadThanWiFi() {
+        var policy = StreamingPolicy()
+        policy.wifiCacheAhead = 40
+        policy.cellularCacheAhead = 5
+        #expect(policy.tracksAhead(on: .cellular) == 40)
+        policy.cellularCacheAhead = 25
+        policy.wifiCacheAhead = 15
+        #expect(policy.tracksAhead(on: .cellular) == 25)
     }
 
     @Test func theOriginalIsFetchedRawSoItCanBeSeeked() {

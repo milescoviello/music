@@ -32,11 +32,16 @@ enum HomePage {
             _ = app.radar.items
             _ = app.radar.requested
             _ = app.shows.items
+            _ = app.isServerUnreachable
+            _ = app.downloadFolders.folders.songs.count
             rebuild(env, model: model, into: shelves)
         }
         body.observe {
             let scope = app.scope.scope
             _ = app.scope.generation
+            // And when the server answers again after a silence: the shelves it showed
+            // from saved copies, fresh.
+            _ = app.serverReturns
             Task { await model.load(appState: app, scope: scope) }
             Task { await app.radar.load() }
             Task { await app.shows.load() }
@@ -90,6 +95,12 @@ enum HomePage {
 
     private static func rebuild(_ env: Env, model: HomeModel, into shelves: Box) {
         shelves.removeAll()
+        // No server: what plays here, before everything else, and instead of "Nothing to
+        // Show" when nothing was saved.
+        if let here = OnThisDeviceShelf.make(env) {
+            shelves.append(here)
+            if model.isEmpty, env.app.mixes.mixes.isEmpty { return }
+        }
         if model.isEmpty, model.hasLoaded, env.app.mixes.mixes.isEmpty {
             shelves.append(StatusPage(
                 icon: "go-home-symbolic", title: "Nothing to Show",

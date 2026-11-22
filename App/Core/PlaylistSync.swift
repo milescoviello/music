@@ -79,7 +79,13 @@ final class PlaylistSync {
             migrated = true
         }
         isEnabled = defaults.object(forKey: Key.enabled) as? Bool ?? false
-        isWiFiOnly = defaults.object(forKey: Key.wifiOnly) as? Bool ?? true
+        // Once: off, as it now is by default. Downloaded playlists follow the server on
+        // cellular as on Wi-Fi (his call, 11-22: never less on cellular).
+        if !defaults.bool(forKey: "playlistSync.wifiOnlyCleared.1") {
+            defaults.set(true, forKey: "playlistSync.wifiOnlyCleared.1")
+            defaults.set(false, forKey: Key.wifiOnly)
+        }
+        isWiFiOnly = defaults.object(forKey: Key.wifiOnly) as? Bool ?? false
         includesFavourites = defaults.object(forKey: Key.favourites) as? Bool ?? false
         includedIDs = Set(defaults.stringArray(forKey: Key.included) ?? [])
         needsStop = migrated

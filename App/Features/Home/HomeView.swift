@@ -18,7 +18,9 @@ struct HomeView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Metrics.shelfSpacing) {
-                    if model.isEmpty, model.hasLoaded {
+                    // No server: what plays here, before everything else.
+                    OnThisDeviceShelf()
+                    if model.isEmpty, model.hasLoaded, !(appState.isServerUnreachable && !appState.downloads.catalog.entries.isEmpty) {
                         ContentUnavailableView {
                             Label("Nothing to show", systemImage: "music.note.house")
                         } description: {
@@ -86,6 +88,10 @@ struct HomeView: View {
             }
             .refreshable {
                 await model.load(appState: appState, scope: scope.scope)
+            }
+            // The server back after a silence: the shelves it showed from saved copies, fresh.
+            .onChange(of: appState.serverReturns) {
+                Task { await model.load(appState: appState, scope: scope.scope) }
             }
             .task(id: scope.generation) {
                 // Every time Home comes back into view, SwiftUI runs this again: More in a

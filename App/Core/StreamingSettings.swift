@@ -30,5 +30,13 @@ final class StreamingSettings {
         } else {
             policy = StreamingPolicy()
         }
+        // Once: cellular caching less far ahead than the new default, as the old default of
+        // five did, goes up to it. Never less on cellular (his call, 11-22).
+        let raised = "streaming.cellularRaised.1"
+        if !UserDefaults.standard.bool(forKey: raised) {
+            UserDefaults.standard.set(true, forKey: raised)
+            let floor = StreamingPolicy().cellularCacheAhead
+            if policy.cellularCacheAhead < floor { policy.cellularCacheAhead = floor }
+        }
     }
 }

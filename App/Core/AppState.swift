@@ -28,6 +28,9 @@ final class AppState {
     /// the copy it could have shown from the start (11-22).
     private(set) var serverSilentSince: Date?
     var isServerSilent: Bool { serverSilentSince != nil }
+    /// Counts the server's returns after a silence. Screens that showed saved copies meanwhile
+    /// watch it and load again, rather than keeping the saved copy until they are reopened.
+    private(set) var serverReturns = 0
     /// No server to be had: no network at all, or one that reaches nothing.
     var isServerUnreachable: Bool { isServerSilent || reachability.network == .offline }
 
@@ -35,6 +38,15 @@ final class AppState {
     /// or held by the stream cache.
     func isPlayableHere(_ song: Song) -> Bool {
         downloads.localURL(for: song) != nil || streamCache.anyFile(for: song.id) != nil
+    }
+
+    /// What is waiting to reach the server, by kind (`ServerOutbox.summary`): the banner and
+    /// Settings say so, so nothing done offline looks lost.
+    private(set) var waitingToSync: [ServerOutbox.Kind: Int] = [:]
+    var waitingToSyncText: String? { ServerOutbox.waitingText(waitingToSync) }
+
+    func refreshWaitingToSync() {
+        Task { waitingToSync = await outbox.summary() }
     }
 
     /// Launch's server work, held because the server answered nothing (`restore`).
@@ -195,6 +207,10 @@ final class AppState {
             await client.setOnSilence { [weak self] in
                 Task { @MainActor in self?.serverWentSilent() }
             }
+            await outbox.setOnChange { [weak self] in
+                Task { @MainActor in self?.refreshWaitingToSync() }
+            }
+            self.refreshWaitingToSync()
         }
         downloadExtras.attach(self)
 
@@ -269,6 +285,27 @@ final class AppState {
             guard await serverAnswersQuickly() else { return }
             catchUp()
         }
+    }
+
+    /// The overnight run (`OvernightSync` on the phone): everything the app catches up on
+    /// while it is open, and every download's extras filled in, waited for so iOS keeps the
+    /// app awake for it. False when there was no server, or the time ran out.
+    func overnightSync() async -> Bool {
+        guard credentials != nil else { return false }
+        await Diagnostics.shared.record("app", "overnight sync: started")
+        guard await serverAnswersQuickly() else {
+            await Diagnostics.shared.record("app", "overnight sync: the server isn't answering")
+            return false
+        }
+        await flushOutbox()
+        await playlistSync.sync()
+        await mostPlayed.refresh()
+        downloads.resumeWaiting()
+        downloadExtras.sweep(force: true)
+        let finished = await downloadExtras.idle()
+        await Diagnostics.shared.record("app", "overnight sync: \(finished ? "done" : "stopped before the end")"
+            + ", \(downloads.activeCount) downloads still arriving")
+        return finished
     }
 
     /// Whether the server answers within a few seconds. When it doesn't, it is silent from
@@ -437,6 +474,8 @@ final class AppState {
             let quiet = Diagnostics.duration(Date.now.timeIntervalSince(silent))
             Task { await Diagnostics.shared.record("network", "the server answers again, after \(quiet) without") }
             downloadExtras.serverAnswered()
+            autoplay.serverChanged()
+            serverReturns += 1
             if launchWaits {
                 launchWaits = false
                 Task { await finishLaunch() }
@@ -454,6 +493,7 @@ final class AppState {
         Task { await Diagnostics.shared.record("network", "the server isn't answering: saved copies first until it does") }
         probeWhileSilent()
         player.serverWentSilent()
+        autoplay.serverChanged()
     }
 
     /// The smallest request there is, now and then while the server answers nothing: what

@@ -57,16 +57,18 @@ enum PreferDownloads: Int, Codable, CaseIterable, Identifiable, Sendable {
 /// Foundation-only so the decisions can be tested: which variant of a track to ask for
 /// on which network, whether a download beats the stream, how far ahead to cache.
 ///
-/// Defaults are Plexamp's except in two places, both to keep what this app already did:
-/// cellular streams the original rather than 128 kbps, and downloads are always
-/// preferred rather than only on cellular. Downloads here are the original file unless
-/// asked otherwise, so streaming over one on Wi-Fi would only ever cost.
+/// Defaults are Plexamp's except in three places: cellular streams the original rather
+/// than 128 kbps, downloads are always preferred rather than only on cellular (downloads
+/// here are the original file unless asked otherwise, so streaming over one on Wi-Fi would
+/// only ever cost), and cellular caches further ahead than Wi-Fi, never less. Away from
+/// Wi-Fi is when the server is likeliest to be lost, and a song already here plays; the
+/// data it costs doesn't matter (his call, 11-22).
 struct StreamingPolicy: Codable, Equatable, Sendable {
     var wifiQuality: StreamQuality = .original
     var cellularQuality: StreamQuality = .original
     /// Tracks to fetch ahead of the one playing. Zero is Plexamp's "Only next track".
     var wifiCacheAhead = 15
-    var cellularCacheAhead = 5
+    var cellularCacheAhead = 25
     var cacheMegabytes = 1_024
     var preferDownloads: PreferDownloads = .always
 
@@ -100,7 +102,7 @@ struct StreamingPolicy: Codable, Equatable, Sendable {
     func tracksAhead(on network: NetworkKind) -> Int {
         switch network {
         case .wifi: return max(1, wifiCacheAhead)
-        case .cellular: return max(1, cellularCacheAhead)
+        case .cellular: return max(1, cellularCacheAhead, wifiCacheAhead)
         case .offline: return 0
         }
     }

@@ -29,11 +29,25 @@ enum SettingsPages {
                     spinner.isVisible = false
                 }
             }
-            page.add(PreferencesGroup("Server") {
+            let answering = Label("", "dim")
+            let sync = ActionRow("Sync")
+            let waiting = Label("", "dim")
+            sync.suffix(waiting)
+            let group = PreferencesGroup("Server") {
                 ActionRow("Address").suffix(Label(credentials.baseURL.absoluteString, "dim").selectable())
                 ActionRow("User").suffix(Label(credentials.username, "dim"))
+                ActionRow("Answering").suffix(answering)
+                sync
                 test
-            })
+            }
+            group.observe { [app] in
+                answering.text = app.serverSilentSince.map {
+                    "No, since \($0.formatted(date: .omitted, time: .shortened))"
+                } ?? "Yes"
+                waiting.text = app.waitingToSyncText ?? ""
+                sync.isVisible = app.waitingToSyncText != nil
+            }
+            page.add(group)
         }
 
         let library = PreferencesGroup("Library", description: "Applies to Home, Albums, Artists, Genres and Search. Playlists always show every library.")
@@ -88,6 +102,7 @@ enum SettingsPages {
         page.add(PreferencesGroup("About") {
             ActionRow("Version").suffix(Label(version, "dim"))
         })
+        page.add(updatesGroup())
         page.add(PreferencesGroup {
             ButtonRow("Sign Out", icon: "system-log-out-symbolic", destructive: true) {
                 Dialogs.alert(
@@ -98,6 +113,61 @@ enum SettingsPages {
             }
         })
         return preferencesPage("Settings", page)
+    }
+
+    /// Settings > Updates: this build and the newest, and one press to install it
+    /// (`Updater`), then one to reopen on it.
+    private static func updatesGroup() -> Widget {
+        let updater = Updater.shared
+        let row = ActionRow("This Build")
+        let button = Button("Update", "suggested-action", "pill").valign(GTK_ALIGN_CENTER)
+        let spinner = Spinner().size(16).visible(false)
+        row.suffix(spinner)
+        row.suffix(button)
+        let group = PreferencesGroup("Updates", description: "Ready-made builds, so updating needs no Swift and no building.") { row }
+        button.onClicked {
+            Task { @MainActor in
+                switch updater.state {
+                case .available, .failed: await updater.update()
+                case .updated: updater.reopen()
+                default: await updater.check()
+                }
+            }
+        }
+        group.observe {
+            let here = updater.installed.map { "\($0.commit.prefix(7)), \(Self.day($0.built))" } ?? "Built here from source"
+            spinner.isVisible = updater.state == .checking || updater.state == .updating
+            switch updater.state {
+            case .idle, .checking:
+                row.subtitle = here
+                button.label = "Check"
+            case .upToDate:
+                row.subtitle = "\(here) · the newest"
+                button.label = "Check"
+            case .available:
+                row.subtitle = "\(here) · \(updater.newest.map { String($0.prefix(7)) } ?? "a newer one") is out"
+                button.label = "Update"
+            case .updating:
+                row.subtitle = "Downloading and installing…"
+                button.label = "Update"
+            case .updated:
+                row.subtitle = "Installed. Reopen Music to use it."
+                button.label = "Reopen Now"
+            case let .failed(reason):
+                row.subtitle = "\(here) · \(reason)"
+                button.label = "Try Again"
+            }
+            button.isSensitive = updater.state != .checking && updater.state != .updating
+        }
+        // Once each time Settings opens: one small request to GitHub.
+        Task { @MainActor in if updater.state == .idle { await updater.check() } }
+        return group
+    }
+
+    /// "22 Nov 2026" from the installer's ISO 8601 time.
+    private static func day(_ iso: String) -> String {
+        guard let date = ISO8601DateFormatter().date(from: iso) else { return iso }
+        return date.formatted(date: .abbreviated, time: .omitted)
     }
 
     /// The version the build was stamped with, or that it is a local build.

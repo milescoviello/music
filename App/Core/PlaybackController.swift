@@ -497,8 +497,13 @@ final class PlaybackController {
             return
         }
 
-        let ahead = queue.repeatMode == .one ? [] : queue.upcoming(policy.tracksAhead(on: network))
-        let wanted = (network == .wifi ? [current] : []) + ahead
+        let tracksAhead = leftWiFiListID == queue.listID
+            ? max(policy.tracksAhead(on: network), Self.leavingWiFiAhead)
+            : policy.tracksAhead(on: network)
+        let ahead = queue.repeatMode == .one ? [] : queue.upcoming(tracksAhead)
+        // The song playing too, whole, on cellular as on Wi-Fi: should the signal go, the
+        // rest of it is here.
+        let wanted = [current] + ahead
 
         var requests: [StreamCache.Request] = []
         for song in wanted {
@@ -539,13 +544,23 @@ final class PlaybackController {
     /// The network changed, so does what to cache and at what quality. Items already
     /// built play on as they are.
     func networkChanged() {
-        if appState?.reachability.network != .offline { appState?.streamCache.networkReturned() }
+        let network = appState?.reachability.network
+        // Off Wi-Fi: the rest of what is playing, the album or playlist, is fetched while
+        // the phone still has a network, up to `leavingWiFiAhead` songs. For this queue; a
+        // new one goes back to the setting.
+        if lastNetwork == .wifi, network == .cellular { leftWiFiListID = queue.listID }
+        lastNetwork = network
+        if network != .offline { appState?.streamCache.networkReturned() }
         planCache()
         // Back online with a try pending: now, not when its timer says.
         if retryTask != nil, appState?.reachability.network != .offline {
             play(handingOff: false)
         }
     }
+
+    @ObservationIgnored private var lastNetwork: NetworkKind?
+    @ObservationIgnored private var leftWiFiListID: UUID?
+    static let leavingWiFiAhead = 40
 
     func streamingSettingsChanged() {
         planCache()

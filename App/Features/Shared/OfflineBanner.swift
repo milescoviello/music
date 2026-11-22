@@ -20,9 +20,18 @@ struct OfflineBanner: View {
                 Image(systemName: "wifi.slash")
                     .font(.caption)
 
-                Text(message)
-                    .font(.caption)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(message)
+                        .font(.caption)
+                        .lineLimit(1)
+                    // So nothing done offline looks lost.
+                    if let waiting = appState.waitingToSyncText {
+                        Text(waiting)
+                            .font(.caption2)
+                            .opacity(0.85)
+                            .lineLimit(1)
+                    }
+                }
 
                 Spacer(minLength: 4)
 

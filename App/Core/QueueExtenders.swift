@@ -123,8 +123,18 @@ final class AutoplayService {
     func select(_ choice: AutoplayChoice) {
         let changed = choice != selected
         selected = choice
-        UserDefaults.standard.set(choice.rawValue, forKey: endedWithAlbum ? Key.albumChoice : Key.otherChoice)
+        // Offline there is one card, which is not a choice to remember.
+        if appState?.isServerUnreachable != true {
+            UserDefaults.standard.set(choice.rawValue, forKey: endedWithAlbum ? Key.albumChoice : Key.otherChoice)
+        }
         if changed { preview() }
+    }
+
+    /// The server went silent or came back: the options are worked out again, from this
+    /// device or from the server.
+    func serverChanged() {
+        queueKey = nil
+        queueChanged()
     }
 
     private func preferred(endedWithAlbum: Bool) -> AutoplayChoice {
@@ -163,8 +173,9 @@ final class AutoplayService {
     }
 
     private func compute() async {
-        // Every option asks the server; with none, `extend` picks from this device instead.
-        guard appState?.isServerUnreachable != true else { return }
+        // Every option asks the server; with none, the one option is the songs on this device,
+        // shown under the carousel as any other would be.
+        if appState?.isServerUnreachable == true { return offlinePreview() }
         guard let appState else { return }
         let queue = appState.player.queue
         guard let lastIndex = queue.order.last, queue.tracks.indices.contains(lastIndex) else { return }
@@ -206,7 +217,32 @@ final class AutoplayService {
     // MARK: - What comes next
 
     /// Works out `upcoming` for the selection, replacing whatever it was.
+    /// The option there is with no server: songs on this device (`OfflinePicks`), the last
+    /// song's artist and genre first, previewed so Up Next shows what will play.
+    private static let offlineOption = Option(
+        choice: .libraryRadio, title: "On This Device", subtitle: "Songs downloaded here", plan: .nothing
+    )
+
+    private func offlinePreview() {
+        guard let appState else { return }
+        options = [Self.offlineOption]
+        selected = .libraryRadio
+        upcoming = offlinePicks(appState)
+        upcomingOption = upcoming.isEmpty ? nil : Self.offlineOption
+        upcomingKey = queueKey
+    }
+
+    private func offlinePicks(_ appState: AppState) -> [Song] {
+        var generator = SystemRandomNumberGenerator()
+        return OfflinePicks.pick(
+            from: appState.downloads.catalog.entries.values.map(\.song), after: appState.player.queue.tracks.last,
+            queued: Set(appState.player.queue.tracks.map(\.id)), recent: memory.recent(), limit: 10,
+            using: &generator
+        )
+    }
+
     private func preview() {
+        if appState?.isServerUnreachable == true { return offlinePreview() }
         previewTask?.cancel()
         upcoming = []
         upcomingOption = nil
@@ -385,12 +421,11 @@ final class AutoplayService {
             // No server to ask: songs on this device, the last one's artist and genre first,
             // so the music keeps going rather than stopping where the queue ends.
             if appState.isServerUnreachable {
-                var generator = SystemRandomNumberGenerator()
-                let songs = OfflinePicks.pick(
-                    from: appState.downloads.catalog.entries.values.map(\.song), after: appState.player.queue.tracks.last,
-                    queued: Set(appState.player.queue.tracks.map(\.id)), recent: self.memory.recent(), limit: 10,
-                    using: &generator
-                )
+                // What Up Next shows, when it was worked out for this queue end.
+                let queued = Set(appState.player.queue.tracks.map(\.id))
+                let previewed = self.upcomingOption?.title == Self.offlineOption.title && self.upcomingKey == self.queueKey
+                    ? self.upcoming.filter { !queued.contains($0.id) } : []
+                let songs = previewed.isEmpty ? self.offlinePicks(appState) : previewed
                 guard !songs.isEmpty else {
                     await Diagnostics.shared.record("autoplay", "no server, and nothing on this device to add")
                     return false

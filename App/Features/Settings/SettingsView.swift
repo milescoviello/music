@@ -21,6 +21,12 @@ struct SettingsView: View {
                     Section("Server") {
                         LabeledContent("Address", value: credentials.baseURL.absoluteString)
                         LabeledContent("User", value: credentials.username)
+                        LabeledContent("Answering", value: appState.serverSilentSince.map {
+                            "No, since \($0.formatted(date: .omitted, time: .shortened))"
+                        } ?? "Yes")
+                        if let waiting = appState.waitingToSyncText {
+                            LabeledContent("Sync", value: waiting)
+                        }
 
                         Button {
                             Task { await test() }

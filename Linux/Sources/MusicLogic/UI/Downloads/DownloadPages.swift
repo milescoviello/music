@@ -52,6 +52,12 @@ enum DownloadsPage {
                 Label(totals.joined(separator: " – "), "caption", "dim")
             }
             if !app.reachability.isOnline { summary.append(Label("Offline — playing from this computer", "caption", "accent")) }
+            // Not stuck: the songs still to come wait for the server, and carry on by
+            // themselves once it answers.
+            let arriving = app.downloads.activeCount
+            if app.isServerUnreachable, arriving > 0 {
+                summary.append(Label("\(arriving) \(arriving == 1 ? "download" : "downloads") waiting for the server", "caption", "dim"))
+            }
             content.append(summary)
 
             let albums = folders.sorted(folders.albums, by: sort, ascending: ascending)

@@ -55,7 +55,7 @@ final class SearchService {
     /// Builds the vocabulary if there is none or it is a day old. Cheap to call often.
     func prepare() {
         guard building == nil, loading == nil, let appState, appState.credentials != nil,
-              appState.reachability.network == .wifi
+              appState.reachability.network != .offline, !appState.isServerSilent
         else { return }
         if let vocabulary, Date.now.timeIntervalSince(vocabulary.builtAt) < freshFor { return }
 

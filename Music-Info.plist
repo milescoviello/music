@@ -90,6 +90,12 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>processing</string>
+	</array>
+	<!-- The overnight sync (OvernightSync): on the charger, with a network. -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.milescoviello.music.overnight</string>
 	</array>
 	<!-- The server is a plain-HTTP host on the LAN. Allow that specifically
 	     rather than disabling App Transport Security wholesale.

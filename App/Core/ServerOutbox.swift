@@ -100,6 +100,27 @@ actor ServerOutbox {
     private let directory: URL
     /// A flush is under way; see `flush`.
     private var isFlushing = false
+    /// Told whenever what is waiting changes, for the "waiting to sync" line.
+    private var onChange: (@Sendable () -> Void)?
+
+    func setOnChange(_ hook: @escaping @Sendable () -> Void) {
+        onChange = hook
+    }
+
+    /// What is waiting, as a line to show: "3 plays and 1 playlist change waiting to sync".
+    /// Nil when nothing is.
+    static func waitingText(_ counts: [Kind: Int]) -> String? {
+        func count(_ kinds: [Kind]) -> Int { kinds.reduce(0) { $0 + (counts[$1] ?? 0) } }
+        let parts = [
+            (count([.scrobble]), "play", "plays"),
+            (count([.star, .unstar, .rating]), "favourite or rating", "favourites and ratings"),
+            (count([.playlistAdd, .playlistRemove]), "playlist change", "playlist changes"),
+            (count([.bookmark]), "resume position", "resume positions"),
+        ].filter { $0.0 > 0 }.map { "\($0.0) \($0.0 == 1 ? $0.1 : $0.2)" }
+        guard !parts.isEmpty else { return nil }
+        let list = parts.count == 1 ? parts[0] : parts.dropLast().joined(separator: ", ") + " and " + parts.last!
+        return list + " waiting to sync"
+    }
     /// Given up on. 30 days of retries is generous, and a permanently-rejected id — a
     /// track deleted from the server — must not be retried forever.
     private let maximumAttempts = 40
@@ -193,6 +214,7 @@ actor ServerOutbox {
             else { continue }
             try? FileManager.default.removeItem(at: file)
         }
+        onChange?()
     }
 
     private func write(_ pending: Pending) {
@@ -206,6 +228,7 @@ actor ServerOutbox {
         let note = pending.unconfirmed == true ? ", sent once but unanswered" : ""
         let message = "waiting to send: \(pending.kind.rawValue) of \(pending.songID)\(note)"
         Task { await Diagnostics.shared.record("outbox", message) }
+        onChange?()
     }
 
     /// Submits everything, oldest first, and stops at the first network failure — there
@@ -266,6 +289,7 @@ actor ServerOutbox {
         if sent > 0 {
             await Diagnostics.shared.record("outbox", "sent \(sent) that were waiting")
         }
+        onChange?()
         return sent
     }
 

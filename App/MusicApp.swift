@@ -113,6 +113,8 @@ struct MusicApp: App {
                         appState.handoff?.setActive(true)
                     case .background:
                         appState.handoff?.setActive(false)
+                        // Tonight's catching up, on the charger (`OvernightSync`).
+                        OvernightSync.schedule()
                         Task { await Diagnostics.shared.record("app", "background") }
                         // Backgrounding does not kill the app while audio plays, but
                         // termination while paused is common and silent.

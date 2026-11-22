@@ -113,8 +113,10 @@ final class DownloadExtras {
 
     /// Every download, for what it lacks. Returns at once; cheap when a sweep went through
     /// them all a little while ago.
-    func sweep() {
+    /// `force`: whatever the last sweep was, as overnight.
+    func sweep(force: Bool = false) {
         guard !isSweeping, let appState, appState.credentials != nil else { return }
+        if force { sweptAt = nil }
         // Every song's first request would wait out its timeout; picked up when it answers.
         if appState.isServerSilent {
             stoppedBySilence = true
@@ -154,6 +156,16 @@ final class DownloadExtras {
             }
             await keepCovers(of: songs)
         }
+    }
+
+    /// Returns once nothing is left to fetch: a sweep and everything it queued. False when
+    /// cancelled first, or the server stopped answering.
+    func idle() async -> Bool {
+        while !Task.isCancelled {
+            if !isSweeping, running == 0, waiting.isEmpty { return !stoppedBySilence }
+            try? await Task.sleep(for: .seconds(2))
+        }
+        return false
     }
 
     /// Covers for every download, each album's once: a file check for those already kept.

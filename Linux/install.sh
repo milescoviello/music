@@ -4,6 +4,9 @@
 #
 #   Linux/install.sh               build in release and install
 #   Linux/install.sh --update      pull the latest, rebuild, reinstall, restart the app
+#   Linux/install.sh --prebuilt    install the ready-made `music` beside this folder (from
+#                                  a release: Linux/get.sh), with no Swift and no building;
+#                                  a running app keeps going until it is reopened
 #   Linux/install.sh --uninstall   remove what it installed (settings and downloads stay)
 #
 # SWIFT_BUILD_FLAGS is passed to `swift build`, for toolchains that need a linker flag.
@@ -36,13 +39,19 @@ refresh() {
 }
 
 update=""
+prebuilt=""
 case "${1:-}" in
     --uninstall) uninstall; exit 0 ;;
     --update) update=1 ;;
+    --prebuilt) prebuilt=1 ;;
     "") ;;
-    *) sed -n '2,14s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    *) sed -n '2,17s/^# \{0,1\}//p' "$0"; exit 0 ;;
 esac
 
+if [ -n "$prebuilt" ]; then
+    [ -x "$ROOT/music" ] || { echo "No ready-made music beside Linux/: get it with Linux/get.sh." >&2; exit 1; }
+    binary="$ROOT/music"
+else
 # What the build links against, by pkg-config name, with the package that provides it
 # on Fedora / Debian and Ubuntu / Arch.
 missing=""
@@ -94,11 +103,14 @@ fi
 # shellcheck disable=SC2086
 swift build -c release --product music $static ${SWIFT_BUILD_FLAGS:-}
 binary=$(swift build -c release --product music $static ${SWIFT_BUILD_FLAGS:-} --show-bin-path)/music
+fi
+cd "$ROOT"
 
 # A running copy is asked to quit first: it saves the queue and its settings as it goes,
-# and comes back where it was.
+# and comes back where it was. Not for a ready-made one: the running app keeps its own
+# copy of the old binary until it is reopened, from its Settings or by hand.
 running=""
-if pgrep -x music >/dev/null 2>&1; then
+if [ -z "$prebuilt" ] && pgrep -x music >/dev/null 2>&1; then
     running=1
     pkill -TERM -x music || true
     for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
@@ -124,14 +136,27 @@ for font in InterVariable.ttf InterVariable-Italic.ttf Inter-LICENSE.txt; do
 done
 refresh
 
-# `music-update` remembers where the source is and how this machine builds it.
-mkdir -p "$(dirname "$CONFIG")"
-{
-    printf "ROOT='%s'\n" "$ROOT"
-    printf "SWIFT_BUILD_FLAGS='%s'\n" "${SWIFT_BUILD_FLAGS:-}"
-    printf "LD_LIBRARY_PATH='%s'\n" "${LD_LIBRARY_PATH:-}"
-} > "$CONFIG"
-cat > "$PREFIX/bin/music-update" <<EOF
+# Which build this is, for the app's Settings and its update check: the commit and when.
+mkdir -p "$PREFIX/share/$ID"
+if [ -n "$prebuilt" ] && [ -f "$ROOT/BUILD" ]; then
+    cp "$ROOT/BUILD" "$PREFIX/share/$ID/BUILD"
+else
+    printf '%s %s\n' "$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$PREFIX/share/$ID/BUILD"
+fi
+
+if [ -n "$prebuilt" ]; then
+    # `music-update` fetches the newest ready-made build and installs it the same way.
+    install -Dm755 "$ROOT/Linux/get.sh" "$PREFIX/bin/music-update"
+    rm -f "$CONFIG"
+else
+    # `music-update` remembers where the source is and how this machine builds it.
+    mkdir -p "$(dirname "$CONFIG")"
+    {
+        printf "ROOT='%s'\n" "$ROOT"
+        printf "SWIFT_BUILD_FLAGS='%s'\n" "${SWIFT_BUILD_FLAGS:-}"
+        printf "LD_LIBRARY_PATH='%s'\n" "${LD_LIBRARY_PATH:-}"
+    } > "$CONFIG"
+    cat > "$PREFIX/bin/music-update" <<EOF
 #!/bin/sh
 # Pulls the latest Music, rebuilds and reinstalls it, and restarts it if it was open.
 set -a
@@ -139,11 +164,14 @@ set -a
 set +a
 exec "\$ROOT/Linux/install.sh" --update
 EOF
-chmod 755 "$PREFIX/bin/music-update"
+    chmod 755 "$PREFIX/bin/music-update"
+fi
 
 if [ -n "$running" ]; then
     setsid "$PREFIX/bin/music" >/dev/null 2>&1 < /dev/null &
     echo "Updated and restarted $PREFIX/bin/music."
+elif [ -n "$prebuilt" ] && pgrep -x music >/dev/null 2>&1; then
+    echo "Installed. Music is open: reopen it to use the new build."
 else
     echo "Installed $PREFIX/bin/music. Start it from the app launcher (Music), or run: $PREFIX/bin/music"
 fi

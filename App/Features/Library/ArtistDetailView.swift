@@ -179,6 +179,8 @@ struct ArtistDetailView: View {
             }
         }
         .task { await load() }
+        // The server back after a silence: the saved copy shown meanwhile, fresh.
+        .onChange(of: appState.serverReturns) { Task { await load() } }
     }
 
     private var header: some View {

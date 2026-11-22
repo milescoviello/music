@@ -77,3 +77,22 @@ struct OfflineTests {
         #expect(await DownloadLyrics.wants(id, readsOnServer: false, in: .cache) == [])
     }
 }
+
+@Suite("Overnight sync")
+struct OvernightWindowTests {
+    private var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Los_Angeles")!
+        return calendar
+    }
+
+    private func date(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Date {
+        calendar.date(from: DateComponents(year: 2026, month: 11, day: day, hour: hour, minute: minute))!
+    }
+
+    @Test func tonightsOneInTheMorningOrTomorrows() {
+        #expect(OvernightWindow.next(after: date(22, 0, 30), calendar: calendar) == date(22, 1))
+        #expect(OvernightWindow.next(after: date(22, 16), calendar: calendar) == date(23, 1))
+        #expect(OvernightWindow.next(after: date(22, 1), calendar: calendar) == date(23, 1))
+    }
+}

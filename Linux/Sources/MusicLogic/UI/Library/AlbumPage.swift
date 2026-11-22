@@ -1,5 +1,6 @@
 import CGtk
 import Foundation
+import Observation
 
 /// An album: its cover and the essentials over the cover's own colours, Play and Shuffle,
 /// the tracks by disc as plain rows, and beside them a column of what the files are, the
@@ -34,28 +35,38 @@ enum AlbumPage {
         page.coverArt = album.coverArt
         var answered = false
 
-        loader.run({ () -> AlbumDetail? in
-            let id = album.id
-            let client = app.client
-            return await app.cached(CacheKey.album(id)) { try await client.albumDetail(id: id) }
-        }, failure: {
-            Loader.empty("Couldn't Load This Album", icon: "network-offline-symbolic", description: "It could not be loaded, and there is no saved copy.")
-        }) { detail in
-            answered = true
-            songs = detail.songs
-            download.songsChanged()
-            if page.coverArt == nil { page.coverArt = detail.coverArt }
-            favourite.observe {
-                let starred = app.userState.isStarred(id: album.id, serverValue: detail.starred != nil)
-                favourite.setCSS("accent", starred)
-                favourite.tooltip(starred ? "Remove Favourite" : "Favourite")
-            }
-            favourite.onClicked {
-                let starred = app.userState.isStarred(id: album.id, serverValue: detail.starred != nil)
-                app.userState.toggleStar(id: album.id, kind: .album, currentlyStarred: starred)
-            }
-            return content(env, album: album, detail: detail, selection: selection)
+        // Wired once, not per load: a second load gave the button a second handler, and a
+        // click then starred and unstarred at once.
+        let starredOnServer = StarredOnServer()
+        favourite.observe {
+            let starred = app.userState.isStarred(id: album.id, serverValue: starredOnServer.value)
+            favourite.setCSS("accent", starred)
+            favourite.tooltip(starred ? "Remove Favourite" : "Favourite")
         }
+        favourite.onClicked {
+            let starred = app.userState.isStarred(id: album.id, serverValue: starredOnServer.value)
+            app.userState.toggleStar(id: album.id, kind: .album, currentlyStarred: starred)
+        }
+
+        func load() {
+            loader.run({ () -> AlbumDetail? in
+                let id = album.id
+                let client = app.client
+                return await app.cached(CacheKey.album(id)) { try await client.albumDetail(id: id) }
+            }, failure: {
+                Loader.empty("Couldn't Load This Album", icon: "network-offline-symbolic", description: "It could not be loaded, and there is no saved copy.")
+            }) { detail in
+                answered = true
+                songs = detail.songs
+                download.songsChanged()
+                if page.coverArt == nil { page.coverArt = detail.coverArt }
+                starredOnServer.value = detail.starred != nil
+                return content(env, album: album, detail: detail, selection: selection)
+            }
+        }
+        load()
+        // The server back after a silence: the saved copy shown meanwhile, fresh.
+        page.reloadsWhenServerReturns(app) { load() }
         // The copy saved last time at once, the server's in its place when it answers: the
         // server is asked first, as stars and play counts change on the other devices, but
         // waiting on it put a spinner on every album opened, for as long as the round trip
@@ -310,4 +321,12 @@ enum AlbumPage {
             )
         }
     }
+}
+
+/// Whether the server has an album starred, as its last answer said: observed, so the heart
+/// follows a fresh answer.
+@MainActor
+@Observable
+private final class StarredOnServer {
+    var value = false
 }

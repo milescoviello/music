@@ -152,6 +152,13 @@ struct DownloadsView: View {
                     .font(.footnote)
                     .foregroundStyle(Color.appTint)
             }
+            // Not stuck: the songs still to come wait for the server, and carry on by
+            // themselves once it answers.
+            if appState.isServerUnreachable, appState.downloads.activeCount > 0 {
+                Text("\(appState.downloads.activeCount) \(appState.downloads.activeCount == 1 ? "download" : "downloads") waiting for the server")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
         .listRowSeparator(.hidden)
     }

@@ -81,10 +81,10 @@ final class LibraryIndex {
         UserDefaults.standard.set(Date.now.timeIntervalSince1970, forKey: fetchedKey)
 
         // Every album's cover to disk, at the sizes grids and rows draw, so no cover is
-        // ever first seen from the network. Wi-Fi only: a few thousand covers is a couple
-        // of hundred megabytes. Only the missing ones are fetched, so later runs are file
-        // checks.
-        if appState.reachability.network == .wifi {
+        // ever first seen from the network: on cellular as on Wi-Fi, as a couple of hundred
+        // megabytes is nothing next to a cover missing offline. Only the missing ones are
+        // fetched, so later runs are file checks.
+        if appState.reachability.network != .offline {
             appState.artwork.warm(fetched.compactMap(\.coverArt), sizes: [.thumb, .card])
         }
     }

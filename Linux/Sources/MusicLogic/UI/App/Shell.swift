@@ -393,11 +393,13 @@ final class Shell {
             let offline = !app.reachability.isOnline || app.isShowingCachedData
             let count = app.downloads.catalog.entries.count
             // A network, and a server that did not answer, is not "offline".
-            banner.title = app.reachability.isOnline
+            let state = app.reachability.isOnline
                 ? "The server isn’t answering — showing saved copies"
                 : count > 0
                     ? "Offline — \(count) downloaded \(count == 1 ? "track" : "tracks") available"
                     : "Offline — nothing is downloaded yet"
+            // So nothing done offline looks lost.
+            banner.title = app.waitingToSyncText.map { "\(state) · \($0)" } ?? state
             banner.isRevealed = offline
         }
         return banner

@@ -118,7 +118,7 @@ final class QueueSync {
     /// for the exact place anyway, and every pause, change of track and trip to the
     /// background still saves it.
     func pushPlace(queue: PlaybackQueue, elapsed: Double, network: NetworkKind) {
-        guard network == .wifi, queue.order.count <= 2_000,
+        guard network != .offline, queue.order.count <= 2_000,
               Date.now.timeIntervalSince(lastPushedAt ?? .distantPast) >= 60
         else { return }
         pushNow(queue: queue, elapsed: elapsed)
