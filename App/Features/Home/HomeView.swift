@@ -50,6 +50,19 @@ struct HomeView: View {
                                     appState.mixes.loadMore(appState: appState, scope: mixScope)
                                 }
                         }
+
+                        Button {
+                            isEditingLayout = true
+                        } label: {
+                            Label("Edit Home", systemImage: "rectangle.3.group")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .glassTile(cornerRadius: 20)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, Metrics.itemSpacing)
                     }
                 }
                 .padding(.vertical, Metrics.itemSpacing)
@@ -70,17 +83,17 @@ struct HomeView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) { LibraryScopeMenu() }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
+                    // Settings in one tap: behind a menu with Edit Home it took two. Edit
+                    // Home is at the foot of the page, and a long press here.
+                    NavigationLink(value: Destination.settings) {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Settings")
+                    .contextMenu {
                         Button("Edit Home", systemImage: "rectangle.3.group") {
                             isEditingLayout = true
                         }
-                        NavigationLink(value: Destination.settings) {
-                            Label("Settings", systemImage: "gearshape")
-                        }
-                    } label: {
-                        Image(systemName: "gearshape")
                     }
-                    .accessibilityLabel("Settings and Edit Home")
                 }
             }
             .sheet(isPresented: $isEditingLayout) {

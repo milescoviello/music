@@ -2,22 +2,48 @@ import SwiftUI
 
 struct AlbumCard: View {
     let album: Album
+    /// What goes under the name. On an artist's own page the artist said nothing the page
+    /// does not; the year does.
+    var detail: Detail = .artist
+
+    enum Detail { case artist, year }
 
     var body: some View {
+        let name = AlbumEdition.split(album.name)
         VStack(alignment: .leading, spacing: 8) {
             ArtworkImage(id: album.coverArt, size: .card, fallbackText: album.name)
                 .aspectRatio(1, contentMode: .fit)
 
-            Text(album.name)
-                .font(.subheadline.weight(.medium))
-                .lineLimit(1)
-
-            if let artist = album.artist {
-                Text(artist)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(name.title)
+                    .font(.subheadline.weight(.medium))
                     .lineLimit(1)
+
+                if let edition = name.edition {
+                    Text(edition)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Color.appTint)
+                        .lineLimit(1)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.appTint.opacity(0.16), in: Capsule())
+                }
+
+                if let line {
+                    Text(line)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var line: String? {
+        switch detail {
+        case .artist: album.artist
+        case .year: album.year.map(String.init)
         }
     }
 }

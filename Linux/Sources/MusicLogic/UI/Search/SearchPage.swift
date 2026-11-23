@@ -38,7 +38,12 @@ enum SearchPage {
             stack.visibleName = "searching"
             let alive = stack.liveness
             Task { @MainActor in
-                let found = await app.search.search(trimmed, scope: app.scope.scope)
+                let found = await app.search.search(trimmed, scope: app.scope.scope) { first in
+                    // What was typed found, shown while the correction and lyrics come.
+                    guard alive.isAlive, current == generation else { return }
+                    results.child = resultsView(env, query: trimmed, outcome: first)
+                    stack.visibleName = "results"
+                }
                 guard alive.isAlive, current == generation else { return }
                 results.child = resultsView(env, query: trimmed, outcome: found)
                 stack.visibleName = "results"
@@ -142,7 +147,6 @@ enum SearchPage {
                 description: "Search needs the server. Downloads are in Library."
             )
         }
-        let results = outcome.results
         if outcome.isOffline, outcome.isEmpty {
             return StatusPage(
                 icon: "network-offline-symbolic",
@@ -178,8 +182,9 @@ enum SearchPage {
             body.append(Button("Ask Hermes to Find “\(query)”", "pill") { env.open(.requestMusic(query)) }.halign(GTK_ALIGN_START))
         }
 
-        // The top result as a card, the first songs beside it.
-        let top = SearchRanking.topResult(for: outcome.rankedFor, in: results)
+        // The top result as a card, the first songs beside it; nothing below lists it again.
+        let top = SearchRanking.topResult(for: outcome.rankedFor, in: outcome.results)
+        let results = SearchRanking.rest(outcome.results, after: top)
         let leading = Array(results.songs.prefix(top == nil ? 0 : 4))
         if let top {
             let songs = Box.vertical(spacing: 6) {

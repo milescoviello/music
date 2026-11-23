@@ -71,6 +71,7 @@ final class QueuePlayerOutput: AudioOutput {
     /// output, which decodes its own streams, holds an unreachable track and raises it.
     var onUnreachable: ((String) -> Void)?
     var onFailedMidTrack: ((String, Double) -> Void)?
+    var onCouldNotOpen: ((String, Bool) -> Void)?
     /// A track failed because the system's media services restarted: the players are
     /// dead. The controller has `replacePlayers` called and the track loaded again.
     var onMediaServicesReset: (() -> Void)?
@@ -480,8 +481,14 @@ final class QueuePlayerOutput: AudioOutput {
             let reason = item.error.map(Diagnostics.describe) ?? "no reason given"
             let wasReset = (item.error as? AVError)?.code == .mediaServicesWereReset
             Task { @MainActor in
-                self?.logTrouble(id, "couldn't be opened: \(reason)")
-                if wasReset { self?.onMediaServicesReset?() }
+                guard let self else { return }
+                logTrouble(id, "couldn't be opened: \(reason)")
+                if wasReset {
+                    onMediaServicesReset?()
+                } else if let songID = itemToSongID[id] {
+                    // Held, not moved past: the controller asks for it again, or goes on.
+                    onCouldNotOpen?(songID, false)
+                }
             }
         }
 

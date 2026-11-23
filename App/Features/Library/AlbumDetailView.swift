@@ -175,6 +175,7 @@ struct AlbumDetailView: View {
                 source: album.name,
                 style: .numbered(song.track ?? 1),
                 showsNavigation: false,
+                listArtist: album.artist ?? detail?.artist,
                 selection: selection
             )
             // Separators start at the title, not under the number column.

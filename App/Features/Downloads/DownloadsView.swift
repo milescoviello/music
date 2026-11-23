@@ -166,7 +166,7 @@ struct DownloadsView: View {
     private var totals: String {
         var parts = [folders.totalBytes.asFileSize]
         if folders.totalDuration > 0 { parts.append(folders.totalDuration.asLongDuration) }
-        return parts.joined(separator: " – ")
+        return parts.joined(separator: " · ")
     }
 
     /// Plexamp's Downloads menu: Play All, Remove All, and the sorts, where choosing the

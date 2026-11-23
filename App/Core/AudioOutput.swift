@@ -66,6 +66,10 @@ protocol AudioOutput: AnyObject {
     /// A streamed track gave out partway, and the output moved past it: the id, and where
     /// it stopped. The controller decides whether to go back and try it again from there.
     var onFailedMidTrack: ((_ songID: String, _ position: Double) -> Void)? { get set }
+    /// A track could not be opened at all: an error where its music should be, a file that
+    /// would not read. `movedOn` when the output went past it by itself, as the desktop's
+    /// does; otherwise it holds it, and the controller decides what next.
+    var onCouldNotOpen: ((_ songID: String, _ movedOn: Bool) -> Void)? { get set }
     /// Roughly 4 Hz. `isMoving` is false while stalled, so the play tracker does not
     /// credit listening time to a buffering track.
     var onTick: ((_ elapsed: Double, _ isMoving: Bool) -> Void)? { get set }

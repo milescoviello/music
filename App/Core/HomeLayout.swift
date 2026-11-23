@@ -41,19 +41,34 @@ enum HomeHub: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// Which shelves Home shows, in what order: Plexamp's home editor, stored.
-struct HomeLayout: Codable, Equatable, Sendable {
-    private(set) var order: [HomeHub]
-    private(set) var hidden: Set<HomeHub>
+/// Something laid out by hand: Home's shelves, the Library page's rows.
+protocol LayoutItem: RawRepresentable, CaseIterable, Codable, Hashable, Identifiable, Sendable
+    where RawValue == String, AllCases == [Self] {
+    /// Out of the way until asked for, before anything has been chosen.
+    static var hiddenByDefault: Set<Self> { get }
+}
 
-    static let `default` = HomeLayout(order: HomeHub.allCases, hidden: [])
+extension HomeHub: LayoutItem {
+    static var hiddenByDefault: Set<HomeHub> { [] }
+}
 
-    var visible: [HomeHub] { order.filter { !hidden.contains($0) } }
+/// Home's shelves: Plexamp's home editor, stored.
+typealias HomeLayout = ItemLayout<HomeHub>
 
-    func isVisible(_ hub: HomeHub) -> Bool { !hidden.contains(hub) }
+/// Which items show, in what order, stored.
+struct ItemLayout<Item: LayoutItem>: Codable, Equatable, Sendable {
+    private(set) var order: [Item]
+    private(set) var hidden: Set<Item>
 
-    mutating func setVisible(_ visible: Bool, _ hub: HomeHub) {
-        if visible { hidden.remove(hub) } else { hidden.insert(hub) }
+    static var `default`: ItemLayout { ItemLayout(order: Item.allCases, hidden: Item.hiddenByDefault) }
+
+    var visible: [Item] { order.filter { !hidden.contains($0) } }
+    var hiddenInOrder: [Item] { order.filter { hidden.contains($0) } }
+
+    func isVisible(_ item: Item) -> Bool { !hidden.contains(item) }
+
+    mutating func setVisible(_ visible: Bool, _ item: Item) {
+        if visible { hidden.remove(item) } else { hidden.insert(item) }
     }
 
     mutating func move(fromOffsets source: IndexSet, toOffset destination: Int) {
@@ -65,29 +80,31 @@ struct HomeLayout: Codable, Equatable, Sendable {
         order = rest
     }
 
-    /// A stored layout, repaired: hubs this build no longer has are dropped, and ones it
-    /// added since are put where the default order has them rather than lost.
-    static func restored(from data: Data?) -> HomeLayout {
+    /// A stored layout, repaired: items this build no longer has are dropped, and ones it
+    /// added since are put where the default order has them, shown or not as it has them,
+    /// rather than lost.
+    static func restored(from data: Data?) -> ItemLayout {
         guard let data,
               let stored = try? JSONDecoder().decode(StoredLayout.self, from: data)
         else { return .default }
 
-        var order = stored.order.compactMap(HomeHub.init(rawValue:))
-        var seen = Set<HomeHub>()
+        var order = stored.order.compactMap(Item.init(rawValue:))
+        var seen = Set<Item>()
         order = order.filter { seen.insert($0).inserted }
 
-        for (index, hub) in HomeHub.allCases.enumerated() where !seen.contains(hub) {
-            order.insert(hub, at: min(index, order.count))
+        var hidden = Set(stored.hidden.compactMap(Item.init(rawValue:)))
+        for (index, item) in Item.allCases.enumerated() where !seen.contains(item) {
+            order.insert(item, at: min(index, order.count))
+            if Item.hiddenByDefault.contains(item) { hidden.insert(item) }
         }
-        let hidden = Set(stored.hidden.compactMap(HomeHub.init(rawValue:)))
-        return HomeLayout(order: order, hidden: hidden)
+        return ItemLayout(order: order, hidden: hidden)
     }
 
     var encoded: Data? {
         try? JSONEncoder().encode(StoredLayout(order: order.map(\.rawValue), hidden: hidden.map(\.rawValue).sorted()))
     }
 
-    /// Raw strings on disk, so a hub removed in a later build cannot make the whole
+    /// Raw strings on disk, so an item removed in a later build cannot make the whole
     /// layout fail to decode.
     private struct StoredLayout: Codable {
         let order: [String]

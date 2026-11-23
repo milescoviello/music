@@ -179,6 +179,14 @@ final class TrackSource: @unchecked Sendable {
         return failed
     }
 
+    /// Failed for something other than the server's silence, and not for being let go:
+    /// what the mixer joins past, and the controller says was skipped.
+    var couldNotOpen: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return failed && !unreachable && !cancelled
+    }
+
     /// Failed because the server did not answer: worth trying again, not skipping.
     var isUnreachable: Bool {
         lock.lock()

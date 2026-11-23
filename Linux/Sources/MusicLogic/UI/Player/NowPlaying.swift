@@ -123,6 +123,7 @@ final class NowPlaying {
         codec = Self.codecRow(app)
         let resume = Self.resumeStrip(app)
         let unreachable = Self.unreachableStrip(app)
+        let trouble = Self.troubleStrip(app)
         (transportRow, inlineShuffle, inlineRepeat) = Self.transport(app)
         volume = Self.volumeRow()
         queuePane = QueuePane(env: env)
@@ -138,6 +139,7 @@ final class NowPlaying {
         info.append(codec)
         info.append(resume)
         info.append(unreachable)
+        info.append(trouble)
         info.append(PlayOn.banner(env))
         infoClamp = Clamp(info, maximum: 400, threshold: 300)
         controls.append(transportRow)
@@ -987,6 +989,39 @@ final class NowPlaying {
             label.text = player.isPlaying ? "Trying the server again…" : "Can't reach the server"
             retry.isVisible = !player.isPlaying
             revealer.isRevealed = true
+        }
+        return revealer
+    }
+
+    /// A song that would not play though the server answered (`PlaybackController.playTrouble`):
+    /// being asked for again, gone past, or -- too many in a row -- stopped at.
+    private static func troubleStrip(_ app: AppState) -> Widget {
+        let player = app.player
+        let label = Label("", "caption")
+        let skip = Button("Skip", "flat", "caption-heading") { player.next() }
+        let retry = Button("Try Again", "flat", "caption-heading") { player.play() }
+        let strip = Box.horizontal(spacing: 10) {
+            Icon("dialog-warning-symbolic", size: 14)
+            label
+            skip
+            retry
+        }.css("resume-strip").halign(GTK_ALIGN_CENTER)
+        let revealer = Revealer(strip, transition: GTK_REVEALER_TRANSITION_TYPE_SLIDE_DOWN)
+        revealer.observe {
+            guard let trouble = player.playTrouble, let text = trouble.line(current: player.currentSong?.id) else {
+                revealer.isRevealed = false
+                return
+            }
+            label.text = text
+            skip.isVisible = trouble.step == .retrying
+            retry.isVisible = trouble.step == .stopped
+            revealer.isRevealed = true
+            if trouble.step == .skipped {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(8))
+                    player.dismissTrouble(trouble)
+                }
+            }
         }
         return revealer
     }

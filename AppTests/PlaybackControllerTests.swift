@@ -150,6 +150,70 @@ final class PlaybackControllerTests: XCTestCase {
         XCTAssertEqual(output.loads.last?.ids.first, "a")
     }
 
+    /// A song that would not open is asked for once more, then gone past with a word on the
+    /// player -- not left on "playing" with the clock still.
+    func testASongThatWillNotOpenIsTriedAgainThenSkipped() {
+        let (player, output) = make()
+        player.play(songs: songs("a", "b", "c"), startingAt: 0, source: "test")
+        let loads = output.loads.count
+
+        output.onCouldNotOpen?("a", false)
+        XCTAssertEqual(output.loads.count, loads + 1, "asked for once more")
+        XCTAssertEqual(output.loads.last?.ids.first, "a")
+        XCTAssertEqual(player.playTrouble?.step, .retrying)
+        XCTAssertTrue(player.isPlaying)
+
+        output.onCouldNotOpen?("a", false)
+        XCTAssertEqual(player.currentSong?.id, "b", "then on to the next")
+        XCTAssertEqual(player.playTrouble, .init(songID: "a", title: "Track a", step: .skipped))
+        XCTAssertTrue(player.isPlaying)
+    }
+
+    /// Every song failing is not the songs' fault: after three in a row it stops there.
+    func testThreeSongsInARowThatWillNotPlayStop() {
+        let (player, output) = make()
+        player.play(songs: songs("a", "b", "c", "d", "e"), startingAt: 0, source: "test")
+
+        for id in ["a", "b", "c"] {
+            output.onCouldNotOpen?(id, false)
+            output.onCouldNotOpen?(id, false)
+        }
+
+        XCTAssertEqual(player.currentSong?.id, "c")
+        XCTAssertEqual(player.playTrouble?.step, .stopped)
+        XCTAssertFalse(player.isPlaying)
+    }
+
+    /// Sound in between starts the count again.
+    func testASongThatPlaysStartsTheCountAgain() {
+        let (player, output) = make()
+        player.play(songs: songs("a", "b", "c", "d", "e"), startingAt: 0, source: "test")
+
+        output.onCouldNotOpen?("a", false)
+        output.onCouldNotOpen?("a", false)
+        output.onCouldNotOpen?("b", false)
+        output.onCouldNotOpen?("b", false)
+        output.onTick?(1, true)
+        output.onCouldNotOpen?("c", false)
+        output.onCouldNotOpen?("c", false)
+
+        XCTAssertEqual(player.currentSong?.id, "d")
+        XCTAssertTrue(player.isPlaying)
+    }
+
+    /// The desktop's output goes past by itself: the player only says so.
+    func testOneTheOutputWentPastIsOnlyNamed() {
+        let (player, output) = make()
+        player.play(songs: songs("a", "b"), startingAt: 0, source: "test")
+        let loads = output.loads.count
+
+        output.onCouldNotOpen?("a", true)
+
+        XCTAssertEqual(output.loads.count, loads)
+        XCTAssertEqual(player.playTrouble?.step, .skipped)
+        XCTAssertEqual(player.playTrouble?.line(current: "b"), "Skipped “Track a”: it wouldn't play")
+    }
+
     /// The server's duration can be missing or wrong; the player's real one wins.
     func testATickAdoptsThePlayersRealDuration() {
         let (player, output) = make()

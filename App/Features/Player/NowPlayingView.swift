@@ -96,7 +96,17 @@ struct NowPlayingView: View {
         VStack(spacing: 0) {
             topBar
 
-            if videos.isAvailable || videos.wantsVideo {
+            if isScrollingMode, let song = player.currentSong {
+                // Lyrics and Up Next take the screen: the song shrinks to a row over them,
+                // and the whole player comes back with a tap on it. With all of it in
+                // place they had a third of the screen -- four lines, or three songs.
+                compactHeader(song)
+                    .contentShape(Rectangle())
+                    .gesture(dismissDrag)
+                resumeStrip
+                unreachableStrip
+                troubleStrip
+            } else if videos.isAvailable || videos.wantsVideo {
                 videoSwitch
             }
 
@@ -104,24 +114,26 @@ struct NowPlayingView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if let song = player.currentSong {
-                // The Linux player's order: the seekbar under the cover, then the three
-                // centred lines and the codec line with the stars and the heart in it.
-                resumeStrip
-                unreachableStrip
-                PlayerSeekBar()
+                if !isScrollingMode {
+                    // The Linux player's order: the seekbar under the cover, then the three
+                    // centred lines and the codec line with the stars and the heart in it.
+                    resumeStrip
+                    unreachableStrip
+                    troubleStrip
+                    PlayerSeekBar()
 
-                // The title block is its own drag surface in *every* mode, including
-                // queue and lyrics. It is the natural place to grab from and it never
-                // scrolls, so nothing competes for the gesture here.
-                VStack(spacing: 0) {
-                    metadata(song)
-                    PlayerDetailLine(song: song)
+                    // The title block is its own drag surface. It is the natural place to
+                    // grab from and it never scrolls, so nothing competes for the gesture.
+                    VStack(spacing: 0) {
+                        metadata(song)
+                        PlayerDetailLine(song: song)
+                    }
+                    .contentShape(Rectangle())
+                    .gesture(dismissDrag)
+
+                    transport
+                    volumeRow
                 }
-                .contentShape(Rectangle())
-                .gesture(dismissDrag)
-
-                transport
-                volumeRow
                 bottomRow
             }
         }
@@ -473,6 +485,61 @@ struct NowPlayingView: View {
             .matchedGeometryEffect(id: "artwork", in: modeNamespace)
     }
 
+    /// The song as a row over the lyrics or the queue: the cover, the title and artist, play
+    /// and next, and how far through it is. The cover and the words bring the player back.
+    private func compactHeader(_ song: Song) -> some View {
+        HStack(spacing: Metrics.itemSpacing) {
+            Button {
+                mode = visualizerShown && !videos.wantsVideo ? .visualizer : .artwork
+            } label: {
+                HStack(spacing: Metrics.itemSpacing) {
+                    ArtworkImage(id: song.coverArt, size: .thumb, cornerRadius: Metrics.radiusThumb)
+                        .frame(width: Metrics.thumbPlaylist, height: Metrics.thumbPlaylist)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(song.title)
+                            .font(.headline)
+                            .lineLimit(1)
+                        if let artist = song.artist {
+                            Text(artist)
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.6))
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Shows the whole player")
+
+            Button { player.togglePlayPause() } label: {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.title2)
+                    .frame(width: Metrics.minimumTouchTarget, height: Metrics.minimumTouchTarget)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel(player.isPlaying ? "Pause" : "Play")
+
+            Button { player.next() } label: {
+                Image(systemName: "forward.fill")
+                    .font(.title3)
+                    .frame(width: Metrics.minimumTouchTarget, height: Metrics.minimumTouchTarget)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Next track")
+            .disabled(!player.canGoNext)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, Metrics.gutter)
+        .padding(.vertical, 8)
+        .overlay(alignment: .bottom) {
+            CompactProgress()
+                .padding(.horizontal, Metrics.gutter)
+        }
+        .transition(.opacity)
+    }
+
     /// The Linux player's three lines, centred: the artist, the title in bold, the album
     /// and its year dimmer. The artist and album lead to their pages, the title to what
     /// the song is about.
@@ -597,6 +664,44 @@ struct NowPlayingView: View {
         }
     }
 
+    /// A song that would not play though the server answered (`PlaybackController.playTrouble`):
+    /// being asked for again, gone past, or -- too many in a row -- stopped at.
+    @ViewBuilder
+    private var troubleStrip: some View {
+        if let trouble = player.playTrouble, let text = trouble.line(current: player.currentSong?.id) {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.caption)
+                Text(text)
+                    .font(.caption)
+                    .lineLimit(1)
+                switch trouble.step {
+                case .retrying:
+                    Button("Skip") { player.next() }
+                        .font(.caption.weight(.semibold))
+                case .stopped:
+                    Button("Try Again") { player.play() }
+                        .font(.caption.weight(.semibold))
+                case .skipped:
+                    EmptyView()
+                }
+            }
+            .foregroundStyle(.white.opacity(0.85))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial, in: Capsule())
+            .padding(.top, 8)
+            .padding(.horizontal, Metrics.gutter)
+            .transition(.opacity)
+            .task(id: trouble) {
+                guard trouble.step == .skipped else { return }
+                try? await Task.sleep(for: .seconds(8))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.3)) { player.dismissTrouble(trouble) }
+            }
+        }
+    }
+
     private var transport: some View {
         let showsSkip = playerSettings.showsSkipButtons
 
@@ -706,6 +811,26 @@ struct NowPlayingView: View {
 // The three things the player shows that are about the queue rather than the track:
 // views of their own, so that reading `queue` for them makes a queue edit redraw them and
 // not the whole player.
+
+/// How far through the song is, as a hairline under the compact header: a view of its own,
+/// so the 4 Hz time redraws the line and not the player.
+private struct CompactProgress: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        let player = appState.player
+        let fraction = player.duration > 0 ? min(max(player.elapsed / player.duration, 0), 1) : 0
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.15))
+                Capsule().fill(.white.opacity(0.7))
+                    .frame(width: proxy.size.width * fraction)
+            }
+        }
+        .frame(height: 2)
+        .accessibilityHidden(true)
+    }
+}
 
 /// Where the queue came from: "Glass Harbor", or just "Queue".
 private struct QueueSourceText: View {
@@ -943,8 +1068,10 @@ private struct PlayerSeekBar: View {
             HStack {
                 Text(Int(position).asDuration)
                 Spacer()
-                // Rather than "0:00", which reads as a bug -- and was one.
-                Text(hasKnownDuration ? Int(max(player.duration - position, 0)).asDuration : "--:--")
+                // Rather than "0:00", which reads as a bug -- and was one. The time left, signed
+                // as the desktop's is: unsigned it read as the song's length, which a list
+                // beside it gave differently.
+                Text(hasKnownDuration ? "-" + Int(max(player.duration - position, 0)).asDuration : "--:--")
             }
             .font(.caption.monospacedDigit())
             .foregroundStyle(.white.opacity(0.6))

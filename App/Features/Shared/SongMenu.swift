@@ -186,6 +186,18 @@ struct RatingStars: View {
             }
         }
         .animation(.snappy(duration: 0.15), value: current)
+        // One control, swiped up or down: five unlabelled buttons were read as the star
+        // symbol's own name, "Favorite", five times over, beside the heart that is one.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Rating")
+        .accessibilityValue(current == 0 ? "None" : "\(current) of 5 stars")
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment where current < 5: userState.setRating(song, to: current + 1, current: current)
+            case .decrement where current > 0: userState.setRating(song, to: current - 1, current: current)
+            default: break
+            }
+        }
     }
 }
 

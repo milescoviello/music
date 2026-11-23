@@ -56,6 +56,38 @@ final class PlaybackController {
     /// The track that could not be fetched because the server did not answer, until it
     /// plays. Drives the "Can't reach the server · Try Again" strip.
     private(set) var unreachableSongID: String?
+    /// A song that would not play though the server answered, and what was done about it
+    /// (`handleCouldNotOpen`). Drives the player's "Couldn't play" strip.
+    private(set) var playTrouble: PlayTrouble?
+
+    struct PlayTrouble: Equatable, Sendable {
+        enum Step: Equatable, Sendable {
+            /// Asked for once more.
+            case retrying
+            /// Gone past, on to the next song.
+            case skipped
+            /// Too many in a row: stopped, rather than working through the queue.
+            case stopped
+        }
+        let songID: String
+        let title: String
+        let step: Step
+
+        /// What the player's strip says, both apps' alike; nil when it is not for the song
+        /// playing now.
+        func line(current: String?) -> String? {
+            switch step {
+            case .retrying: songID == current ? "Couldn't play this song, trying again…" : nil
+            case .skipped: "Skipped “\(title)”: it wouldn't play"
+            case .stopped: "Couldn't play the last \(PlaybackController.unplayableLimit) songs"
+            }
+        }
+    }
+
+    /// The strip has been read: a skip's notice goes after a few seconds.
+    func dismissTrouble(_ trouble: PlayTrouble) {
+        if playTrouble == trouble { playTrouble = nil }
+    }
     private(set) var duration: Double = 0
 
     // What most views want from the queue, each kept apart from it and assigned only
@@ -147,6 +179,15 @@ final class PlaybackController {
     private static let openPatience: TimeInterval = 12
     @ObservationIgnored private var openWatch: Task<Void, Never>?
     @ObservationIgnored private var reopened: (songID: String, count: Int)?
+
+    /// The song asked for again after it would not open, so a second failure goes past it.
+    @ObservationIgnored private var retriedOpen: String?
+    /// Songs in a row that would not play; at `unplayableLimit` it stops.
+    @ObservationIgnored private var unplayableInARow = 0
+    nonisolated static let unplayableLimit = 3
+    /// Songs that would not open while they waited their turn: the phone's player loads the
+    /// next ones ahead.
+    @ObservationIgnored private var failedAhead: Set<String> = []
 
     // MARK: - The log
 
@@ -267,6 +308,9 @@ final class PlaybackController {
         }
         output.onFailedMidTrack = { [weak self] songID, position in
             self?.handleFailedMidTrack(songID: songID, at: position)
+        }
+        output.onCouldNotOpen = { [weak self] songID, movedOn in
+            self?.handleCouldNotOpen(songID: songID, movedOn: movedOn)
         }
         // Either can come first, and the output's once for each track in the window.
         session.onMediaServicesReset = { [weak self] in
@@ -666,6 +710,7 @@ final class PlaybackController {
         )
         appState?.guestDJ.queueReplaced()
         recordStart(of: songs, source: source, station: station)
+        clearTrouble()
 
         // A saved position only applies when the caller did not ask for one, and only to
         // tracks long enough for it to matter -- `ResumeStore` decides both.
@@ -770,6 +815,7 @@ final class PlaybackController {
         if appState?.video.takesOverPlay() == true { return }
         retryTask?.cancel()
         retryTask = nil
+        if playTrouble?.step == .stopped { clearTrouble() }
         // A track that failed to load leaves the output with nothing to resume while the
         // queue still says it is current, and resuming that played silence for as long as
         // it was left. Pressing play is asking for it, so it is loaded again.
@@ -820,7 +866,12 @@ final class PlaybackController {
                   Date.now.timeIntervalSince(stuck.since) >= Self.openPatience
             else { return }
             let tries = reopened?.songID == current.id ? reopened?.count ?? 0 : 0
-            guard tries < 2 else { return }
+            guard tries < 2 else {
+                // Asked for three times and never opened, as the server answers: on 11-22
+                // one stuck reading its files answered every ping, and every stream sat.
+                handleCouldNotOpen(songID: current.id, movedOn: false, retried: true)
+                return
+            }
             noteReopen(current, after: Date.now.timeIntervalSince(stuck.since))
             reloadCurrent()
             startOutput()
@@ -1592,6 +1643,11 @@ final class PlaybackController {
             unreachableSongID = nil
             retryAttempt = 0
         }
+        if isPlaying, isMoving, unplayableInARow > 0 || retriedOpen != nil {
+            unplayableInARow = 0
+            retriedOpen = nil
+            if playTrouble?.step == .retrying { playTrouble = nil }
+        }
 
         // A stalled stream still ticks, so listening time is only credited while the
         // audio is genuinely moving.
@@ -1656,6 +1712,10 @@ final class PlaybackController {
         refillWindow()
         publishNowPlaying(force: true)
         persist()
+        // It would not open while it waited, and is what plays now: it is seen to now.
+        if failedAhead.remove(songID) != nil, !output.holdsCurrent {
+            handleCouldNotOpen(songID: songID, movedOn: false)
+        }
 
         // End of track or end of album: the next track has just begun, so stop at its
         // very start, and a later play starts it from the top.
@@ -1809,6 +1869,98 @@ final class PlaybackController {
         tracker.interrupted(at: position)
         startOutput()
         persist()
+    }
+
+    /// A track would not open. Not the server's silence -- that is `handleUnreachable`'s,
+    /// and goes to it when the quick question goes unanswered too -- but a song the server
+    /// answered for with something that would not play. On the phone it sat on "playing",
+    /// the clock still, with nothing said; on the desktop it was skipped without a word.
+    /// Now it is asked for once more, then gone past with a word on the player, and after
+    /// `unplayableLimit` in a row it stops rather than working through the queue.
+    ///
+    /// `retried` when it has been asked for again already (`watchOpening`).
+    private func handleCouldNotOpen(songID: String, movedOn: Bool, retried: Bool = false) {
+        guard remote == nil, video == nil else { return }
+        if movedOn {
+            let title = queue.tracks.first { $0.id == songID }?.title ?? "A song"
+            wentPast(songID: songID, title: title, movedOn: true)
+            return
+        }
+        guard let current = queue.current else { return }
+        guard current.id == songID else {
+            failedAhead.insert(songID)
+            return
+        }
+        // Loaded paused, at launch: play loads it again (`holdsCurrent`).
+        guard isPlaying else { return }
+        guard let appState else {
+            couldNotPlayCurrent(retried: retried)
+            return
+        }
+        let generation = playGeneration
+        Task { [weak self] in
+            let answers = appState.isServerUnreachable ? false : await appState.serverAnswersQuickly()
+            guard let self, remote == nil, playGeneration == generation, isPlaying, queue.current?.id == songID
+            else { return }
+            if answers {
+                couldNotPlayCurrent(retried: retried)
+            } else {
+                handleUnreachable(songID: songID)
+            }
+        }
+    }
+
+    /// The song playing would not open, and the server answers: once more, then on.
+    private func couldNotPlayCurrent(retried: Bool) {
+        guard let current = queue.current else { return }
+        guard retried || retriedOpen == current.id else {
+            retriedOpen = current.id
+            let line = "“\(current.title)” (\(current.id)) would not open: asking for it once more"
+            Task { await Diagnostics.shared.record("playback", line) }
+            playTrouble = PlayTrouble(songID: current.id, title: current.title, step: .retrying)
+            reloadCurrent()
+            startOutput()
+            return
+        }
+        wentPast(songID: current.id, title: current.title, movedOn: false)
+    }
+
+    /// Past a song that would not play -- or, the `unplayableLimit`th in a row, stopped:
+    /// every song failing is the server's trouble or the network's, and going on would
+    /// only work through the queue.
+    private func wentPast(songID: String, title: String, movedOn: Bool) {
+        unplayableInARow += 1
+        retriedOpen = nil
+        if unplayableInARow >= Self.unplayableLimit {
+            let count = unplayableInARow
+            Task { await Diagnostics.shared.record("playback", "“\(title)” (\(songID)) would not play either: \(count) in a row, stopping") }
+            let here = queue.current ?? Song(id: songID, title: title)
+            playTrouble = PlayTrouble(songID: here.id, title: here.title, step: .stopped)
+            unplayableInARow = 0
+            output.pause()
+            isPlaying = false
+            tracker.interrupted(at: elapsed)
+            session.noteIsPlaying(false)
+            publishNowPlaying(force: true)
+            persist()
+            return
+        }
+        Task { await Diagnostics.shared.record("playback", "“\(title)” (\(songID)) would not play: on to the next") }
+        playTrouble = PlayTrouble(songID: songID, title: title, step: .skipped)
+        // The desktop's output has joined the next one on already.
+        guard !movedOn else { return }
+        if queue.advance() {
+            rebuildOutput(startPlaying: true, seekTo: 0)
+        } else {
+            continueIntoAutoplay()
+        }
+    }
+
+    private func clearTrouble() {
+        playTrouble = nil
+        retriedOpen = nil
+        unplayableInARow = 0
+        failedAhead = []
     }
 
     /// When the players were last replaced, so one restart is handled once.

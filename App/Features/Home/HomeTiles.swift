@@ -34,7 +34,9 @@ struct JumpBackIn: View {
     ]
 
     var body: some View {
-        let shown = Array(store.recent.origins.prefix(8))
+        // An even number, so the grid has no hole at its end: three left one beside the third.
+        let recent = store.recent.origins
+        let shown = Array(recent.prefix(max(1, min(8, recent.count) / 2 * 2)))
         if !shown.isEmpty {
             VStack(alignment: .leading, spacing: Metrics.headerToContent) {
                 ShelfHeader(title: "Jump Back In")
@@ -152,21 +154,25 @@ struct StationTiles: View {
                         .foregroundStyle(Color.appTint)
                 }
             }
-            .frame(width: 38, height: 38)
+            .frame(width: 34, height: 34)
+            // Two lines each: at half the screen's width, one line cut every name but the
+            // shortest ("Time Travel...", "Artist Mix B...") and every subtitle.
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
+                    .lineLimit(2)
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.6))
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
+            .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 8)
         .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // The row's height, so the two side by side match whichever needs more lines.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .glassTile()
     }

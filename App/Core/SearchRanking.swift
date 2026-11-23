@@ -24,6 +24,19 @@ enum SearchRanking {
         return nil
     }
 
+    /// The results with the top result left out of its own section below it: a search that
+    /// found one song listed it twice, as the Top Result and again under Songs.
+    static func rest(_ results: SearchResult3, after top: TopResult?) -> SearchResult3 {
+        var rest = results
+        switch top {
+        case .artist(let artist)?: rest.artist = results.artists.filter { $0.id != artist.id }
+        case .album(let album)?: rest.album = results.albums.filter { $0.id != album.id }
+        case .song(let song)?: rest.song = results.songs.filter { $0.id != song.id }
+        case nil: break
+        }
+        return rest
+    }
+
     /// The results as they are shown: one copy of each, and in each section the names
     /// that are the query first, then those that start with it, then the server's order.
     ///

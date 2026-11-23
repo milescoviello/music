@@ -36,6 +36,8 @@ final class QueuePlayerOutput: AudioOutput {
     /// Never raised: this output decodes its own streams, and holds a track it cannot read
     /// rather than moving past it, which is what the iPhone's needs going back for.
     var onFailedMidTrack: ((String, Double) -> Void)?
+    /// Raised for a track that would not open, once the mixer has joined past it.
+    var onCouldNotOpen: ((String, Bool) -> Void)?
     /// Never raised, and nothing to replace: see the session's `onMediaServicesReset`.
     var onMediaServicesReset: (() -> Void)?
     func replacePlayers() {}
@@ -403,6 +405,10 @@ final class QueuePlayerOutput: AudioOutput {
             return (heard, notes, released, current)
         }
         let (heard, notes, released, current) = snapshot
+        // Before the move past it is reported, so the controller hears why first.
+        for source in released where source.couldNotOpen {
+            onCouldNotOpen?(source.song.id, true)
+        }
         released.forEach { $0.cancel() }
         for note in notes {
             Task { await Diagnostics.shared.record("fades", note) }

@@ -79,17 +79,6 @@ struct SearchView: View {
                 prompt: "Artists, Albums, Songs"
             )
             .searchInputAsTyped()
-            // `.searchScopes` rather than the toolbar menu used elsewhere: it is the
-            // control iOS already puts under a search field, and a second menu beside
-            // the field would be one affordance too many. Same store either way.
-            .searchScopes(
-                Binding(get: { scope.scope }, set: { scope.scope = $0 }),
-                activation: .onSearchPresentation
-            ) {
-                ForEach(scope.options, id: \.self) { option in
-                    Text(option.shortName).tag(option)
-                }
-            }
             .onSubmit(of: .search) {
                 appState.recentSearches.record(query)
             }
@@ -156,11 +145,12 @@ struct SearchView: View {
                     ForEach(genres.prefix(30)) { genre in
                         NavigationLink(value: Destination.genre(genre.value)) {
                             Text(genre.value)
-                                .font(.subheadline.weight(.medium))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
                                 .lineLimit(2)
                                 .frame(maxWidth: .infinity, minHeight: 72)
                                 .padding(.horizontal, 8)
-                                .background(.quaternary, in: RoundedRectangle(
+                                .background(GenreTint.fill(for: genre.value), in: RoundedRectangle(
                                     cornerRadius: Metrics.radiusCard, style: .continuous
                                 ))
                         }
@@ -227,7 +217,10 @@ struct SearchView: View {
                     }
                 }
 
-                if let outcome, let top = SearchRanking.topResult(for: outcome.rankedFor, in: outcome.results) {
+                let top = outcome.flatMap { SearchRanking.topResult(for: $0.rankedFor, in: $0.results) }
+                // The sections below without it, so it is not listed twice.
+                let rest = results.map { SearchRanking.rest($0, after: top) }
+                if let top {
                     Section("Top Result") {
                         topResultRow(top)
                     }
@@ -253,7 +246,7 @@ struct SearchView: View {
                     }
                 }
 
-                if let artists = results?.artists, !artists.isEmpty {
+                if let artists = rest?.artists, !artists.isEmpty {
                     Section("Artists") {
                         ForEach(artists.prefix(4)) { artist in
                             NavigationLink(value: Destination.artist(ArtistRef(artist))) {
@@ -270,7 +263,7 @@ struct SearchView: View {
                     }
                 }
 
-                if let albums = results?.albums, !albums.isEmpty {
+                if let albums = rest?.albums, !albums.isEmpty {
                     Section("Albums") {
                         ForEach(albums.prefix(6)) { album in
                             NavigationLink(value: Destination.album(AlbumRef(album))) {
@@ -298,7 +291,7 @@ struct SearchView: View {
                     }
                 }
 
-                if let songs = results?.songs, !songs.isEmpty {
+                if let songs = rest?.songs, !songs.isEmpty {
                     // Capped at 20, then played as that list: results past the cap are
                     // not on screen, so queueing them would be a surprise.
                     let visible = Array(songs.prefix(20))
@@ -416,20 +409,72 @@ struct SearchView: View {
         }
     }
 
+    /// A colour of its own for each genre, the same every time: a page of identical grey
+    /// tiles read as empty.
+    private enum GenreTint {
+        static func fill(for name: String) -> LinearGradient {
+            // FNV-1a over the name, not `hashValue`, which changes from launch to launch.
+            var hash: UInt32 = 2_166_136_261
+            for byte in name.lowercased().utf8 { hash = (hash ^ UInt32(byte)) &* 16_777_619 }
+            let hue = Double(hash % 360) / 360
+            return LinearGradient(
+                colors: [
+                    Color(hue: hue, saturation: 0.55, brightness: 0.55),
+                    Color(hue: hue, saturation: 0.6, brightness: 0.38),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+
     private struct SearchKey: Equatable {
         let query: String
         let scope: Int
         let source: Source
     }
 
-    /// Library | YouTube, under the search field. Only while the sonic service answers,
-    /// since YouTube comes through it -- or while YouTube is chosen, so it can be left.
+    /// Where a search looks: one of the libraries, or YouTube.
+    private enum Place: Hashable {
+        case library(LibraryScope)
+        case youtube
+    }
+
+    private var place: Binding<Place> {
+        Binding(
+            get: { source == .youtube ? .youtube : .library(scope.scope) },
+            set: { chosen in
+                switch chosen {
+                case .youtube:
+                    source = .youtube
+                case .library(let library):
+                    source = .library
+                    scope.scope = library
+                }
+            }
+        )
+    }
+
+    /// All | each library | YouTube, in one row under the search field. Two rows did it
+    /// before, the libraries over Library | YouTube, and "Library" beside a library's own
+    /// name read as one more of them. YouTube only while the sonic service answers, since it
+    /// comes through it -- or while it is chosen, so it can be left. The libraries are the
+    /// same choice as the menu elsewhere (`LibraryScopeStore`).
     @ViewBuilder
     private var sourcePicker: some View {
-        if appState.video.isAvailable || source == .youtube {
-            Picker("Search", selection: $source) {
-                Text("Library").tag(Source.library)
-                Text("YouTube").tag(Source.youtube)
+        let showsYouTube = appState.video.isAvailable || source == .youtube
+        if scope.isSwitchable || showsYouTube {
+            Picker("Search", selection: place) {
+                if scope.isSwitchable {
+                    ForEach(scope.options, id: \.self) { library in
+                        Text(library.shortName).tag(Place.library(library))
+                    }
+                } else {
+                    Text("Library").tag(Place.library(scope.scope))
+                }
+                if showsYouTube {
+                    Text("YouTube").tag(Place.youtube)
+                }
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, Metrics.gutter)
@@ -457,7 +502,11 @@ struct SearchView: View {
         guard !Task.isCancelled else { return }
 
         isSearching = true
-        let found = await appState.search.search(trimmed, scope: scope.scope)
+        let found = await appState.search.search(trimmed, scope: scope.scope) { first in
+            // Shown while the rest comes: still searching, so not yet "No Results".
+            guard !Task.isCancelled else { return }
+            outcome = first
+        }
         // A newer keystroke has started its own search; this one's answer is stale.
         guard !Task.isCancelled else { return }
         outcome = found

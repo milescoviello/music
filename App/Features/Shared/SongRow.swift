@@ -17,6 +17,10 @@ struct SongRow: View {
     /// Replaces the duration when set. In a "least recently played" list, when a track
     /// was last heard is the only figure worth the space.
     var trailing: String?
+    /// The artist the whole list is by -- an album's, the artist page's -- left off the rows
+    /// that are theirs: under every track it said again what the page says once, and took
+    /// the room a long title needed.
+    var listArtist: String?
 
     var body: some View {
         HStack(spacing: Metrics.itemSpacing) {
@@ -93,11 +97,18 @@ struct SongRow: View {
     }
 
     private var subtitle: String? {
+        let artist = isListArtist ? nil : song.artist
         switch style {
         case .numbered:
-            return song.artist
+            return artist
         case .withArtwork:
-            return [song.artist, song.album].compactMap { $0 }.joined(separator: " — ")
+            let line = [artist, song.album].compactMap { $0 }.joined(separator: " — ")
+            return line.isEmpty ? nil : line
         }
+    }
+
+    private var isListArtist: Bool {
+        guard let listArtist, let artist = song.artist else { return false }
+        return SearchRanking.comparable(listArtist) == SearchRanking.comparable(artist)
     }
 }

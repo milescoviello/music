@@ -158,7 +158,7 @@ final class Handoff {
                 let index = server.currentID.flatMap { id in server.songs.firstIndex { $0.id == id } } ?? 0
                 taken = nil
                 player.adopt(songs: server.songs, index: index, positionSeconds: server.positionSeconds,
-                             source: "From \(server.deviceName)", uploading: false)
+                             source: server.deviceName, uploading: false)
                 player.play(handingOff: false)
                 lastMove = (server.deviceName, .now)
             case .here:
@@ -297,7 +297,7 @@ final class Handoff {
                 songs: server.songs,
                 index: index,
                 positionSeconds: server.positionSeconds,
-                source: "From \(server.deviceName)",
+                source: server.deviceName,
                 uploading: false
             )
             lastMove = (server.deviceName, .now)
@@ -356,7 +356,7 @@ final class Handoff {
             songs: queue.songs,
             index: position,
             positionSeconds: theirPlace(),
-            source: queue.source.isEmpty ? "From \(now.name)" : queue.source,
+            source: queue.source.isEmpty ? now.name : queue.source,
             station: queue.station,
             uploading: false
         )

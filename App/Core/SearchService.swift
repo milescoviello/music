@@ -116,7 +116,11 @@ final class SearchService {
 
     /// With no server, the songs downloaded here that match, marked `isOffline`. Nil only
     /// before the app is set up.
-    func search(_ text: String, scope: LibraryScope) async -> Outcome? {
+    ///
+    /// `early` is given what was typed found, as soon as it has, while the correction and the
+    /// lyrics are still being asked for: a phrase waited on all three, and the lyric search
+    /// fetches every song it finds, so a song plainly in the library took seconds to show.
+    func search(_ text: String, scope: LibraryScope, early: ((Outcome) -> Void)? = nil) async -> Outcome? {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty, let appState else { return nil }
         // Known to be offline, or the server answering nothing: straight to the downloads,
@@ -140,7 +144,17 @@ final class SearchService {
         let sonic = appState.sonic
         let isPhrase = query.split(whereSeparator: \.isWhitespace).count >= 2
         async let phraseMatches = isPhrase ? sonic.lyricMatches(for: query) : nil
-        let (typedResults, correctedResults, lyricsForPhrase) = await (typed, corrected, phraseMatches)
+        let typedResults = await typed
+        if let early, let first = typedResults, !first.isEmpty, correction != nil || isPhrase {
+            early(Outcome(
+                query: query,
+                results: SearchRanking.arranged(first, for: query),
+                correction: nil,
+                isCorrectionOnly: false,
+                lyrics: []
+            ))
+        }
+        let (correctedResults, lyricsForPhrase) = await (corrected, phraseMatches)
         guard typedResults != nil || correctedResults != nil else { return await downloaded(matching: query) }
 
         let found = typedResults ?? SearchResult3()

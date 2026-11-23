@@ -57,6 +57,7 @@ struct ArtistDetailView: View {
                                 index: index,
                                 source: artist.name,
                                 showsNavigation: false,
+                                listArtist: artist.name,
                                 swipesOutsideList: true
                             )
                             .padding(.horizontal, Metrics.gutter)
@@ -282,7 +283,8 @@ struct ArtistDetailView: View {
                 LazyHStack(alignment: .top, spacing: Metrics.itemSpacing) {
                     ForEach(albums) { album in
                         NavigationLink(value: Destination.album(AlbumRef(album))) {
-                            AlbumCard(album: album)
+                            // "Appears On" is other artists' records, so says whose.
+                            AlbumCard(album: album, detail: title == "Appears On" ? .artist : .year)
                                 .frame(width: Metrics.cardWidth)
                         }
                         .buttonStyle(.plain)

@@ -113,6 +113,8 @@ func logicPackage() -> Package {
                     "Charts.swift",
                     "HomeLayout.swift",
                     "SearchRanking.swift",
+                    "AlbumEdition.swift",
+                    "NameOrder.swift",
                     "SearchVocabulary.swift",
                     "SleepTimer.swift",
                     "PlaylistArrangement.swift",

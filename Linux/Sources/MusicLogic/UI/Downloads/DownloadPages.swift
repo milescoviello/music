@@ -49,7 +49,7 @@ enum DownloadsPage {
             if folders.totalDuration > 0 { totals.append(folders.totalDuration.asLongDuration) }
             let summary = Box.vertical(spacing: 2) {
                 Label("\(folders.songs.count) \(folders.songs.count == 1 ? "track" : "tracks")", "heading")
-                Label(totals.joined(separator: " – "), "caption", "dim")
+                Label(totals.joined(separator: " · "), "caption", "dim")
             }
             if !app.reachability.isOnline { summary.append(Label("Offline — playing from this computer", "caption", "accent")) }
             // Not stuck: the songs still to come wait for the server, and carry on by

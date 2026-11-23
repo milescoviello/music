@@ -198,7 +198,11 @@ final class AlbumCardView {
 
     func bind(_ album: Album) {
         self.album = album
-        bind(title: album.name, subtitle: album.artist, cover: album.coverArt)
+        // The edition apart, before the artist: two editions of a record looked the same
+        // once the name was cut off (`AlbumEdition`).
+        let name = AlbumEdition.split(album.name)
+        let detail = [name.edition, album.artist].compactMap { $0 }.joined(separator: " · ")
+        bind(title: name.title, subtitle: detail.isEmpty ? nil : detail, cover: album.coverArt)
     }
 }
 

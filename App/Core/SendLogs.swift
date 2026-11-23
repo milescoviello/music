@@ -27,6 +27,9 @@ extension AppState {
         if let unreachable = player.unreachableSongID {
             playback.append(.init(label: "Couldn't play", value: unreachable))
         }
+        if let trouble = player.playTrouble {
+            playback.append(.init(label: "Wouldn't play", value: "\(trouble.songID), \(trouble.step)"))
+        }
         if player.remote != nil {
             playback.append(.init(label: "Playing to", value: "Another device"))
         }

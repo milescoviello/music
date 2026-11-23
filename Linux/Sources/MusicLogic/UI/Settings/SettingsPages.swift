@@ -36,14 +36,14 @@ enum SettingsPages {
             let group = PreferencesGroup("Server") {
                 ActionRow("Address").suffix(Label(credentials.baseURL.absoluteString, "dim").selectable())
                 ActionRow("User").suffix(Label(credentials.username, "dim"))
-                ActionRow("Answering").suffix(answering)
+                ActionRow("Status").suffix(answering)
                 sync
                 test
             }
             group.observe { [app] in
                 answering.text = app.serverSilentSince.map {
-                    "No, since \($0.formatted(date: .omitted, time: .shortened))"
-                } ?? "Yes"
+                    "Not answering since \($0.formatted(date: .omitted, time: .shortened))"
+                } ?? "Connected"
                 waiting.text = app.waitingToSyncText ?? ""
                 sync.isVisible = app.waitingToSyncText != nil
             }

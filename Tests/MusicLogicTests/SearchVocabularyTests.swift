@@ -142,4 +142,16 @@ struct SearchArrangingTests {
         corrected.song = [Song(id: "2", title: "Two"), Song(id: "1", title: "One")]
         #expect(typed.adding(corrected).songs.map(\.id) == ["1", "2"])
     }
+
+    /// One song found was listed twice: as the Top Result and under Songs.
+    @Test func theTopResultIsNotListedAgainUnderIt() {
+        var results = SearchResult3()
+        results.song = [Song(id: "1", title: "Lampwick"), Song(id: "2", title: "Lampwick Reprise")]
+        results.artist = [Artist(id: "a", name: "Lampwick Choir")]
+        let top = SearchRanking.topResult(for: "lampwick", in: results)
+        let rest = SearchRanking.rest(results, after: top)
+        #expect(rest.songs.map(\.id) == ["2"])
+        #expect(rest.artists.map(\.id) == ["a"])
+        #expect(SearchRanking.rest(results, after: nil).songs.count == 2)
+    }
 }

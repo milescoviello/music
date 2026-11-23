@@ -122,7 +122,36 @@ final class AlbumList {
         }
         grid.set([])
         stack.visibleName = "loading"
-        loadMore()
+        if sort == .alphabeticalByName, genre == nil, decade == nil {
+            loadAlphabetical()
+        } else {
+            loadMore()
+        }
+    }
+
+    /// A–Z is the whole library from the index (`LibraryIndex`), sorted here: the server's
+    /// pages sort by the name as typed, so a title in quotes came before every letter and
+    /// one starting "The" sat under T. The pages, as before, when the index can't be had.
+    private func loadAlphabetical() {
+        // No pages meanwhile: the end of an empty grid is near at once.
+        isLoading = true
+        let current = generation
+        let app = env.app
+        let scope = app.scope.scope
+        let reference = WeakReference(self)
+        Task { @MainActor in
+            await app.libraryIndex.ensureLoaded(scope: scope)
+            guard let self = reference.value, current == self.generation else { return }
+            self.isLoading = false
+            guard app.libraryIndex.readiness(for: scope) == .ready, !app.libraryIndex.albums.isEmpty else {
+                self.loadMore()
+                return
+            }
+            self.albums = app.libraryIndex.albums
+            self.canLoadMore = false
+            self.grid.set(NameOrder.sorted(self.albums))
+            self.stack.visibleName = "grid"
+        }
     }
 
     private func loadMore() {
@@ -170,7 +199,8 @@ final class AlbumList {
         canLoadMore = page.count == Self.pageSize && sort != .random
         // One of each: the two library folders hold many albums twice. `albums` stays as
         // the server sent it, since the next page's offset is counted in its rows.
-        grid.set(SearchRanking.oneOfEach(albums))
+        let shown = SearchRanking.oneOfEach(albums)
+        grid.set(sort == .alphabeticalByName ? NameOrder.sorted(shown) : shown)
         if albums.isEmpty {
             status.child = Loader.empty("No Albums")
             stack.visibleName = "status"

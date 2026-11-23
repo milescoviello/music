@@ -47,6 +47,7 @@ final class FakeOutput: AudioOutput {
     var onAdvanced: ((String?) -> Void)?
     var onUnreachable: ((String) -> Void)?
     var onFailedMidTrack: ((_ songID: String, _ position: Double) -> Void)?
+    var onCouldNotOpen: ((_ songID: String, _ movedOn: Bool) -> Void)?
     var onTick: ((_ elapsed: Double, _ isMoving: Bool) -> Void)?
     var locate: ((Song) -> MediaLocation?)?
     var makeChain: ((Song) -> DSPChain)?

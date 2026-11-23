@@ -33,8 +33,58 @@ struct AlbumListView: View {
     private var pageSize: Int { 100 }
 
     var body: some View {
+        ScrollViewReader { proxy in
+            grid
+                .overlay(alignment: .trailing) {
+                    // The whole library, so any letter can be jumped to.
+                    if let lettered = letteredAlbums, lettered.count > 40 {
+                        let firsts = firstAlbumByLetter(lettered)
+                        AlphabetRail(available: Set(firsts.keys)) { letter in
+                            guard let target = firsts[letter] else { return }
+                            proxy.scrollTo(target, anchor: .top)
+                        }
+                        .padding(.trailing, 2)
+                        .padding(.vertical, Metrics.itemSpacing)
+                    }
+                }
+        }
+    }
+
+    /// A–Z of the whole library, from the index (`LibraryIndex`) and sorted here, once it
+    /// is in: the server's pages sort by the name as typed, and come a hundred at a time, so
+    /// neither the order nor a letter rail could be right from them. Sorted once for each
+    /// change, not for every redraw: two thousand names.
+    @State private var letteredAlbums: [Album]?
+
+    private struct LetterKey: Equatable {
+        let wanted: Bool
+        let scope: Int
+        let ready: Bool
+        let count: Int
+    }
+
+    private var letterKey: LetterKey {
+        let index = appState.libraryIndex
+        return LetterKey(
+            wanted: sort == .alphabeticalByName && genre == nil && decade == nil && !isFilteringToDownloads,
+            scope: scope.generation,
+            ready: index.readiness(for: scope.scope) == .ready,
+            count: index.albums.count
+        )
+    }
+
+    private func firstAlbumByLetter(_ albums: [Album]) -> [String: String] {
+        var firsts: [String: String] = [:]
+        for album in albums {
+            let letter = NameOrder.letter(album.name)
+            if firsts[letter] == nil { firsts[letter] = album.id }
+        }
+        return firsts
+    }
+
+    private var grid: some View {
         ScrollView {
-            if let error, albums.isEmpty {
+            if let error, albums.isEmpty, letteredAlbums == nil {
                 ContentUnavailableView {
                     Label("Can't load albums", systemImage: "wifi.exclamationmark")
                 } description: {
@@ -62,7 +112,7 @@ struct AlbumListView: View {
                 // user reaches the end.
                 // Never paged while filtering to downloads: the list is the catalog, and
                 // it is already whole.
-                if canLoadMore, !albums.isEmpty, !isFilteringToDownloads {
+                if canLoadMore, !albums.isEmpty, !isFilteringToDownloads, letteredAlbums == nil {
                     ProgressView()
                         .padding(.vertical, 24)
                         .task { await loadMore() }
@@ -107,6 +157,15 @@ struct AlbumListView: View {
         }
         .refreshable { await reload() }
         .task(id: LoadKey(sort: sort, scope: scope.generation, genre: genre, decade: decade)) {
+            if sort == .alphabeticalByName, genre == nil, decade == nil {
+                await appState.libraryIndex.ensureLoaded(scope: scope.scope)
+            }
+        }
+        .task(id: letterKey) {
+            let key = letterKey
+            letteredAlbums = key.wanted && key.ready ? NameOrder.sorted(appState.libraryIndex.albums) : nil
+        }
+        .task(id: LoadKey(sort: sort, scope: scope.generation, genre: genre, decade: decade)) {
             if !didApplyInitialSort {
                 sort = initialSort
                 didApplyInitialSort = true
@@ -129,6 +188,9 @@ struct AlbumListView: View {
     /// One of each album: the library's two folders hold many twice. `albums` stays as
     /// the server sent it, since the next page's offset is counted in its rows.
     private var displayed: [Album] {
+        if let letteredAlbums { return letteredAlbums }
+        // Until the index is in, the pages there are, in the same order.
+        if sort == .alphabeticalByName, !isFilteringToDownloads { return NameOrder.sorted(SearchRanking.oneOfEach(albums)) }
         guard isFilteringToDownloads else { return SearchRanking.oneOfEach(albums) }
 
         let downloaded = downloads.catalog.downloadedAlbums
