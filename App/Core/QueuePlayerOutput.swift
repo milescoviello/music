@@ -482,12 +482,12 @@ final class QueuePlayerOutput: AudioOutput {
             let wasReset = (item.error as? AVError)?.code == .mediaServicesWereReset
             Task { @MainActor in
                 guard let self else { return }
-                logTrouble(id, "couldn't be opened: \(reason)")
+                self.logTrouble(id, "couldn't be opened: \(reason)")
                 if wasReset {
-                    onMediaServicesReset?()
-                } else if let songID = itemToSongID[id] {
+                    self.onMediaServicesReset?()
+                } else if let songID = self.itemToSongID[id] {
                     // Held, not moved past: the controller asks for it again, or goes on.
-                    onCouldNotOpen?(songID, false)
+                    self.onCouldNotOpen?(songID, false)
                 }
             }
         }
