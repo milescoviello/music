@@ -204,8 +204,8 @@ final class AppState {
                 guard let self else { return }
                 Task { @MainActor in self.serverAnswered(sentAt: sent) }
             }
-            await client.setOnSilence { [weak self] in
-                Task { @MainActor in self?.serverWentSilent() }
+            await client.setOnSilence { [weak self] confirmed in
+                Task { @MainActor in self?.requestUnanswered(confirmed: confirmed) }
             }
             await outbox.setOnChange { [weak self] in
                 Task { @MainActor in self?.refreshWaitingToSync() }
@@ -486,6 +486,21 @@ final class AppState {
         guard isShowingCachedData, let since = cachedDataSince, sent > since else { return }
         isShowingCachedData = false
     }
+
+    /// A request went unanswered. Silent only when the quick question goes unanswered too:
+    /// one request can hang on its own -- the server stuck reading one song's file -- while
+    /// it answers everything else, and taking that for silence flipped the whole app into
+    /// its offline ways and back every fifteen seconds.
+    private func requestUnanswered(confirmed: Bool) {
+        if confirmed { return serverWentSilent() }
+        guard !isServerSilent, silenceCheck == nil else { return }
+        silenceCheck = Task { [weak self] in
+            _ = await self?.serverAnswersQuickly()
+            self?.silenceCheck = nil
+        }
+    }
+
+    @ObservationIgnored private var silenceCheck: Task<Void, Never>?
 
     private func serverWentSilent() {
         guard serverSilentSince == nil else { return }

@@ -167,10 +167,13 @@ actor SubsonicClient {
     }
 
     /// Told of every request that got no answer at all -- refused, timed out, no route --
-    /// so the app can stop waiting on the server for things it has a copy of.
-    private var onSilence: (@Sendable () -> Void)?
+    /// so the app can stop waiting on the server for things it has a copy of. `confirmed`:
+    /// the quick question itself went unanswered (`ping(timeout:)`). Any other request can
+    /// go unanswered on its own -- one song whose file the server hangs reading -- while the
+    /// server answers everything else, so that is only a reason to ask the quick question.
+    private var onSilence: (@Sendable (_ confirmed: Bool) -> Void)?
 
-    func setOnSilence(_ hook: @escaping @Sendable () -> Void) {
+    func setOnSilence(_ hook: @escaping @Sendable (_ confirmed: Bool) -> Void) {
         onSilence = hook
     }
     private var credentials: Credentials?
@@ -238,7 +241,7 @@ actor SubsonicClient {
             // Recorded rather than only thrown: most callers use `try?` so the screen
             // can fall back to cache, which means the reason would otherwise vanish.
             await Self.recordFailure(endpoint, error, since: started)
-            if !Self.isCancellation(error) { onSilence?() }
+            if !Self.isCancellation(error) { onSilence?(false) }
             throw ClientError.network(error)
         }
     }
@@ -319,7 +322,7 @@ actor SubsonicClient {
             return data
         } catch {
             await Self.recordFailure(endpoint, error, since: started)
-            if !Self.isCancellation(error) { onSilence?() }
+            if !Self.isCancellation(error) { onSilence?(false) }
             throw ClientError.network(error)
         }
     }
@@ -395,7 +398,7 @@ actor SubsonicClient {
             _ = try await session.fetch(request)
             onAnswer?(started)
         } catch {
-            if !Self.isCancellation(error) { onSilence?() }
+            if !Self.isCancellation(error) { onSilence?(true) }
             throw ClientError.network(error)
         }
     }

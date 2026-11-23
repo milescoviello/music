@@ -93,15 +93,31 @@ final class Updater {
         }
     }
 
-    /// The new build, in place of this one: it starts once this has quit and let go of the
-    /// single-instance name, as a second copy started now would hand itself to this one.
+    /// The new build, in place of this one: started in a session of its own once this
+    /// process has gone, as a copy started while this one is still quitting hands itself to
+    /// it as a second window, and then both are gone (tried: a fixed 1.5 s wait was too short).
     func reopen() {
-        let binary = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/music").path
+        // Where the installer put it: `$HOME`, as it uses, not the account's home directory,
+        // which differs when HOME is set to something else.
+        let home = ProcessInfo.processInfo.environment["HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let binary = home + "/.local/bin/music"
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "sleep 1.5; exec setsid \"$0\" >/dev/null 2>&1 < /dev/null", binary]
-        try? process.run()
-        if let application = Desktop.application { g_application_quit(application.cast()) }
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/setsid")
+        process.arguments = ["-f", "/bin/sh", "-c", """
+            for i in $(seq 1 300); do kill -0 "$0" 2>/dev/null || break; sleep 0.1; done
+            exec "$1" >/dev/null 2>&1 < /dev/null
+            """, String(ProcessInfo.processInfo.processIdentifier), binary]
+        do {
+            try process.run()
+        } catch {
+            state = .failed("Couldn't reopen: \(error.localizedDescription)")
+            Task { await Diagnostics.shared.record("app", "update: couldn't reopen: \(error.localizedDescription)") }
+            return
+        }
+        Task {
+            await Diagnostics.shared.record("app", "update: reopening on the new build")
+            if let application = Desktop.application { g_application_quit(application.cast()) }
+        }
     }
 
     /// `Linux/get.sh`'s steps, from the release's URL (`$1`): the build downloaded and its
