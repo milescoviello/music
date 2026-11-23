@@ -19,27 +19,30 @@ struct AlbumCard: View {
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
 
-                if let edition = name.edition {
-                    Text(edition)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color.appTint)
-                        .lineLimit(1)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.appTint.opacity(0.16), in: Capsule())
-                }
-
-                if let line {
-                    Text(line)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                // The tag on the detail line rather than one of its own: a shelf is as tall as
+                // its first card, and a card a line taller had its cover shrunk, or its last
+                // line cut off.
+                if name.edition != nil || line != nil {
+                    HStack(spacing: 6) {
+                        if let edition = name.edition {
+                            Text(edition)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Color.appTint)
+                                .lineLimit(1)
+                                .padding(.horizontal, 6)
+                                .background(Color.appTint.opacity(0.16), in: Capsule())
+                                .layoutPriority(1)
+                        }
+                        if let line {
+                            Text(line)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                 }
             }
         }
-        // Its own height for its width: in a shelf the row took the first card's, and a
-        // card with an edition tag, a line taller, had its cover shrunk to fit.
-        .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .combine)
     }
 
