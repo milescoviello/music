@@ -106,6 +106,8 @@ struct AlbumListView: View {
                     }
                 }
                 .padding(.horizontal, Metrics.gutter)
+                // Clear of the letter rail beside it.
+                .padding(.trailing, letteredAlbums == nil ? 0 : 8)
 
                 // A sentinel rather than scroll-offset maths: `.task` on a lazily
                 // created view is cancellation-correct and fires exactly when the

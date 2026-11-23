@@ -37,6 +37,9 @@ struct AlbumCard: View {
                 }
             }
         }
+        // Its own height for its width: in a shelf the row took the first card's, and a
+        // card with an edition tag, a line taller, had its cover shrunk to fit.
+        .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .combine)
     }
 
