@@ -217,6 +217,9 @@ final class LyricsPane {
         }
 
         showLines(lyrics.lines, clickable: lyrics.synced)
+        // Room for the line being sung to sit part-way down; lyrics with no timing have no
+        // such line, and started a screen's third down for nothing.
+        lines.margins(top: lyrics.synced ? 120 : 16)
         lines.prepend(translationNote.xalign(0.5).margin(horizontal: 0, vertical: 8))
         if !lyrics.synced {
             lines.prepend(Label("Lyrics not timed", "caption", "dim").xalign(0.5).margin(horizontal: 0, vertical: 8))
@@ -646,6 +649,8 @@ final class LyricsPane {
         labels = []
         active = nil
         holdUntil = nil
+        // Timing by hand keeps the line to tap next part-way down, as synced lyrics do.
+        lines.margins(top: 120)
         showLines(made.lines, clickable: true)
         timingBar.isVisible = true
         menu?.isVisible = false

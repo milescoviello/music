@@ -130,7 +130,10 @@ struct LyricsView: View {
             // A plain VStack, not lazy: Text is cheap, tracks run 30-150 lines, and
             // programmatic scrolling to an unrealised lazy row silently no-ops.
             VStack(spacing: 0) {
-                Spacer().frame(height: 140)
+                // Room for the line being sung to sit a third of the way down. Lyrics with no
+                // timing have no such line, and started half-way down the screen: from the
+                // top for them, below the "not timed" note.
+                Spacer().frame(height: isSynced || timing != nil ? 140 : 36)
 
                 // Identity must be the index -- lyrics repeat, so `id: \.self` on the
                 // string would break both scrolling and highlighting.
