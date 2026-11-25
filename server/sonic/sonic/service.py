@@ -22,6 +22,7 @@ from .config import ANALYSIS_VERSION, MODEL_NAME, MODEL_URL, Config
 from .index import Index, bucket_levels, stored_levels
 from .lyrics import LyricIndex
 from .about import SongAbout
+from .catalog import Catalog, GrabRelay
 from .flags import AboutFlags
 from .record_about import RecordAbout
 from .words import Readings, Translations
@@ -57,6 +58,8 @@ class Service:
         self.readings = Readings()
         self.translations = Translations(config.data_dir, config.ollama, config.translate_model)
         self.videos = Videos(config.data_dir)
+        self.catalog = Catalog(self.videos, lambda: list(self.songs.values()), self.artist_mbid)
+        self.grab = GrabRelay(config.grab_url)
         self.analysing = False
         self._done = 0
         self._last_refresh = 0.0
@@ -148,6 +151,15 @@ class Service:
             "synced": found.synced,
             "lines": [{"start": start, "value": value} if found.synced else {"value": value} for start, value in lines],
         }
+
+    def artist_mbid(self, artist_id: str) -> str | None:
+        """An artist's MusicBrainz id as Navidrome has it from the tags, or None."""
+        connection = sqlite3.connect(f"file:{self.config.navidrome_db}?mode=ro", uri=True)
+        try:
+            row = connection.execute("select mbz_artist_id from artist where id = ?", (artist_id,)).fetchone()
+        finally:
+            connection.close()
+        return (row[0] or None) if row else None
 
     def server_plays(self, after: int, user: str, limit: int) -> dict:
         """Navidrome's own play log, a page at a time (`serverplays`). Read straight from the

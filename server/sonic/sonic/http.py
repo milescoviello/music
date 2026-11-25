@@ -115,6 +115,11 @@ def make_handler(service):
                                                _flag(q, "warm"))),
         (re.compile(r"^/v1/video/([A-Za-z0-9_-]{11})/streams$"),
          lambda match, q: service.videos.streams(match[1], _token_suffix(q), _int(q, "height", 0, 0, 4320) or None)),
+        (re.compile(r"^/v1/catalog/search$"),
+         lambda match, q: service.catalog.search(_text(q, "q"), _int(q, "limit", 12, 1, 30))),
+        (re.compile(r"^/v1/catalog/albums/([A-Za-z0-9_-]+)$"), lambda match, q: service.catalog.album(match[1])),
+        (re.compile(r"^/v1/catalog/artist$"),
+         lambda match, q: service.catalog.artist(_text(q, "id"), _text(q, "name"))),
         (re.compile(r"^/v1/history/plays$"),
          lambda match, q: service.server_plays(_int(q, "after", 0, 0, 2**62), _text(q, "user"),
                                                _int(q, "limit", 5000, 1, 5000))),
@@ -144,6 +149,8 @@ def make_handler(service):
             raw = VIDEO_RAW.match(path)
             if raw:
                 return self._video(raw, query)
+            if path.startswith("/v1/grab/"):
+                return self._send(*service.grab.forward("GET", path[len("/v1/grab/"):]))
             cover = re.match(r"^/v1/radar/([^/]+)/cover$", path)
             if cover:
                 data = service.radar.cover(cover[1])
@@ -307,6 +314,8 @@ def make_handler(service):
                 return self._find_lyrics()
             if path == "/v1/about/flag":
                 return self._flag_about()
+            if path.startswith("/v1/grab/"):
+                return self._grab(path[len("/v1/grab/"):])
             if path != "/v1/logs":
                 return self._send(404, {"error": "no such endpoint"})
             try:
@@ -334,6 +343,29 @@ def make_handler(service):
                 return self._send(500, {"error": str(error)})
             log.info("logs received: %s, %d bytes", name, length)
             return self._send(201, {"name": name})
+
+        def _grab(self, rest: str):
+            """A request to get music, relayed to `music-grab serve`. An album from the catalog
+            comes with YouTube Music's track count, which finds the right copy on Soulseek
+            (the deluxe one has more); a song with its album, when that is wanted too."""
+            try:
+                # Retry and cancel say everything in their address.
+                body = self._body(16 * 1024) if int(self.headers.get("Content-Length", "") or 0) else {}
+            except ValueError as error:
+                return self._send(400, {"error": str(error)})
+            if rest == "requests" and body.get("albumId") and not body.get("tracks") and (
+                    body.get("kind") == "album" or body.get("album_too")):
+                try:
+                    found = service.catalog.album(str(body["albumId"]))
+                except Exception:  # noqa: BLE001 — music-grab asks MusicBrainz instead
+                    log.info("no track count for album %s", body["albumId"], exc_info=True)
+                    found = None
+                if found:
+                    body["tracks"] = found["tracks"]
+                    body.setdefault("year", found.get("year"))
+                    if body.get("kind") == "song":
+                        body.setdefault("album", found.get("title"))
+            return self._send(*service.grab.forward("POST", rest, body))
 
         def _taste(self):
             """A device's new plays and skips: `{"device": id, "events": [...]}`."""

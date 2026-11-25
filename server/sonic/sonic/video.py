@@ -661,6 +661,19 @@ class Videos:
             return {key: best[key] for key in ("id", "title", "channel", "duration")}
         return None
 
+    def ytmusic(self):
+        """The YouTube Music client, made on first use; the catalog searches with it too.
+        Calls on it are made holding `ytmusic_lock`."""
+        with self._ytmusic_lock:
+            if self._ytmusic is None:
+                from ytmusicapi import YTMusic
+                self._ytmusic = YTMusic()
+            return self._ytmusic
+
+    @property
+    def ytmusic_lock(self) -> threading.Lock:
+        return self._ytmusic_lock
+
     def _official(self, artist: str, title: str, duration: float | None) -> tuple[bool, dict | None, set[str]]:
         """YouTube Music's official video for the song, whether it could be asked, and --
         when there is no official video -- its album tracks' video ids, which are the

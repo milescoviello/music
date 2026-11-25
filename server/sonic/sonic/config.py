@@ -55,6 +55,8 @@ class Config:
     shows_radius: int = field(default_factory=lambda: int(os.environ.get("SONIC_SHOWS_RADIUS", "60")))
     # Navidrome itself, asked whether whoever saves lyrics into a file is one of its admins.
     navidrome_url: str = field(default_factory=lambda: os.environ.get("SONIC_NAVIDROME_URL", "http://127.0.0.1:4533"))
+    # `music-grab serve` on the host, which gets what the apps ask for (`/v1/grab/*`).
+    grab_url: str = field(default_factory=lambda: os.environ.get("SONIC_GRAB_URL", "http://127.0.0.1:8661"))
     # Lyric translations for the desktop app: a local model through Ollama.
     ollama: str = field(default_factory=lambda: os.environ.get("SONIC_OLLAMA", "http://127.0.0.1:11434"))
     translate_model: str = field(default_factory=lambda: os.environ.get(
