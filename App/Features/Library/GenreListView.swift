@@ -97,16 +97,16 @@ struct GenreDetailView: View {
             case .songs: GenreSongsView(genre: genre)
             }
         }
-        .safeAreaInset(edge: .top, spacing: 0) {
+        .topBar {
             Picker("Show", selection: $facet) {
                 ForEach(Facet.allCases) { option in
                     Text(option.title).tag(option)
                 }
             }
             .pickerStyle(.segmented)
+            .topBarGlass()
             .padding(.horizontal, Metrics.gutter)
             .padding(.vertical, 8)
-            .background(.bar)
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

@@ -69,7 +69,7 @@ struct SearchView: View {
                 }
             }
             .navigationTitle("Search")
-            .safeAreaInset(edge: .top, spacing: 0) { sourcePicker }
+            .topBar { sourcePicker }
             .musicDestinations()
             .pageBackdrop()
             .offlineBanner()
@@ -477,12 +477,9 @@ struct SearchView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .topBarGlass()
             .padding(.horizontal, Metrics.gutter)
             .padding(.vertical, 6)
-            // Its own frame only: a style background reaches into the safe area by default,
-            // and this one, next to the navigation bar, rose over it and hid the title --
-            // a blank band over the page.
-            .background(.bar, ignoresSafeAreaEdges: [])
         }
     }
 
