@@ -153,6 +153,7 @@ func logicPackage() -> Package {
                     "VideoClient.swift",
                     "GrabClient.swift",
                     "GrabItems.swift",
+                    "SlskdMonitor.swift",
                 ]
             ),
             .testTarget(

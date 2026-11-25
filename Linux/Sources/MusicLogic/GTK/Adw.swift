@@ -545,6 +545,27 @@ final class ExpanderRow: Widget {
         get { adw_expander_row_get_expanded(widget.cast()) != 0 }
         set { adw_expander_row_set_expanded(widget.cast(), newValue ? 1 : 0) }
     }
+
+    @discardableResult
+    func prefix(_ child: Widget) -> Self {
+        adw_expander_row_add_prefix(widget.cast(), child.widget)
+        return self
+    }
+
+    @discardableResult
+    func subtitleLines(_ count: Int32) -> Self {
+        adw_expander_row_set_subtitle_lines(widget.cast(), count)
+        return self
+    }
+
+    /// Opened or closed by a click: for a page rebuilt as it updates to open it again.
+    @discardableResult
+    func onExpandedChange(_ action: @escaping @MainActor (Bool) -> Void) -> Self {
+        Signal.connect(widget, "notify::expanded", pointer: { [widget] _ in
+            action(adw_expander_row_get_expanded(widget.cast()) != 0)
+        })
+        return self
+    }
 }
 
 /// A row that is a button: Sign Out, Clear.

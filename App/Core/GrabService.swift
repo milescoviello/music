@@ -16,6 +16,11 @@ final class GrabService {
     private(set) var requests: [SonicClient.GrabRequest] = []
     /// What has just landed, for a moment's notice on screen.
     private(set) var landed: SonicClient.GrabRequest?
+    /// slskd, its downloads and the imports (`SlskdMonitor`): read every few seconds while
+    /// a screen showing it is open, and not at all otherwise.
+    private(set) var monitor: SonicClient.SlskdMonitor?
+    /// The last look at it failed: the request service or sonic didn't answer.
+    private(set) var monitorFailed = false
 
     /// What a menu asked to get, and which screen shows the Add sheet for it: the one on
     /// top, as with Add to Playlist (`PlaylistStore.picking`).
@@ -39,6 +44,8 @@ final class GrabService {
     @ObservationIgnored private weak var appState: AppState?
     @ObservationIgnored private var watcher: Task<Void, Never>?
     @ObservationIgnored private var closeWatchers = 0
+    @ObservationIgnored private var monitorWatchers = 0
+    @ObservationIgnored private var monitorTask: Task<Void, Never>?
     @ObservationIgnored private var lastCheck: Date?
     /// Requests already known to be over, so a landing is noticed once.
     @ObservationIgnored private var over: Set<String> = []
@@ -126,6 +133,41 @@ final class GrabService {
 
     func endWatchingClosely() {
         closeWatchers = max(0, closeWatchers - 1)
+    }
+
+    /// The Soulseek monitor and the summary on Requests watch slskd while they are open.
+    func beginMonitoring() {
+        monitorWatchers += 1
+        guard monitorTask == nil else { return }
+        monitorTask = Task { [weak self] in
+            while let self, self.monitorWatchers > 0, !Task.isCancelled {
+                await self.refreshMonitor()
+                try? await Task.sleep(for: .seconds(4))
+            }
+            self?.monitorTask = nil
+        }
+    }
+
+    func endMonitoring() {
+        monitorWatchers = max(0, monitorWatchers - 1)
+    }
+
+    func refreshMonitor() async {
+        let fresh: SonicClient.SlskdMonitor?
+        do {
+            fresh = try await client.slskdMonitor()
+        } catch {
+            fresh = nil
+        }
+        if monitorFailed != (fresh == nil) {
+            monitorFailed = fresh == nil
+            await Diagnostics.shared.record("requests", fresh == nil
+                ? "the Soulseek monitor got no answer from the request service"
+                : "the Soulseek monitor is answering again")
+        }
+        // Only a change redraws: the same answer every four seconds would redraw the
+        // whole list each time.
+        if let fresh, fresh != monitor { monitor = fresh }
     }
 
     private func replace(_ request: SonicClient.GrabRequest) {

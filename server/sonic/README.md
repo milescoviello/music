@@ -91,6 +91,7 @@ and adds it. A 503 means it isn't running.
 | `GET /v1/catalog/artist?id=&name=` | `{artist, mbid, albums: [{title, type, year, mbid, have}]}`; `id` is Navidrome's, whose MusicBrainz id is used |
 | `GET /v1/grab/health` | `{"ok": true}` when requests can be made |
 | `GET /v1/grab/requests` | `{"items": [request]}`, newest first |
+| `GET /v1/grab/slskd` | the Soulseek monitor: `slskd` (signed in or not, shares, uploads), `running` jobs, `downloads` by folder (under way first, then the last week), `imports` (checked, copied in, listed) |
 | `GET /v1/grab/requests/{id}` | one request, its targets listing every copy found |
 | `POST /v1/grab/requests` `{kind, artist, title, library, choose, album, albumId, album_too, year, tracks, length, replace, video_id}` | the request made; an album with `albumId` goes on with its track count |
 | `POST /v1/grab/requests/{id}/choose` `{target, choice}`, `/retry`, `/cancel` | the request as it now stands |

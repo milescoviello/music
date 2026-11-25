@@ -94,6 +94,8 @@ enum Pages {
             return RequestsPage.make(env)
         case let .grabRequest(id):
             return RequestPage.make(env, id: id)
+        case .soulseek:
+            return SoulseekPage.make(env)
         case let .lyricSearch(query):
             return HermesPages.lyricSearch(env, prefill: query)
         case .vibePlaylist:

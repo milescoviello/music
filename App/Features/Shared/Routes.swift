@@ -27,6 +27,8 @@ enum Destination: Hashable {
     /// Music asked for from the app (`GrabService`), and one request by id.
     case requests
     case grabRequest(String)
+    /// slskd, its downloads and the imports (`SoulseekMonitorView`).
+    case soulseek
     case offlineSettings
     case remoteControl
     case diagnostics
@@ -117,6 +119,8 @@ private struct DestinationPage: View {
             RequestsView()
         case let .grabRequest(id):
             RequestDetailView(requestID: id)
+        case .soulseek:
+            SoulseekMonitorView()
         case .offlineSettings:
             OfflineSettingsView()
         case .remoteControl:

@@ -24,6 +24,8 @@ enum Destination: Hashable {
     /// Music asked for from the app (`GrabService`), and one request by id.
     case requests
     case grabRequest(String)
+    /// slskd, its downloads and the imports (`SoulseekPage`).
+    case soulseek
     case offlineSettings
     case remoteControl
     case diagnostics

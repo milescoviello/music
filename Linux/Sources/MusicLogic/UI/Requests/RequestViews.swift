@@ -286,6 +286,7 @@ enum RequestsPage {
         let body = Box.vertical(spacing: 0)
         body.observe {
             body.removeAll()
+            body.append(soulseekSummary(env))
             guard !grab.requests.isEmpty else {
                 body.append(StatusPage(
                     icon: "folder-download-symbolic",
@@ -318,10 +319,30 @@ enum RequestsPage {
         }
         body.onMap {
             grab.beginWatchingClosely()
+            grab.beginMonitoring()
             Task { await grab.refreshAvailability(force: true) }
         }
-        body.onUnmap { grab.endWatchingClosely() }
+        body.onUnmap {
+            grab.endWatchingClosely()
+            grab.endMonitoring()
+        }
         return Page.make("Requests", content: Box.vertical(spacing: 12) { body }.margin(horizontal: 12, vertical: 6))
+    }
+
+    /// Soulseek at a glance, above the requests: is it signed in, what is moving. Opens the
+    /// monitor (`SoulseekPage`).
+    private static func soulseekSummary(_ env: Env) -> Widget {
+        let grab = env.app.grab
+        let monitor = grab.monitor
+        let trouble = monitor.map { !$0.slskd.isOnline } ?? grab.monitorFailed
+        let headline = monitor?.slskd.headline ?? (grab.monitorFailed ? "The request service isn't answering" : "Checking…")
+        let lines = [headline, trouble ? nil : monitor?.activityLine].compactMap { $0 }
+        let row = ActionRow("Soulseek", subtitle: lines.joined(separator: "\n"))
+            .subtitleLines(2)
+            .prefix(SoulseekPage.statusIcon(monitor?.slskd, failed: grab.monitorFailed))
+            .chevron()
+            .activated { env.open(.soulseek) }
+        return PreferencesGroup { row }.margins(bottom: 12)
     }
 
     static func act(_ env: Env, _ work: @escaping @MainActor () async throws -> Void) {
