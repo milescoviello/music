@@ -9,6 +9,7 @@ import SwiftUI
 struct DownloadFolderView: View {
     @Environment(AppState.self) private var appState
     @Environment(Reachability.self) private var reachability
+    @Environment(PlaylistStore.self) private var playlists
     @Environment(\.dismiss) private var dismiss
 
     let folderID: String
@@ -31,6 +32,8 @@ struct DownloadFolderView: View {
         }
         .onAppear { store.activate() }
         .task { await refreshPlaylistOrder() }
+        // For a playlist's own cover (`PlaylistStore.cover`), on a first look straight here.
+        .task { await playlists.loadIfNeeded() }
         .downloadFolderRemoval($removing) { dismiss() }
     }
 
@@ -133,8 +136,10 @@ struct DownloadFolderView: View {
 
     private func header(_ folder: DownloadFolders.Folder) -> some View {
         VStack(spacing: Metrics.headerToContent) {
+            // The playlist's own cover, as its row and the Playlists screen show it: the
+            // first song's was an album's, in place of the playlist's.
             ArtworkImage(
-                id: folder.coverArt,
+                id: playlists.cover(for: folder),
                 size: .full,
                 cornerRadius: Metrics.radiusHeader,
                 playlistID: folder.kind == .playlist ? folder.key : nil,
@@ -200,7 +205,7 @@ struct DownloadFolderView: View {
         case .playlist:
             if folder.key == "favourites" { return .favorites }
             if folder.key.hasPrefix("mix-") { return .dailyMix(String(folder.key.dropFirst(4))) }
-            return .playlist(PlaylistRef(id: folder.key, name: folder.name, coverArt: folder.coverArt))
+            return .playlist(PlaylistRef(id: folder.key, name: folder.name, coverArt: playlists.cover(for: folder)))
         }
     }
 
