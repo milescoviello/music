@@ -213,8 +213,10 @@ final class Shell {
         sheet.root.observe { [app] in
             let hasQueue = app.player.hasQueue
             let shows = app.navigator.showsPlayer
+            // A video shrunk into the bar keeps it, queue or not, so it can't play on out of reach.
+            let shrunkVideo = app.video.isWatchingMinimized
             guard let shell = reference.value, let sheet = shell.sheet else { return }
-            sheet.revealsBar = hasQueue
+            sheet.revealsBar = hasQueue || shrunkVideo
             sheet.canOpen = hasQueue
             sheet.isOpen = shows && hasQueue
         }

@@ -5,7 +5,8 @@ import Foundation
 /// backdrop: the song and its heart on the left; shuffle, the transport and repeat over
 /// the song's loudness in the middle; lyrics, the queue, Play On and the volume on the
 /// right. Clicking it anywhere that is not a button opens the player, as the mini player
-/// did; scrolling sideways skips.
+/// did; scrolling sideways skips. A YouTube result shrunk out of its window plays on in
+/// the song's place: a click brings the window back, and the cross ends it.
 @MainActor
 final class PlayerBar {
     let root: Widget
@@ -20,15 +21,37 @@ final class PlayerBar {
             guard let song = player.currentSong else { return }
             app.userState.toggleStar(song)
         }
+        // The shrunk video, live, at the cover's height. Held at exactly that size, as the
+        // YouTube thumbnails are: a picture asks for its frame's size, and would take the bar.
+        let videoSurface = VideoSurfaceView(app)
+        let videoFrame = ScrolledWindow(videoSurface.root, horizontal: GTK_POLICY_EXTERNAL, vertical: GTK_POLICY_EXTERNAL)
+        videoFrame.size(width: 100, height: 56)
+        gtk_scrolled_window_set_max_content_width(videoFrame.widget.cast(), 100)
+        gtk_scrolled_window_set_max_content_height(videoFrame.widget.cast(), 56)
+        let video = Overlay(videoFrame).css("bar-video")
+        video.clipped().halign(GTK_ALIGN_START).valign(GTK_ALIGN_CENTER).hexpand(false).vexpand(false)
+        video.isVisible = false
+        let closeVideo = Button(icon: "window-close-symbolic", "flat", "circular") { app.video.stopWatching() }
+        closeVideo.tooltip("Close Video").valign(GTK_ALIGN_CENTER)
+        closeVideo.isVisible = false
         let song = Box.horizontal(spacing: 12) {
             artwork.root
+            video
             Box.vertical(spacing: 2) {
                 title
                 artist
             }.valign(GTK_ALIGN_CENTER)
             heart.valign(GTK_ALIGN_CENTER)
+            closeVideo
         }.halign(GTK_ALIGN_START)
-        song.onClick { app.navigator.showsPlayer = true }
+        song.onClick {
+            if app.video.isWatchingMinimized, let watching = app.video.watching {
+                app.video.expandWatching()
+                VideoWindow.present(app, watching: watching, toast: env.toast)
+            } else {
+                app.navigator.showsPlayer = true
+            }
+        }
         gtk_widget_set_cursor_from_name(song.widget, "pointer")
 
         let previous = Button(icon: "media-skip-backward-symbolic", "flat", "circular") { player.previous() }
@@ -81,6 +104,16 @@ final class PlayerBar {
         root = bar
 
         bar.observe {
+            let shrunk = app.video.isWatchingMinimized ? app.video.watching : nil
+            video.isVisible = shrunk != nil
+            closeVideo.isVisible = shrunk != nil
+            artwork.root.isVisible = shrunk == nil
+            heart.isVisible = shrunk == nil
+            if let shrunk {
+                title.text = shrunk.title
+                artist.text = shrunk.channel
+                return
+            }
             guard let song = player.currentSong else { return }
             title.text = song.title
             artist.text = song.artist ?? ""

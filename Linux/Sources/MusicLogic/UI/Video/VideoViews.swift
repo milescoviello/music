@@ -248,9 +248,10 @@ final class VideoWindow {
     private var dragging = false
 
     /// Opens it full screen, or brings the one already open forward. It is only ever full
-    /// screen: leaving it closes it, back into the app -- a song's video into the player,
-    /// a watched one to where it was found, with the music picking up again. Out of full
-    /// screen it was a small window over the app, which nobody wanted.
+    /// screen: leaving it closes it, back into the app -- a song's video into the player, a
+    /// watched one into the player bar, playing on while the app is browsed (the cross ends
+    /// it, and the music picks up again). Out of full screen it was a small window over the
+    /// app, which nobody wanted.
     static func present(_ app: AppState, watching: VideoClient.Video?, toast: @escaping @MainActor (String) -> Void) {
         if let open {
             if open.watching?.id == watching?.id {
@@ -307,9 +308,14 @@ final class VideoWindow {
                 AddVideoToLibrary.ask(app, watching, toast: toast)
             }.tooltip("Add to Library"))
         }
-        // Out of full screen is closing, so one button: back into the app.
-        let leave = watching == nil ? "Back to the Player" : "Close"
-        ends.append(Button(icon: "view-restore-symbolic", "flat", "circular") { reference.value?.close() }.tooltip(leave))
+        // Out of full screen is leaving, so one button back into the app -- and for a watched
+        // one, a second that ends it.
+        let leave = watching == nil ? "Back to the Player" : "Shrink into the Player Bar"
+        ends.append(Button(icon: "view-restore-symbolic", "flat", "circular") { reference.value?.shrink() }.tooltip(leave))
+        if watching != nil {
+            ends.append(Button(icon: "window-close-symbolic", "flat", "circular") { reference.value?.close() }
+                .tooltip("Close Video"))
+        }
 
         let bar = Box.vertical(spacing: 6) {
             Box.horizontal(spacing: 12) {
@@ -387,7 +393,7 @@ final class VideoWindow {
             case GDK_KEY_space, GDK_KEY_k:
                 view.togglePlay()
             case GDK_KEY_Escape:
-                view.close()
+                view.shrink()
             case GDK_KEY_f, GDK_KEY_F11:
                 view.setFullScreen(!view.isFullScreen)
             case GDK_KEY_Left:
@@ -407,7 +413,7 @@ final class VideoWindow {
             guard let view = reference.value else { return }
             let now = gtk_window_is_fullscreen(view.window.cast()) != 0
             if view.wasFullScreen, !now {
-                view.close()
+                view.shrink()
                 return
             }
             view.wasFullScreen = now
@@ -445,7 +451,7 @@ final class VideoWindow {
 
     private func setFullScreen(_ on: Bool) {
         guard on else {
-            close()
+            shrink()
             return
         }
         isFullScreen = true
@@ -483,12 +489,21 @@ final class VideoWindow {
         gtk_window_close(window.cast())
     }
 
-    /// The window is going: a watched video ends, and the music picks up again.
+    /// Back into the app: a watched video into the player bar, playing on.
+    private func shrink() {
+        if watching != nil { app.video.minimizeWatching() }
+        close()
+    }
+
+    /// The window is going: a watched video ends, and the music picks up again -- unless it
+    /// was shrunk into the player bar.
     private func closed() {
         hideTask?.cancel()
         seekTask?.cancel()
         if Self.open === self { Self.open = nil }
-        if let watching, app.video.watching?.id == watching.id { app.video.stopWatching() }
+        if let watching, app.video.watching?.id == watching.id, !app.video.isWatchingMinimized {
+            app.video.stopWatching()
+        }
     }
 }
 

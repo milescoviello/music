@@ -288,6 +288,7 @@ enum Style {
     .now-playing .video-note { font-size: 0.8em; color: alpha(#ffffff, 0.6); }
     .video-surface { background-color: #000000; border-radius: 10px; }
     .video-window .video-surface { border-radius: 0; }
+    .bar-video, .bar-video .video-surface { border-radius: 8px; }
     .video-window { background-color: #000000; }
     .video-controls { background: linear-gradient(to bottom, transparent, alpha(#000000, 0.8)); color: #ffffff; }
     .video-controls button { color: #ffffff; }
