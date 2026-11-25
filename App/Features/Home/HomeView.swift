@@ -69,9 +69,9 @@ struct HomeView: View {
             }
             // On the scroll view itself: further out it also reached every page pushed
             // from Home, which inherited Home's refresh.
-            .refreshableSpringingBack {
+            .refreshableSpringingBack { settled in
                 await Diagnostics.shared.record("home", "pulled to refresh")
-                await model.load(appState: appState, scope: scope.scope)
+                await model.load(appState: appState, scope: scope.scope, settled: settled)
             }
             .navigationTitle("Home")
             .musicDestinations()

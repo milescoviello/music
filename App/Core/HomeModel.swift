@@ -62,7 +62,12 @@ final class HomeModel {
     /// Each goes through `appState.cached`, so Home is the same screen offline as on --
     /// which it was not before: every shelf simply came back empty, and an empty Home
     /// reads as a broken app rather than an offline one.
-    func load(appState: AppState, scope: LibraryScope) async {
+    ///
+    /// `settled`, from a pull to refresh, is waited for between fetching the shelves and
+    /// showing them: shelves changing height while the page springs back left it stuck
+    /// pulled down. At rest at the top they can change all they like.
+    func load(appState: AppState, scope: LibraryScope,
+              settled: (@MainActor @Sendable () async -> Void)? = nil) async {
         appState.beginLoadPass()
         let began = Date.now
         var steps: [String] = []
@@ -99,14 +104,21 @@ final class HomeModel {
         // A few spare: the shelf shows three, and drops each one as it is played.
         async let neglected = Rediscovery.forgottenFavourites(appState: appState, scope: scope, limit: 12)
 
-        // One of each: the two library folders hold many albums twice.
-        recentlyPlayed = SearchRanking.oneOfEach(await played ?? [])
-        recentlyAdded = SearchRanking.oneOfEach(await added ?? [])
-        mostPlayed = Array(Charts.mergingCopies(await frequent ?? []).prefix(12))
-        favoriteSongs = Array((await starred?.songs ?? []).prefix(4))
-        forgotten = await neglected
-        hasLoaded = true
+        let fetched = (played: await played, added: await added, frequent: await frequent,
+                       starred: await starred, forgotten: await neglected)
         step("shelves", since: &mark)
+        if let settled {
+            await settled()
+            step("page settled", since: &mark)
+        }
+
+        // One of each: the two library folders hold many albums twice.
+        recentlyPlayed = SearchRanking.oneOfEach(fetched.played ?? [])
+        recentlyAdded = SearchRanking.oneOfEach(fetched.added ?? [])
+        mostPlayed = Array(Charts.mergingCopies(fetched.frequent ?? []).prefix(12))
+        favoriteSongs = Array((fetched.starred?.songs ?? []).prefix(4))
+        forgotten = fetched.forgotten
+        hasLoaded = true
 
         // From this phone's own history: the server counts plays but never dates them.
         await loadMonth(appState: appState)
