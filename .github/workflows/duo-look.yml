@@ -1,0 +1,68 @@
+name: iPhone Duo look
+
+# The app on the iPhone Duo simulator, folded and unfolded, photographed. The build VM is
+# an Intel Mac and Apple publishes iOS 27 simulators for Apple silicon only, so this runs
+# on GitHub's xcode-27 image. simctl has no way to fold the simulator; `hinge`
+# (github.com/artemnovichkov/hinge, MIT, pinned to v0.3.1) sets the hinge through the
+# same private event as Device Hub's hidden slider. Nothing is published: the pictures
+# are the run's artifact. Run by hand (Actions > iPhone Duo look) or by pushing the
+# duo-look branch; never for pull requests.
+
+on:
+    workflow_dispatch:
+    push:
+        branches: [duo-look]
+
+permissions:
+    contents: read
+
+jobs:
+    look:
+        runs-on: xcode-27
+        timeout-minutes: 45
+
+        steps:
+            - uses: actions/checkout@v5
+
+            - name: Xcode 27.2 and hinge
+              run: |
+                  sudo xcode-select -s /Applications/Xcode_27.2.app
+                  git clone --quiet https://github.com/artemnovichkov/hinge.git "$RUNNER_TEMP/hinge"
+                  git -C "$RUNNER_TEMP/hinge" checkout --quiet 06cb720276281da7f1aadd3874acb0d0ae5eb2b5
+                  echo "HINGE=$RUNNER_TEMP/hinge/skills/hinge/scripts/hinge" >> "$GITHUB_ENV"
+
+            - name: Boot an iPhone Duo and install the app
+              run: |
+                  RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "import json,sys; r=[x for x in json.load(sys.stdin)['runtimes'] if x['platform']=='iOS' and x['isAvailable']]; print(sorted(r, key=lambda x: x['version'])[-1]['identifier'])")
+                  UDID=$(xcrun simctl create duo com.apple.CoreSimulator.SimDeviceType.iPhone-Duo "$RUNTIME")
+                  echo "UDID=$UDID" >> "$GITHUB_ENV"
+                  echo "HINGE_DEVICE=$UDID" >> "$GITHUB_ENV"
+                  xcrun simctl boot "$UDID"
+                  xcrun simctl bootstatus "$UDID" -b > /dev/null
+                  xcodebuild -project Music.xcodeproj -scheme Music -configuration Debug \
+                    -sdk iphonesimulator -destination "id=$UDID" -derivedDataPath "$RUNNER_TEMP/dd" build \
+                    CODE_SIGNING_ALLOWED=NO 2>&1 | grep -E "error:|BUILD" | tail -20
+                  xcrun simctl install "$UDID" "$RUNNER_TEMP/dd/Build/Products/Debug-iphonesimulator/Music.app"
+                  xcrun simctl launch "$UDID" com.milescoviello.music
+                  sleep 12
+
+            - name: Folded, unfolded, unfolded on its side, folded again
+              run: |
+                  mkdir -p "$RUNNER_TEMP/shots"
+                  shot() { sleep 3; "$HINGE" posture; "$HINGE" screenshot "$RUNNER_TEMP/shots/$1.png"; }
+                  "$HINGE" -v
+                  "$HINGE" close;  shot 1-folded
+                  "$HINGE" open;   shot 2-unfolded
+                  "$HINGE" orient landscape-left; shot 3-unfolded-landscape
+                  "$HINGE" orient portrait
+                  "$HINGE" half;   shot 4-half-open
+                  "$HINGE" close;  shot 5-folded-again
+                  # Still running after all that: a crash on a fold would have ended it.
+                  xcrun simctl spawn "$UDID" launchctl list | grep -i com.milescoviello.music || echo "Music is NOT running"
+                  sips -g pixelWidth -g pixelHeight "$RUNNER_TEMP"/shots/*.png
+
+            - uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: duo-look
+                  path: ${{ runner.temp }}/shots
