@@ -1,4 +1,5 @@
 import AVFoundation
+import AVKit
 import UIKit
 
 /// Plays a music video: AVPlayer on the sonic service's own HLS (`VideoClient.masterURL`),
@@ -10,7 +11,9 @@ import UIKit
 ///
 /// The video keeps playing with the screen locked or the app in the background, as its
 /// sound. iOS pauses a player whose picture is on screen when the app leaves it, so the
-/// surfaces let go of the player then and take it back on return (`attach`).
+/// surfaces let go of the player then and take it back on return (`attach`) -- unless the
+/// picture is floating on as Picture in Picture, which a search result being watched does
+/// when the app is left (`wantsPictureInPicture`).
 ///
 /// The desktop's counterpart, with the same shape, is `Linux/.../Platform/VideoEngine.swift`.
 @MainActor
@@ -25,6 +28,13 @@ final class VideoEngine {
     var onProgress: ((Progress) -> Void)?
     var onEnd: (() -> Void)?
     var onFailure: ((String) -> Void)?
+    /// Back into the app from Picture in Picture.
+    var onRestore: (() -> Void)?
+
+    /// The surface on screen floats as Picture in Picture when the app is left.
+    var wantsPictureInPicture = false {
+        didSet { updatePictureInPicture() }
+    }
 
     /// What the video surfaces show.
     let player = AVPlayer()
@@ -37,6 +47,8 @@ final class VideoEngine {
     private var statusObservation: NSKeyValueObservation?
     private var surfaces: [WeakLayer] = []
     private var isInBackground = false
+    private var pictureInPicture: AVPictureInPictureController?
+    private let pictureInPictureDelegate = PictureInPictureDelegate()
 
     private struct WeakLayer {
         weak var layer: AVPlayerLayer?
@@ -46,6 +58,8 @@ final class VideoEngine {
         player.automaticallyWaitsToMinimizeStalling = true
         player.allowsExternalPlayback = true
         player.preventsDisplaySleepDuringVideoPlayback = true
+        pictureInPictureDelegate.restore = { [weak self] in self?.onRestore?() }
+        pictureInPictureDelegate.note = { line in Task { await Diagnostics.shared.record("video", line) } }
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(value: 1, timescale: 4), queue: .main
         ) { [weak self] _ in
@@ -150,15 +164,47 @@ final class VideoEngine {
         surfaces.removeAll { $0.layer == nil || $0.layer === layer }
         surfaces.append(WeakLayer(layer: layer))
         layer.player = isInBackground ? nil : player
+        updatePictureInPicture()
     }
 
     func detach(_ layer: AVPlayerLayer) {
         surfaces.removeAll { $0.layer == nil || $0.layer === layer }
         if layer.player === player { layer.player = nil }
+        updatePictureInPicture()
+    }
+
+    /// Picture in Picture from the surface shown last -- the full screen one, or the mini
+    /// player's -- started by iOS itself when the app is left while it plays.
+    private func updatePictureInPicture() {
+        guard pictureInPicture?.isPictureInPictureActive != true else { return }
+        guard wantsPictureInPicture, AVPictureInPictureController.isPictureInPictureSupported(),
+              let layer = surfaces.last(where: { $0.layer != nil })?.layer else {
+            if wantsPictureInPicture {
+                pictureInPictureDelegate.note?("picture in picture: off (supported \(AVPictureInPictureController.isPictureInPictureSupported()), "
+                    + "\(surfaces.filter { $0.layer != nil }.count) surfaces)")
+            }
+            pictureInPicture = nil
+            return
+        }
+        guard pictureInPicture?.playerLayer !== layer else { return }
+        let controller = AVPictureInPictureController(playerLayer: layer)
+        controller?.canStartPictureInPictureAutomaticallyFromInline = true
+        controller?.delegate = pictureInPictureDelegate
+        pictureInPicture = controller
+        pictureInPictureDelegate.note?(controller == nil
+            ? "picture in picture: no controller for the surface"
+            : "picture in picture: ready, on the newest of \(surfaces.count) surfaces")
     }
 
     private func enteredBackground(_ background: Bool) {
         isInBackground = background
+        if background, wantsPictureInPicture {
+            pictureInPictureDelegate.note?("app left while watching: floating \(pictureInPictureDelegate.isFloating), "
+                + "possible \(pictureInPicture?.isPictureInPicturePossible == true), playing \(player.rate > 0)")
+        }
+        // Floating on: the picture stays with the player. Locking the screen starts no
+        // Picture in Picture, and then the picture lets go so the sound plays on.
+        if background, pictureInPictureDelegate.isFloating { return }
         for surface in surfaces {
             surface.layer?.player = background ? nil : player
         }
@@ -210,5 +256,46 @@ final class VideoEngine {
             isPlaying: wantsPlaying,
             isWaiting: waiting
         ))
+    }
+}
+
+/// Picture in Picture's word on itself, kept for the engine: whether it is starting or on
+/// screen, and the way back into the app.
+@MainActor
+private final class PictureInPictureDelegate: NSObject, AVPictureInPictureControllerDelegate {
+    var restore: (() -> Void)?
+    /// A line for the app's log.
+    var note: ((String) -> Void)?
+    private(set) var isFloating = false
+
+    nonisolated func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        MainActor.assumeIsolated {
+            isFloating = true
+            note?("picture in picture: starting")
+        }
+    }
+
+    nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
+        MainActor.assumeIsolated {
+            isFloating = false
+            note?("picture in picture: stopped")
+        }
+    }
+
+    nonisolated func pictureInPictureController(_ controller: AVPictureInPictureController,
+                                                failedToStartPictureInPictureWithError error: any Error) {
+        let message = error.localizedDescription
+        MainActor.assumeIsolated {
+            isFloating = false
+            note?("picture in picture: failed to start: \(message)")
+        }
+    }
+
+    nonisolated func pictureInPictureController(
+        _ controller: AVPictureInPictureController,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+    ) {
+        MainActor.assumeIsolated { restore?() }
+        completionHandler(true)
     }
 }

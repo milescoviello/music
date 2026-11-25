@@ -77,6 +77,9 @@ final class VideoService: VideoStandIn {
     private(set) var lookups: [String: Lookup] = [:]
     /// A search result being watched by itself.
     private(set) var watching: VideoClient.Video?
+    /// The one being watched shrunk into the mini player, still playing, so the app can be
+    /// browsed meanwhile; it comes back full screen from there.
+    private(set) var isWatchingMinimized = false
     /// The video open now, a song's or one being watched.
     private(set) var current: VideoClient.Video?
     private(set) var progress = Progress()
@@ -109,6 +112,10 @@ final class VideoService: VideoStandIn {
         engine.onProgress = { [weak self] progress in self?.engineProgressed(progress) }
         engine.onEnd = { [weak self] in self?.engineEnded() }
         engine.onFailure = { [weak self] message in self?.engineFailed(message) }
+        #if os(iOS)
+        // Back from Picture in Picture into the app: full screen again.
+        engine.onRestore = { [weak self] in self?.expandWatching() }
+        #endif
     }
 
     var client: VideoClient {
@@ -366,6 +373,11 @@ final class VideoService: VideoStandIn {
 
         generation += 1
         watching = video
+        isWatchingMinimized = false
+        #if os(iOS)
+        // Leaving the app floats it as Picture in Picture (his choice, 2026-11-25).
+        engine.wantsPictureInPicture = true
+        #endif
         current = video
         watchError = nil
         offset = 0
@@ -384,11 +396,27 @@ final class VideoService: VideoStandIn {
         finishWatching(resume: true)
     }
 
+    /// Shrinks the video being watched into the mini player, playing on.
+    func minimizeWatching() {
+        guard watching != nil else { return }
+        isWatchingMinimized = true
+    }
+
+    /// The minimized video full screen again.
+    func expandWatching() {
+        guard watching != nil else { return }
+        isWatchingMinimized = false
+    }
+
     private func finishWatching(resume: Bool) {
         guard watching != nil else { return }
         generation += 1
         engine.stop()
         watching = nil
+        isWatchingMinimized = false
+        #if os(iOS)
+        engine.wantsPictureInPicture = false
+        #endif
         current = nil
         watchError = nil
         progress = Progress()

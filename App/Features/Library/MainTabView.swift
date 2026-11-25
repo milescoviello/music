@@ -23,11 +23,12 @@ struct MainTabView: View {
         appState.playlistArrangement.arranged(playlistStore.playlists).pinned
     }
 
-    /// A YouTube result from search, full screen until it is closed.
+    /// A YouTube result from search, full screen until it is closed or shrunk into the mini
+    /// player, where it plays on.
     private var watching: Binding<VideoClient.Video?> {
         Binding(
-            get: { appState.video.watching },
-            set: { if $0 == nil { appState.video.stopWatching() } }
+            get: { appState.video.isWatchingMinimized ? nil : appState.video.watching },
+            set: { if $0 == nil, !appState.video.isWatchingMinimized { appState.video.stopWatching() } }
         )
     }
 

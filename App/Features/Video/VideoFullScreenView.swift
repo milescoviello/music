@@ -3,10 +3,11 @@ import SwiftUI
 /// A video full screen, upright or on its side: a YouTube result being watched from search,
 /// or the song's own video from the player.
 ///
-/// Watching, the controls are the video's own, with Add to Library, and closing puts the
-/// music back where it was. For the song's video they are the player's -- the same play,
-/// pause, seek, previous and next the lock screen has -- and closing leaves it playing in
-/// the player.
+/// Watching, the controls are the video's own, with Add to Library; the chevron (or a pull
+/// down) shrinks it into the mini player, where it plays on while the app is browsed, and the
+/// cross closes it, putting the music back where it was. For the song's video they are the
+/// player's -- the same play, pause, seek, previous and next the lock screen has -- and
+/// closing leaves it playing in the player.
 struct VideoFullScreenView: View {
     @Environment(AppState.self) private var appState
     @Environment(VideoService.self) private var videos
@@ -35,6 +36,16 @@ struct VideoFullScreenView: View {
                 .contentShape(Rectangle())
                 .ignoresSafeArea()
                 .onTapGesture { toggleControls() }
+                // Pulled down: into the mini player, or out of full screen for the song's.
+                // Beside the tap, not instead of it: as `gesture` neither ever fired.
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 30)
+                        .onEnded { value in
+                            if value.translation.height > 80, abs(value.translation.width) < value.translation.height {
+                                shrink()
+                            }
+                        }
+                )
 
             if progress.isWaiting, videos.watchError == nil {
                 ProgressView()
@@ -91,14 +102,14 @@ struct VideoFullScreenView: View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
                 Button {
-                    close()
+                    shrink()
                 } label: {
-                    Image(systemName: watching == nil ? "chevron.down" : "xmark")
+                    Image(systemName: "chevron.down")
                         .font(.body.weight(.semibold))
                         .frame(width: Metrics.minimumTouchTarget, height: Metrics.minimumTouchTarget)
                         .contentShape(Rectangle())
                 }
-                .accessibilityLabel(watching == nil ? "Close full screen" : "Close video")
+                .accessibilityLabel(watching == nil ? "Close full screen" : "Shrink into the mini player")
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
@@ -124,6 +135,16 @@ struct VideoFullScreenView: View {
                             .frame(width: Metrics.minimumTouchTarget, height: Metrics.minimumTouchTarget)
                     }
                     .accessibilityLabel("Add to Library")
+
+                    Button {
+                        close()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.body.weight(.semibold))
+                            .frame(width: Metrics.minimumTouchTarget, height: Metrics.minimumTouchTarget)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Close video")
                 }
             }
             .padding(.horizontal, 8)
@@ -230,6 +251,15 @@ struct VideoFullScreenView: View {
     private func close() {
         if watching != nil { videos.stopWatching() }
         dismiss()
+    }
+
+    /// A search result into the mini player, playing on; the song's video out of full screen.
+    private func shrink() {
+        if watching != nil {
+            videos.minimizeWatching()
+        } else {
+            dismiss()
+        }
     }
 
     private func toggleControls() {
