@@ -3,8 +3,11 @@ name: Build iOS app
 # Produces an UNSIGNED .ipa. It is re-signed on-device by xtool with a free
 # Apple developer certificate, which is why nothing here needs secrets.
 #
-# Runs on the macOS build VM (Proxmox VM 134, self-hosted runner `music-vm`), not on
-# GitHub's hosted Macs, whose capacity outages left builds queued and cancelled.
+# The tests run on the macOS build VM (Proxmox VM 134, self-hosted runner `music-vm`),
+# not on GitHub's hosted Macs, whose capacity outages left builds queued and cancelled.
+# The phone build itself runs on GitHub's xcode-27 image: built with Xcode 26 the app
+# opens letterboxed on the iPhone Duo's 7.6" inner screen, and Xcode 27 is Apple
+# silicon only (arm64, no Intel code), so the Intel VM cannot run it.
 # Safe on a public repo because nothing here runs for pull requests: only pushes to
 # main/development and manual runs (and the repo requires approval for outside
 # contributors' workflows on top of that). Never add a pull_request trigger to a job
@@ -65,7 +68,7 @@ jobs:
                     DEVELOPMENT_TEAM=""
 
     build:
-        runs-on: [self-hosted, music-vm]
+        runs-on: xcode-27
         timeout-minutes: 30
 
         steps:
@@ -73,6 +76,7 @@ jobs:
 
             - name: Show toolchain
               run: |
+                  sudo xcode-select -s /Applications/Xcode_27.2.app
                   xcodebuild -version
                   swift --version
 
