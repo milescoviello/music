@@ -98,6 +98,8 @@ final class AppState {
     let sonic = SonicService()
     /// The player's Song | Video switch and YouTube in search, through the same service.
     let video = VideoService()
+    /// Music asked for from the app, got from Soulseek by the server with no Hermes.
+    let grab = GrabService()
     let streamCache = StreamCache()
     let shapes = TrackShapeStore()
     let seekbarLevels = SeekbarLevelsStore()
@@ -145,6 +147,7 @@ final class AppState {
         search.configure(appState: self)
         sonic.configure(appState: self)
         video.configure(appState: self)
+        grab.configure(appState: self)
         // The seekbar's fallback, for a track the sonic service has not analysed.
         seekbarLevels.measured = { [shapes] in shapes.loadedShape(for: $0)?.levels }
         // Asked of the service at whatever address Settings has for it.
@@ -263,6 +266,7 @@ final class AppState {
 
     private func finishLaunch() async {
         await sonic.refreshStatus(force: true)
+        Task { await grab.refreshAvailability(force: true) }
         await flushOutbox()
         await refreshRequests()
 
@@ -324,6 +328,7 @@ final class AppState {
         Task { await flushOutbox() }
         Task { await refreshRequests() }
         Task { await sonic.refreshStatus() }
+        Task { await grab.refreshAvailability() }
         Task { await playlistSync.sync() }
         downloads.resumeWaiting()
         Task { await mostPlayed.refresh() }

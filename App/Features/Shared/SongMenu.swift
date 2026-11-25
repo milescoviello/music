@@ -9,6 +9,7 @@ struct SongMenu: View {
     @Environment(UserStateStore.self) private var userState
     @Environment(DownloadCenter.self) private var downloads
     @Environment(LibraryScopeStore.self) private var scope
+    @Environment(\.playlistPickerHost) private var host
 
     let song: Song
     /// Present only where "go to album/artist" would navigate somewhere you already
@@ -59,6 +60,21 @@ struct SongMenu: View {
         }
 
         AddToPlaylistButton(songs: [song], suggestedName: song.album ?? song.title)
+
+        // From Soulseek, lossless, through the server: the rest of the album this song came
+        // with, or the song itself again where its file is lossy.
+        if appState.grab.isAvailable {
+            if song.isOnItsOwn {
+                Button("Get the Full Album…", systemImage: "square.stack.3d.down.forward") {
+                    appState.grab.adding = .init(item: .fullAlbum(song), host: host)
+                }
+            }
+            if song.isLossy {
+                Button("Get It Lossless…", systemImage: "waveform.badge.plus") {
+                    appState.grab.adding = .init(item: .lossless(song), host: host)
+                }
+            }
+        }
 
         Divider()
 

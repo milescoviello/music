@@ -273,6 +273,7 @@ enum ArtistPage {
             let appearsOn = LibraryFacets.appearsOn(await found?.songs ?? [], artistID: id, excluding: own)
             guard alive.isAlive else { return }
             if !appearsOn.isEmpty { shelves.append(albumShelf(env, "Appears On", artist: artist.name, appearsOn)) }
+            shelves.append(MissingAlbums.make(env, artist: artist))
             if !sonic.isEmpty {
                 shelves.append(Shelf.make("Sonically Similar", cards: sonic.map { Cards.artist(env, $0, side: 96) }))
             }

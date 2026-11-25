@@ -101,6 +101,7 @@ struct MainTabView: View {
         // Over the player too, which is an overlay here rather than a modal.
         .playlistPicker(host: "root")
         .animation(.snappy(duration: 0.25), value: playlistStore.lastMessage)
+        .animation(.snappy(duration: 0.25), value: appState.grab.landed?.id)
         // Matched to the drag's own spring so opening and closing feel like the same
         // movement whether it was a tap or a swipe.
         .animation(.spring(response: 0.38, dampingFraction: 0.86), value: navigator.showsPlayer)
@@ -129,6 +130,20 @@ struct MainTabView: View {
                 .task(id: message) {
                     try? await Task.sleep(for: .seconds(2.2))
                     playlistStore.lastMessage = nil
+                }
+        } else if let landed = appState.grab.landed {
+            // Music asked for from Soulseek is in the library: said once, wherever he is.
+            Text("“\(landed.title ?? "")” is in your library")
+                .font(.footnote.weight(.medium))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.regularMaterial, in: Capsule())
+                .shadow(radius: 8, y: 2)
+                .padding(.bottom, 120)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .task(id: landed.id) {
+                    try? await Task.sleep(for: .seconds(4))
+                    appState.grab.dismissLanded()
                 }
         }
     }

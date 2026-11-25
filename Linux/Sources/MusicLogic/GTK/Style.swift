@@ -337,6 +337,9 @@ enum Style {
     list.boxed-list > row:hover { background-color: alpha(#ffffff, 0.05); }
     popover > contents, popover > arrow { background-color: alpha(rgb(22, 22, 29), 0.96); box-shadow: inset 0 0 0 1px alpha(#ffffff, 0.08); }
     popover > contents { border-radius: 14px; }
+    /* A dialog's sheet paints the window colour, which is clear here for the backdrop:
+       without its own, the page showed through every dialog. */
+    dialog sheet { background-color: var(--dialog-bg-color); }
     .glass { background-color: alpha(#ffffff, 0.075); border-radius: 12px; box-shadow: inset 0 0 0 1px alpha(#ffffff, 0.07); }
     .glass:hover { background-color: alpha(#ffffff, 0.11); }
     .history-buttons button { min-width: 32px; padding: 0 4px; }

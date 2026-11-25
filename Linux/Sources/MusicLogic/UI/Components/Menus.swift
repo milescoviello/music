@@ -54,6 +54,16 @@ enum Menus {
             more.append(.action("Sonic Adventure…") { env.open(.sonicAdventure(song)) })
         }
         more.append(playlistItem(env, [song], suggestedName: song.album ?? song.title))
+        // From Soulseek, lossless, through the server: the album a song had on its own came
+        // from, or the song again where its file is lossy.
+        if app.grab.isAvailable {
+            if song.isOnItsOwn {
+                more.append(.action("Get the Full Album…") { AddMusic.present(env, .fullAlbum(song)) })
+            }
+            if song.isLossy {
+                more.append(.action("Get It Lossless…") { AddMusic.present(env, .lossless(song)) })
+            }
+        }
         sections.append(more)
 
         if downloads.isDownloaded(song.id) {

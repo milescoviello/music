@@ -21,6 +21,9 @@ enum Destination: Hashable {
     case sonicSettings
     case requestMusic(String)
     case requestSettings
+    /// Music asked for from the app (`GrabService`), and one request by id.
+    case requests
+    case grabRequest(String)
     case offlineSettings
     case remoteControl
     case diagnostics

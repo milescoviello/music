@@ -108,7 +108,17 @@ enum DownloadsPage {
                 }],
             ])
         }
-        return Page.make("Downloads", content: body) { bar in bar.end(menu) }
+        // Music being got from Soulseek: the other way songs arrive.
+        let requests = Button(icon: "folder-download-symbolic", "flat") { env.open(.requests) }
+        requests.observe {
+            requests.isVisible = app.grab.isAvailable || !app.grab.requests.isEmpty
+            let open = app.grab.openCount
+            requests.tooltip(open > 0 ? "Requests: \(open) open" : "Requests")
+        }
+        return Page.make("Downloads", content: body) { bar in
+            bar.end(menu)
+            bar.end(requests)
+        }
     }
 
     private static func section(_ env: Env, _ title: String, _ folders: [DownloadFolders.Folder]) -> Widget {

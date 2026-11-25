@@ -151,6 +151,8 @@ func logicPackage() -> Package {
                     "QRCode.swift",
                     "RecordingMatch.swift",
                     "VideoClient.swift",
+                    "GrabClient.swift",
+                    "GrabItems.swift",
                 ]
             ),
             .testTarget(

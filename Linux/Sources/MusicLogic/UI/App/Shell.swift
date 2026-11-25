@@ -72,6 +72,14 @@ final class Shell {
             let phase = app.phase
             Task { @MainActor in reference.value?.show(phase) }
         }
+        // Music asked for from Soulseek is in the library: said once, wherever he is.
+        toasts.observe {
+            guard let landed = app.grab.landed else { return }
+            Task { @MainActor in
+                reference.value?.toast("“\(landed.title ?? "")” is in your library")
+                app.grab.dismissLanded()
+            }
+        }
         Signal.connect(window.widget, "notify::is-active", pointer: { _ in
             let active = gtk_window_is_active(window.widget.cast()) != 0
             reference.value?.backdrop.isActive = active

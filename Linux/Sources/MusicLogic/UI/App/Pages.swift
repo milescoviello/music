@@ -90,6 +90,10 @@ enum Pages {
             return HermesPages.request(env, prefill: text)
         case .requestSettings:
             return HermesPages.requestSettings(env)
+        case .requests:
+            return RequestsPage.make(env)
+        case let .grabRequest(id):
+            return RequestPage.make(env, id: id)
         case let .lyricSearch(query):
             return HermesPages.lyricSearch(env, prefill: query)
         case .vibePlaylist:

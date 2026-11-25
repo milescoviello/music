@@ -14,10 +14,11 @@ struct SearchView: View {
     /// Bound so that opening a result can be noticed: that is when a search is worth
     /// keeping in Recent.
     @State private var path = NavigationPath()
-    /// The library, or YouTube: music videos and songs the library does not have.
+    /// The library; YouTube, for music videos; or Soulseek, for songs and albums the
+    /// library does not have, to get.
     @State private var source = Source.library
 
-    enum Source: Hashable { case library, youtube }
+    enum Source: Hashable { case library, youtube, soulseek }
 
     private var results: SearchResult3? { outcome?.results }
 
@@ -31,6 +32,8 @@ struct SearchView: View {
             Group {
                 if source == .youtube {
                     YouTubeResultsView(query: query, onUse: recordQuery)
+                } else if source == .soulseek {
+                    CatalogResultsView(query: query, onUse: recordQuery)
                 } else if query.isEmpty {
                     idleState
                 } else if failed, !isSearching {
@@ -53,10 +56,17 @@ struct SearchView: View {
                     } description: {
                         Text("Nothing in your library matches “\(query)”.")
                     } actions: {
-                        NavigationLink(value: Destination.requestMusic(query)) {
-                            Label("Ask Hermes to find it", systemImage: "arrow.down.heart")
+                        if appState.grab.isAvailable {
+                            Button("Find It on Soulseek", systemImage: "arrow.down.circle") {
+                                source = .soulseek
+                            }
+                            .buttonStyle(.borderedProminent)
+                        } else {
+                            NavigationLink(value: Destination.requestMusic(query)) {
+                                Label("Ask Hermes to find it", systemImage: "arrow.down.heart")
+                            }
+                            .buttonStyle(.borderedProminent)
                         }
-                        .buttonStyle(.borderedProminent)
 
                         // Metadata search has just failed, which is exactly when a
                         // half-remembered lyric is the only thing left to go on.
@@ -434,19 +444,28 @@ struct SearchView: View {
         let source: Source
     }
 
-    /// Where a search looks: one of the libraries, or YouTube.
+    /// Where a search looks: one of the libraries, YouTube, or Soulseek.
     private enum Place: Hashable {
         case library(LibraryScope)
         case youtube
+        case soulseek
     }
 
     private var place: Binding<Place> {
         Binding(
-            get: { source == .youtube ? .youtube : .library(scope.scope) },
+            get: {
+                switch source {
+                case .youtube: .youtube
+                case .soulseek: .soulseek
+                case .library: .library(scope.scope)
+                }
+            },
             set: { chosen in
                 switch chosen {
                 case .youtube:
                     source = .youtube
+                case .soulseek:
+                    source = .soulseek
                 case .library(let library):
                     source = .library
                     scope.scope = library
@@ -455,15 +474,17 @@ struct SearchView: View {
         )
     }
 
-    /// All | each library | YouTube, in one row under the search field. Two rows did it
-    /// before, the libraries over Library | YouTube, and "Library" beside a library's own
-    /// name read as one more of them. YouTube only while the sonic service answers, since it
-    /// comes through it -- or while it is chosen, so it can be left. The libraries are the
+    /// All | each library | YouTube | Soulseek, in one row under the search field. Two rows
+    /// did it before, the libraries over Library | YouTube, and "Library" beside a library's
+    /// own name read as one more of them. YouTube only while the sonic service answers, and
+    /// Soulseek only while its request service does, since both come through it -- or while
+    /// one is chosen, so it can be left. The libraries are the
     /// same choice as the menu elsewhere (`LibraryScopeStore`).
     @ViewBuilder
     private var sourcePicker: some View {
         let showsYouTube = appState.video.isAvailable || source == .youtube
-        if scope.isSwitchable || showsYouTube {
+        let showsSoulseek = appState.grab.isAvailable || source == .soulseek
+        if scope.isSwitchable || showsYouTube || showsSoulseek {
             Picker("Search", selection: place) {
                 if scope.isSwitchable {
                     ForEach(scope.options, id: \.self) { library in
@@ -474,6 +495,9 @@ struct SearchView: View {
                 }
                 if showsYouTube {
                     Text("YouTube").tag(Place.youtube)
+                }
+                if showsSoulseek {
+                    Text("Soulseek").tag(Place.soulseek)
                 }
             }
             .pickerStyle(.segmented)

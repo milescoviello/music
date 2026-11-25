@@ -20,10 +20,17 @@ enum SearchPage {
 
         var generation = 0
         var searchesYouTube = false
+        var searchesSoulseek = false
         func search(_ text: String) {
             let trimmed = text.trimmingCharacters(in: .whitespaces)
             generation += 1
             let current = generation
+            if searchesSoulseek {
+                // Songs and albums to get: searches for itself too.
+                results.child = CatalogResults.make(env, query: trimmed)
+                stack.visibleName = "results"
+                return
+            }
             if searchesYouTube {
                 // YouTube's side searches for itself, and says so when the field is empty.
                 results.child = YouTubeResults.make(env, query: trimmed)
@@ -63,25 +70,36 @@ enum SearchPage {
             }
         }
 
-        // Library | YouTube. Shown while the sonic service answers, since YouTube comes
-        // through it -- or while YouTube is chosen, so it can be left.
+        // Library | YouTube | Soulseek. YouTube while the sonic service answers, and
+        // Soulseek while its request service does, since both come through it -- or while
+        // one is chosen, so it can be left.
         let library = ToggleButton("Library")
         let youtube = ToggleButton("YouTube")
+        let soulseek = ToggleButton("Soulseek")
         youtube.group(with: library)
+        soulseek.group(with: library)
         library.isActive = true
-        Signal.connect(youtube.widget, "toggled") {
-            guard youtube.isActive != searchesYouTube else { return }
+        func chose() {
+            guard youtube.isActive != searchesYouTube || soulseek.isActive != searchesSoulseek else { return }
             searchesYouTube = youtube.isActive
-            gtk_search_entry_set_placeholder_text(entry.widget.cast(), searchesYouTube ? "Music Videos, Songs" : "Artists, Albums, Songs")
+            searchesSoulseek = soulseek.isActive
+            gtk_search_entry_set_placeholder_text(entry.widget.cast(),
+                searchesYouTube ? "Music Videos, Songs" : searchesSoulseek ? "Songs and Albums to Get" : "Artists, Albums, Songs")
             search(entry.text)
         }
+        Signal.connect(youtube.widget, "toggled") { chose() }
+        Signal.connect(soulseek.widget, "toggled") { chose() }
         let sources = Box.horizontal(spacing: 0) {
             library
             youtube
+            soulseek
         }.css("linked").halign(GTK_ALIGN_CENTER)
         sources.observe {
-            sources.isVisible = app.video.isAvailable || searchesYouTube
+            youtube.isVisible = app.video.isAvailable || searchesYouTube
+            soulseek.isVisible = app.grab.isAvailable || searchesSoulseek
+            sources.isVisible = youtube.isVisible || soulseek.isVisible
         }
+        Task { await app.grab.refreshAvailability() }
 
         let body = Box.vertical(spacing: 12) {
             entry.hexpand()

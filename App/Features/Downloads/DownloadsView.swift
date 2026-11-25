@@ -50,6 +50,25 @@ struct DownloadsView: View {
         )
         .searchInputAsTyped()
         .toolbar {
+            // Music being got from Soulseek: the other way songs arrive.
+            if appState.grab.isAvailable || !appState.grab.requests.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink(value: Destination.requests) {
+                        Image(systemName: "tray.and.arrow.down")
+                            .overlay(alignment: .topTrailing) {
+                                if appState.grab.openCount > 0 {
+                                    Text("\(appState.grab.openCount)")
+                                        .font(.caption2.weight(.bold).monospacedDigit())
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 4)
+                                        .background(Color.appTint, in: Capsule())
+                                        .offset(x: 8, y: -6)
+                                }
+                            }
+                    }
+                    .accessibilityLabel(appState.grab.openCount > 0 ? "Requests, \(appState.grab.openCount) open" : "Requests")
+                }
+            }
             if !folders.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) { menu }
             }

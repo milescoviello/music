@@ -138,38 +138,14 @@ enum VideoRow {
     }
 }
 
-/// Add to Library for a video: the song alone, or the song and then its album, asked each
-/// time, sent through Hermes to the Soulseek pipeline.
+/// Add to Library for a video: the Add dialog for the song -- and its album after it, if
+/// wanted -- got lossless from Soulseek by the server.
 @MainActor
 enum AddVideoToLibrary {
     static func ask(_ app: AppState, _ video: VideoClient.Video, toast: @escaping @MainActor (String) -> Void, over parent: Widget? = nil) {
-        let requests = app.requests
-        let artist = video.artist ?? video.channel
-        let song = video.song ?? video.title
-        guard requests.isConfigured else {
-            toast("Set up Music Requests in Settings to add songs from YouTube.")
-            return
-        }
-        Dialogs.alert(
-            artist.isEmpty ? "Add “\(song)”" : "Add “\(song)” by \(artist)",
-            body: "Hermes gets it as lossless through Soulseek. The song comes first, so it's playable within minutes.",
-            responses: [
-                ("cancel", "Cancel", ADW_RESPONSE_DEFAULT),
-                ("album", "Song + Album", ADW_RESPONSE_DEFAULT),
-                ("song", "Song", ADW_RESPONSE_SUGGESTED),
-            ],
-            defaultResponse: "song",
-            over: parent
-        ) { response in
-            guard response == "song" || response == "album" else { return }
-            let withAlbum = response == "album"
-            Task { @MainActor in
-                let sent = await requests.sendSong(artist: artist, title: song, withAlbum: withAlbum, videoID: video.id)
-                toast(sent
-                    ? (withAlbum ? "Asked for “\(song)”, then its album" : "Asked for “\(song)”")
-                    : (requests.lastError ?? "The request didn't go through."))
-            }
-        }
+        AddMusic.present(app, .song(artist: video.artist ?? video.channel, title: video.song ?? video.title,
+                                    seconds: video.duration.map { Int($0) }, videoID: video.id),
+                         toast: toast, open: { app.navigator.open($0) })
     }
 }
 

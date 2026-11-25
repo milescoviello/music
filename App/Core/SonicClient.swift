@@ -531,7 +531,7 @@ struct SonicClient: Sendable {
         return .found(StructuredLyrics(synced: answer.synced == true, line: lines))
     }
 
-    private func post<Body: Encodable>(_ path: String, _ body: Body, timeout: TimeInterval = 20) async throws -> (Data, Int) {
+    func post<Body: Encodable>(_ path: String, _ body: Body, timeout: TimeInterval = 20) async throws -> (Data, Int) {
         guard let url = url(path) else { throw SonicError.badURL }
         var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = "POST"
@@ -629,7 +629,7 @@ struct SonicClient: Sendable {
 
     // MARK: - Plumbing
 
-    private func authorise(_ request: inout URLRequest) {
+    func authorise(_ request: inout URLRequest) {
         if let token = configuration.token, !token.isEmpty {
             request.setValue(token, forHTTPHeaderField: "X-Sonic-Token")
         }
@@ -664,7 +664,7 @@ struct SonicClient: Sendable {
     }
 
     /// Nil for a 404 — not analysed, or not known — and an error for anything else.
-    private func getIfPresent<T: Decodable>(_ path: String, _ query: [String: String], as type: T.Type,
+    func getIfPresent<T: Decodable>(_ path: String, _ query: [String: String], as type: T.Type,
                                             timeout: TimeInterval = 10) async throws -> T? {
         guard let url = url(path, query) else { throw SonicError.badURL }
         var request = URLRequest(url: url, timeoutInterval: timeout)

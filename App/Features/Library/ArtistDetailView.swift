@@ -30,6 +30,8 @@ struct ArtistDetailView: View {
     @State private var info: ArtistInfo?
     @State private var sonicallySimilar: [Artist] = []
     @State private var appearsOn: [Album] = []
+    /// The artist's records the library lacks, to get from Soulseek.
+    @State private var missingAlbums: [SonicClient.CatalogRecord] = []
     @State private var isBiographyExpanded = false
     /// Who the artist is, from the companion service: Claude's summary and the Genius and Wikipedia pages.
     @State private var about: SongAbout?
@@ -98,6 +100,10 @@ struct ArtistDetailView: View {
 
                 if !appearsOn.isEmpty {
                     albumCarousel("Appears On", appearsOn)
+                }
+
+                if !missingAlbums.isEmpty {
+                    MissingAlbumsSection(artist: artist, missing: missingAlbums)
                 }
 
                 if !sonicallySimilar.isEmpty {
@@ -180,6 +186,7 @@ struct ArtistDetailView: View {
             }
         }
         .task { await load() }
+        .task(id: artist.id) { missingAlbums = await MissingAlbumsSection.load(artist, appState: appState) }
         // The server back after a silence: the saved copy shown meanwhile, fresh.
         .onChange(of: appState.serverReturns) { Task { await load() } }
     }

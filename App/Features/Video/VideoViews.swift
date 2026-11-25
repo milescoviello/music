@@ -139,71 +139,21 @@ enum VideoOrientation {
     }
 }
 
-/// Add to Library for a video: asks, each time, for the song alone or the song and then
-/// its album, and sends it through Hermes to the Soulseek pipeline.
+/// Add to Library for a video: the Add sheet, for the song -- and its album after it, if
+/// wanted -- got lossless from Soulseek by the server.
 struct AddToLibraryModifier: ViewModifier {
-    @Environment(MusicRequestService.self) private var requests
     @Binding var video: VideoClient.Video?
-    @State private var sentMessage: String?
-    @State private var showsSetup = false
 
     func body(content: Content) -> some View {
-        content
-            .confirmationDialog(
-                title,
-                isPresented: Binding(get: { video != nil }, set: { if !$0 { video = nil } }),
-                titleVisibility: .visible,
-                presenting: video
-            ) { video in
-                Button("Song") { send(video, withAlbum: false) }
-                Button("Song + Album") { send(video, withAlbum: true) }
-                Button("Cancel", role: .cancel) {}
-            } message: { _ in
-                Text("Hermes gets it as lossless through Soulseek. The song comes first, so it's playable within minutes.")
-            }
-            .alert("Music Requests Aren't Set Up", isPresented: $showsSetup) {
-                Button("OK", role: .cancel) {}
-            } message: {
-                Text("Add the gateway and its secret in Settings → Music Requests, then try again.")
-            }
-            .overlay(alignment: .bottom) {
-                if let sentMessage {
-                    Text(sentMessage)
-                        .font(.footnote.weight(.medium))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(.regularMaterial, in: Capsule())
-                        .padding(.bottom, 24)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                        .task(id: sentMessage) {
-                            try? await Task.sleep(for: .seconds(3))
-                            withAnimation { self.sentMessage = nil }
-                        }
+        content.addMusic(Binding(
+            get: {
+                video.map { video in
+                    .song(artist: video.artist ?? video.channel, title: video.song ?? video.title,
+                          seconds: video.duration.map { Int($0) }, videoID: video.id)
                 }
-            }
-            .animation(.snappy, value: sentMessage)
-    }
-
-    private var title: String {
-        guard let video else { return "Add to Library" }
-        let artist = video.artist ?? video.channel
-        let song = video.song ?? video.title
-        return artist.isEmpty ? "Add “\(song)”" : "Add “\(song)” by \(artist)"
-    }
-
-    private func send(_ video: VideoClient.Video, withAlbum: Bool) {
-        guard requests.isConfigured else {
-            showsSetup = true
-            return
-        }
-        let artist = video.artist ?? video.channel
-        let song = video.song ?? video.title
-        Task {
-            let accepted = await requests.sendSong(artist: artist, title: song, withAlbum: withAlbum, videoID: video.id)
-            sentMessage = accepted
-                ? (withAlbum ? "Asked for “\(song)”, then its album" : "Asked for “\(song)”")
-                : (requests.lastError ?? "The request didn't go through.")
-        }
+            },
+            set: { if $0 == nil { video = nil } }
+        ))
     }
 }
 

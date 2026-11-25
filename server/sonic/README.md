@@ -74,6 +74,27 @@ since an old one stops working when YouTube changes; Deno runs its JavaScript ch
 With `SONIC_TOKEN` set, the media addresses carry it as `?token=`, since a player cannot
 add the header.
 
+### Getting music
+
+For the apps' Soulseek side of Search, an artist's records the library lacks, and Add
+(`sonic/catalog.py`). The catalog is YouTube Music's (songs and albums for a query) and
+MusicBrainz's (an artist's official albums and EPs), each marked `have` when the library
+has it, from the tracks sonic already holds. Getting one is not done here: `/v1/grab/*`
+is relayed to `music-grab serve` on the host (`SONIC_GRAB_URL`, default
+`http://127.0.0.1:8661`), which finds a lossless copy on Soulseek, downloads it, checks it
+and adds it. A 503 means it isn't running.
+
+| Endpoint | Answers |
+|---|---|
+| `GET /v1/catalog/search?q=&limit=` | `{"songs": [{title, artist, artists, album, albumId, seconds, videoId, cover, have}], "albums": [{title, artist, artists, year, type, albumId, cover, have}]}` |
+| `GET /v1/catalog/albums/{id}` | `{title, artist, year, tracks, songs: [{title, seconds, have}], have}` |
+| `GET /v1/catalog/artist?id=&name=` | `{artist, mbid, albums: [{title, type, year, mbid, have}]}`; `id` is Navidrome's, whose MusicBrainz id is used |
+| `GET /v1/grab/health` | `{"ok": true}` when requests can be made |
+| `GET /v1/grab/requests` | `{"items": [request]}`, newest first |
+| `GET /v1/grab/requests/{id}` | one request, its targets listing every copy found |
+| `POST /v1/grab/requests` `{kind, artist, title, library, choose, album, albumId, album_too, year, tracks, length, replace, video_id}` | the request made; an album with `albumId` goes on with its track count |
+| `POST /v1/grab/requests/{id}/choose` `{target, choice}`, `/retry`, `/cancel` | the request as it now stands |
+
 ### Lyrics fixed in the apps
 
 `POST /v1/lyrics/save` `{id, original, synced, lines: [{start, value}], auth: {u, t, s}}`

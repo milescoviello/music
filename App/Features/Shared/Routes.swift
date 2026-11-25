@@ -24,6 +24,9 @@ enum Destination: Hashable {
     case sonicSettings
     case requestMusic(String)
     case requestSettings
+    /// Music asked for from the app (`GrabService`), and one request by id.
+    case requests
+    case grabRequest(String)
     case offlineSettings
     case remoteControl
     case diagnostics
@@ -110,6 +113,10 @@ private struct DestinationPage: View {
             MusicRequestView(initialText: prefill)
         case .requestSettings:
             MusicRequestSettingsView()
+        case .requests:
+            RequestsView()
+        case let .grabRequest(id):
+            RequestDetailView(requestID: id)
         case .offlineSettings:
             OfflineSettingsView()
         case .remoteControl:

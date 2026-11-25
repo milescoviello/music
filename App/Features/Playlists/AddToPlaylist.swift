@@ -37,6 +37,7 @@ extension View {
 
 struct PlaylistPickerHost: ViewModifier {
     @Environment(PlaylistStore.self) private var store
+    @Environment(AppState.self) private var appState
     let name: String
 
     func body(content: Content) -> some View {
@@ -48,6 +49,11 @@ struct PlaylistPickerHost: ViewModifier {
             )) { pick in
                 AddToPlaylistSheet(pick: pick)
             }
+            // A song menu's Get the Full Album and Get It Lossless, the same way.
+            .addMusic(Binding(
+                get: { appState.grab.adding?.host == name ? appState.grab.adding?.item : nil },
+                set: { if $0 == nil, appState.grab.adding?.host == name { appState.grab.adding = nil } }
+            ))
     }
 }
 
