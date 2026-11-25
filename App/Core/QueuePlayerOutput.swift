@@ -278,6 +278,14 @@ final class QueuePlayerOutput: AudioOutput {
     // MARK: - Loading
 
     func load(window songs: [Song], startAt: Double) {
+        // The song asked for already waiting in the players -- next, or a jump to the next
+        // one -- is moved to as it is: opened, buffered and tapped. Made again, it was a new
+        // request and a second or two of silence for a song that was ready (2026-11-24).
+        if let first = songs.first, moveToWaiting(first, window: songs, startAt: startAt) {
+            reusedWaiting = true
+            return
+        }
+        reusedWaiting = false
         resetPlayers()
         window = songs
 
@@ -294,6 +302,64 @@ final class QueuePlayerOutput: AudioOutput {
         elapsed = startAt
 
         if startAt > 0 { seek(to: startAt) }
+    }
+
+    /// Whether the last `load` moved to an item already made, for the log.
+    private(set) var reusedWaiting = false
+
+    /// The item already made for `song` as the next to play -- the active player's second,
+    /// or the idle player's first when a fade was planned -- made the current one, paused
+    /// as a fresh load would leave it. False when there is none fit to play.
+    private func moveToWaiting(_ song: Song, window songs: [Song], startAt: Double) -> Bool {
+        // In the middle of a fade both players are busy with the two tracks; built afresh.
+        guard !isFading else { return false }
+        let activePlayer = players[active]
+        let queued = activePlayer.items()
+        let isSong = { (item: AVPlayerItem) in
+            self.itemToSongID[ObjectIdentifier(item)] == song.id && item.status != .failed
+        }
+        if queued.count > 1, isSong(queued[1]) {
+            settlePlayers()
+            // Removing the current item is how a queue player moves to the next.
+            discard(queued[0], from: activePlayer)
+        } else if let waiting = players[idle].items().first, isSong(waiting) {
+            settlePlayers()
+            for item in activePlayer.items() { discard(item, from: activePlayer) }
+            active = idle
+        } else {
+            return false
+        }
+        window = songs
+        let player = players[active]
+        expectedItem = player.currentItem
+        duration = Double(song.duration ?? 0)
+        elapsed = startAt
+        rebuildTail(includingCurrent: false)
+        // A cue may have started it early; it is wanted from `startAt`.
+        if startAt > 0 || (player.currentItem?.currentTime().seconds ?? 0) > 0.05 { seek(to: startAt) }
+        return true
+    }
+
+    /// Everything `resetPlayers` does but empty them: whatever was under way stopped, and
+    /// both players paused at full volume, at the set speed.
+    private func settlePlayers() {
+        cancelCue()
+        cancelFade()
+        startFallback?.cancel()
+        startFallback = nil
+        wantsToPlay = false
+        easeTask?.cancel()
+        easeTask = nil
+        tempo = [1, 1]
+        for player in players {
+            player.pause()
+            player.defaultRate = rate
+        }
+        plannedFade = nil
+        plannedBeats = nil
+        idleWaitsForStart = false
+        fadeGain = [1, 1]
+        applyVolumes()
     }
 
     func updateUpcoming(_ songs: [Song]) {
@@ -550,8 +616,20 @@ final class QueuePlayerOutput: AudioOutput {
 
         startFallback?.cancel()
         startFallback = nil
+        matchStallPolicy(player)
         player.defaultRate = rate
         player.play()
+    }
+
+    /// A file on the phone -- downloaded, or in the stream cache -- never runs out of data,
+    /// so it starts at once instead of after the player has judged its buffer, which it does
+    /// for a file too. A stream still waits for enough to play on without a stutter.
+    private func matchStallPolicy(_ player: AVQueuePlayer) {
+        guard let asset = player.currentItem?.asset as? AVURLAsset else { return }
+        let waits = !asset.url.isFileURL
+        if player.automaticallyWaitsToMinimizeStalling != waits {
+            player.automaticallyWaitsToMinimizeStalling = waits
+        }
     }
 
     func pause() {
@@ -961,6 +1039,8 @@ final class QueuePlayerOutput: AudioOutput {
 
         if player.currentItem !== expectedItem {
             expectedItem = player.currentItem
+            // A stream after a file waits for its data again.
+            matchStallPolicy(player)
             // A track beat-matched into is over, however short it was.
             settleTempo()
             let songID = player.currentItem.flatMap { itemToSongID[ObjectIdentifier($0)] }

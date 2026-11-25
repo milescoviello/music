@@ -71,6 +71,10 @@ final class QueuePlayerOutput: AudioOutput {
     /// and fill its ring on a slow server, little enough that a long queue is not a pile
     /// of open connections.
     private static let startLead = 45.0
+    /// Or once the track playing has been heard this long, whatever is left of it: the
+    /// next is then ready for a press of next, as well as for its turn. Not at once -- a
+    /// second stream beside one still opening takes from what it needs.
+    private static let startAfter = 3.0
 
     init() {
         mixer = Mixer(rate: pulse.rate)
@@ -122,9 +126,22 @@ final class QueuePlayerOutput: AudioOutput {
 
     // MARK: - Loading
 
+    /// Whether the last `load` played a source already made, for the log.
+    private(set) var reusedWaiting = false
+
     func load(window songs: [Song], startAt: Double) {
         window = songs
-        guard let current = songs.first, let first = makeSource(for: current) else {
+        // The song asked for already waiting -- next to join, or to fade in -- is played as
+        // it is: its stream open, its ring filled. Made again, next waited on a new request
+        // and a new decoder for a song that was ready (2026-11-24).
+        let waiting = songs.first.flatMap { song in
+            withMixer { mixer -> TrackSource? in
+                let next = Array(mixer.active?.sources.dropFirst().prefix(1) ?? []) + Array(mixer.incoming?.sources.prefix(1) ?? [])
+                return next.first { $0.song.id == song.id && !$0.didFail && $0.position < 0.05 }
+            }
+        }
+        reusedWaiting = waiting != nil
+        guard let current = songs.first, let first = waiting ?? makeSource(for: current) else {
             stop()
             if songs.first != nil {
                 // Nothing to play it from. Reported as run off the end, so the controller
@@ -141,7 +158,7 @@ final class QueuePlayerOutput: AudioOutput {
         var released: [TrackSource] = []
         pulse.withRenderingHeld(flush: true) {
             withMixer { mixer in
-                released = Self.allSources(of: mixer)
+                released = Self.allSources(of: mixer).filter { $0 !== first }
                 mixer.active = Voice(sources: [first])
                 mixer.incoming = nil
                 mixer.fading = []
@@ -304,13 +321,14 @@ final class QueuePlayerOutput: AudioOutput {
         current.start()
         let position = current.position
         let remaining = current.duration > 0 ? current.duration - position : 0
-        if let follower, remaining < Self.startLead {
+        let heardAWhile = position > Self.startAfter
+        if let follower, remaining < Self.startLead || heardAWhile {
             follower.start()
         }
         if let incoming {
             // A beat-matched start is due at its beat; a plain fade, its overlap before the end.
             let due = trigger.map { $0 > 0 ? $0 - position : remaining } ?? remaining
-            if due < Self.startLead { incoming.start() }
+            if due < Self.startLead || heardAWhile { incoming.start() }
         }
     }
 

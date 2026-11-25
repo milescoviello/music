@@ -203,6 +203,49 @@ final class PlaybackController {
     /// The output's reason, the latest it gave while the wait lasted.
     @ObservationIgnored private var bufferingReason: String?
 
+    // MARK: - How long a press takes
+
+    /// A press of a playback control, until what it asked for is heard: how long, and what
+    /// it went through. Logged for every one -- "play takes a second or two" could not be
+    /// looked into from a log that named only waits of three seconds and more.
+    private struct Press {
+        let what: String
+        let at: Date
+        var steps: [String] = []
+        /// When the output was told to play: what came before it was this app's own work
+        /// and waits, what came after the player's.
+        var toldToPlay: TimeInterval?
+    }
+    @ObservationIgnored private var press: Press?
+
+    /// A newer press replaces one still waiting: it is the one that is heard.
+    private func pressed(_ what: String) {
+        press = Press(what: what, at: .now)
+    }
+
+    /// Something the press waited on, by whoever did the waiting: the handoff asking the
+    /// paired devices, say.
+    func notePressStep(_ step: String) {
+        press?.steps.append(step)
+    }
+
+    /// The music moving after a press: the line for it, and the press done with.
+    private func pressHeard() {
+        guard let press else { return }
+        self.press = nil
+        let took = Date.now.timeIntervalSince(press.at)
+        var parts: [String] = []
+        if let song = currentSong {
+            parts.append("“\(song.title)” (\(song.id))")
+            if let source = sources[song.id] { parts.append(source) }
+        }
+        parts.append(output.reusedWaiting ? "already loaded" : "loaded anew")
+        if let told = press.toldToPlay { parts.append("told to play at \(String(format: "%.2f", told))s") }
+        parts += press.steps
+        let line = "\(press.what) → sound in \(String(format: "%.2f", took))s: \(parts.joined(separator: ", "))"
+        Task { await Diagnostics.shared.record("latency", line) }
+    }
+
     /// The log's line for a track starting: which, and from where. The source is known
     /// once the output has asked where the track is, which can be just after.
     private func announce(_ song: Song) {
@@ -699,6 +742,7 @@ final class PlaybackController {
             return
         }
 
+        pressed("tap")
         queue = .make(
             tracks: songs,
             startingAt: index,
@@ -804,6 +848,8 @@ final class PlaybackController {
     func play(handingOff: Bool = true) {
         if let remote { remote.send(RemoteCommand(.play)); return }
         if let video { video.play(); return }
+        // The handoff's own play goes on with the press that started it.
+        if handingOff, !isPlaying { pressed("play") }
         if handingOff, !isPlaying, appState?.handoff?.claimPlay() == true {
             // The session now, inside the press, not once the handoff knows where the music
             // is: iOS lets a background app start its audio only while it handles one.
@@ -843,8 +889,12 @@ final class PlaybackController {
             publishNowPlaying(force: true)
             return
         }
+        let activating = Date.now
         session.activate()
+        let activation = Date.now.timeIntervalSince(activating)
+        if activation > 0.05 { notePressStep("audio session \(String(format: "%.2f", activation))s") }
         output.play()
+        if let at = press?.at, press?.toldToPlay == nil { press?.toldToPlay = Date.now.timeIntervalSince(at) }
         isPlaying = true
         session.noteIsPlaying(true)
         publishNowPlaying(force: true)
@@ -889,6 +939,12 @@ final class PlaybackController {
     func pause() {
         if let remote { remote.send(RemoteCommand(.pause)); return }
         if let video { video.pause(); return }
+        if let press {
+            let waited = String(format: "%.2f", Date.now.timeIntervalSince(press.at))
+            let line = "\(press.what): paused after \(waited)s, before it was heard"
+            Task { await Diagnostics.shared.record("latency", line) }
+            self.press = nil
+        }
         retryTask?.cancel()
         retryTask = nil
         output.pause()
@@ -1024,6 +1080,7 @@ final class PlaybackController {
         if let remote { remote.send(RemoteCommand(.next)); return }
         // Next while a search result is watched: done with it, back to the music.
         if videoSong != nil { appState?.video.stopWatching(); return }
+        if isPlaying { pressed("next") }
         logSkip("skipped")
         noteSkip()
         lastMoveByHand = .now
@@ -1076,6 +1133,7 @@ final class PlaybackController {
             seek(to: 0)
             return
         }
+        if isPlaying { pressed("previous") }
         logSkip("went back from")
         lastMoveByHand = .now
         rebuildOutput(startPlaying: isPlaying, seekTo: 0)
@@ -1158,6 +1216,7 @@ final class PlaybackController {
             let line = "“\(song.title)” (\(song.id)) moved from \(LogReport.clock(elapsed)) to \(LogReport.clock(seconds))"
             Task { await Diagnostics.shared.record("playback", line) }
         }
+        if isPlaying { pressed("seek") }
         output.seek(to: seconds)
         elapsed = seconds
         tracker.interrupted(at: seconds)
@@ -1166,6 +1225,7 @@ final class PlaybackController {
 
     func jump(toOrderIndex index: Int) {
         if let remote { remote.send(.at(.jump, index)); return }
+        pressed("jump")
         if index != queue.position {
             logSkip("jumped from", to: "#\(index + 1) of \(queue.order.count)")
             noteSkip()
@@ -1584,6 +1644,7 @@ final class PlaybackController {
     private func tick(elapsed newElapsed: Double, isMoving: Bool) {
         guard remote == nil, video == nil else { return }
         elapsed = newElapsed
+        if isMoving, isPlaying, press != nil { pressHeard() }
         // Heard: the cache can have the connection back.
         if isMoving, let opening = openingSongID, opening == queue.current?.id {
             openingSongID = nil

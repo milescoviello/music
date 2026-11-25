@@ -45,6 +45,9 @@ protocol AudioOutput: AnyObject {
 
     /// Loads the current track plus the preload window, seeked to `startAt`.
     func load(window: [Song], startAt: Double)
+    /// Whether the last `load` found its first song already made and waiting -- the next
+    /// track, buffered -- and moved to it rather than building it again. For the log.
+    var reusedWaiting: Bool { get }
     /// Replaces the upcoming part of the window without disturbing what is playing.
     func updateUpcoming(_ songs: [Song])
     /// Re-asks every transition: the tracks either side of one were just measured.
@@ -96,4 +99,6 @@ extension AudioOutput {
     var waitingReason: String? { nil }
     /// One that fetches its own bytes and reports its failures has nothing stuck to tell.
     var unopened: (songID: String, since: Date)? { nil }
+    /// One that always builds afresh never reuses anything.
+    var reusedWaiting: Bool { false }
 }

@@ -59,8 +59,10 @@ final class Handoff {
     /// Play was pressed while a look was under way.
     @ObservationIgnored private var playWhenDone = false
 
-    /// When a paired device last answered: lately, a press of play asks before playing.
+    /// When a paired device last answered, and last said it was playing: lately, a press of
+    /// play asks before playing, to take the music over at the same second.
     @ObservationIgnored private var lastAnswerAt: Date?
+    @ObservationIgnored private var lastPlayingAt: Date?
 
     /// The device being followed, by name, while this one is idle.
     private(set) var following: String?
@@ -111,9 +113,13 @@ final class Handoff {
         }
         guard let app, app.credentials != nil else { return false }
         let hasPeers = !(players?.paired.isEmpty ?? true)
-        // A paired device heard from lately -- followed, or answering a look -- is asked
-        // first: reachable, it answers in a tenth of a second.
-        if hasPeers, let heard = lastAnswerAt, Date.now.timeIntervalSince(heard) < 120 {
+        // A paired device playing lately -- followed, or so it said to a look -- is asked
+        // first, so the music is taken over at the same second: reachable, it answers in a
+        // tenth of a second. One that only answered, idle, is not waited on: that was every
+        // press of play with the desktop open, the second or two before the music. A look
+        // has already brought its queue here, and the check after playing still catches it.
+        let followedPlays = followedState?.state.isPlaying == true
+        if hasPeers, followedPlays || lastPlayingAt.map({ Date.now.timeIntervalSince($0) < 120 }) == true {
             run(play: true)
             return true
         }
@@ -232,6 +238,11 @@ final class Handoff {
             }
         }
         if !answers.isEmpty { lastAnswerAt = .now }
+        if answers.contains(where: { $0.now.state.isPlaying }) {
+            lastPlayingAt = .now
+        } else if answered.count == computers.count {
+            lastPlayingAt = nil
+        }
         return answers
     }
 
@@ -262,12 +273,25 @@ final class Handoff {
         let player = app.player
         let computers = players.paired
 
-        // A look always asks the server; a press only when it has not been asked lately.
-        let askServer = !play || serverIsStale(within: 60)
-        async let fromServer = serverQueue(asking: askServer, within: play ? 1.5 : 4)
-
+        // A look always asks the server, beside the devices. A press asks the devices first,
+        // and the server only when none of them is playing and it has not been asked lately:
+        // a device playing is taken over whatever the server holds, and the press was waiting
+        // on both.
+        let started = Date.now
+        let looking = !play
+        var askServer = looking
+        async let fromServer = serverQueue(asking: looking, within: 4)
         let answers = await askAll(computers, players: players)
-        let server = await fromServer
+        var server = await fromServer
+        if play {
+            let took = String(format: "%.2f", Date.now.timeIntervalSince(started))
+            player.notePressStep("asked \(computers.count) paired: \(answers.count) answered, \(took)s")
+            if !answers.contains(where: { $0.now.state.isPlaying }), serverIsStale(within: 60) {
+                askServer = true
+                server = await serverQueue(asking: true, within: 1.5)
+                player.notePressStep("asked the server, \(String(format: "%.2f", Date.now.timeIntervalSince(started)))s in all")
+            }
+        }
         if askServer { serverLookedAt = .now }
 
         let answered = Set(answers.map(\.computer.id))
@@ -525,6 +549,12 @@ final class Handoff {
     private func heard(_ answer: Answer) {
         lastAnswerAt = .now
         latest[answer.computer.id] = answer
+        // Paused since, and no other playing: nothing to take over at the same second.
+        if answer.now.state.isPlaying {
+            lastPlayingAt = .now
+        } else if !latest.values.contains(where: { $0.now.state.isPlaying }) {
+            lastPlayingAt = nil
+        }
         news[answer.computer.id] = answer
         guard !isCatchingUp else { return }
         isCatchingUp = true
