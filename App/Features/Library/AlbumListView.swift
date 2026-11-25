@@ -23,12 +23,7 @@ struct AlbumListView: View {
     /// for the old sort is dropped instead of landing in the new list.
     @State private var generation = 0
 
-    /// Fixed two columns: the app is portrait-only, so `.adaptive` buys nothing and
-    /// costs a stable grid.
-    private let columns = [
-        GridItem(.flexible(), spacing: Metrics.itemSpacing),
-        GridItem(.flexible(), spacing: Metrics.itemSpacing),
-    ]
+    private let columns = Metrics.albumGrid
 
     private var pageSize: Int { 100 }
 

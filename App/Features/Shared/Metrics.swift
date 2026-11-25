@@ -12,6 +12,12 @@ enum Metrics {
     static let headerToContent: CGFloat = 12
     static let itemSpacing: CGFloat = 12
 
+    /// Album grids: as many columns as fit covers at least 145 points across. Two on
+    /// every iPhone, the same size the fixed two columns were (a 375-point screen with
+    /// the A-Z rail still fits two); four on the iPhone Duo's unfolded 7.6" screen,
+    /// where two would have made each cover over 300 points across.
+    static let albumGrid = [GridItem(.adaptive(minimum: 145), spacing: itemSpacing)]
+
     // Corner radii, all .continuous
     static let radiusThumb: CGFloat = 6
     static let radiusCard: CGFloat = 8

@@ -85,10 +85,7 @@ private struct GroupList: View {
 struct AlbumGrid: View {
     let albums: [Album]
 
-    private let columns = [
-        GridItem(.flexible(), spacing: Metrics.itemSpacing),
-        GridItem(.flexible(), spacing: Metrics.itemSpacing),
-    ]
+    private let columns = Metrics.albumGrid
 
     var body: some View {
         ScrollView {
