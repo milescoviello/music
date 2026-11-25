@@ -67,6 +67,12 @@ struct HomeView: View {
                 }
                 .padding(.vertical, Metrics.itemSpacing)
             }
+            // On the scroll view itself: further out it also reached every page pushed
+            // from Home, which inherited Home's refresh.
+            .refreshableSpringingBack {
+                await Diagnostics.shared.record("home", "pulled to refresh")
+                await model.load(appState: appState, scope: scope.scope)
+            }
             .navigationTitle("Home")
             .musicDestinations()
             .pageBackdrop()
@@ -98,9 +104,6 @@ struct HomeView: View {
             }
             .sheet(isPresented: $isEditingLayout) {
                 HomeEditorView(layoutData: $layoutData)
-            }
-            .refreshable {
-                await model.load(appState: appState, scope: scope.scope)
             }
             // The server back after a silence: the shelves it showed from saved copies, fresh.
             .onChange(of: appState.serverReturns) {

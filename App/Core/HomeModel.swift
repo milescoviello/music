@@ -64,6 +64,18 @@ final class HomeModel {
     /// reads as a broken app rather than an offline one.
     func load(appState: AppState, scope: LibraryScope) async {
         appState.beginLoadPass()
+        let began = Date.now
+        var steps: [String] = []
+        func step(_ name: String, since: inout Date) {
+            steps.append("\(name) \(String(format: "%.2f", Date.now.timeIntervalSince(since)))s")
+            since = .now
+        }
+        var mark = began
+        defer {
+            let line = "loaded in \(String(format: "%.2f", Date.now.timeIntervalSince(began)))s: "
+                + steps.joined(separator: ", ") + (Task.isCancelled ? " (cancelled)" : "")
+            Task { await Diagnostics.shared.record("home", line) }
+        }
 
         let client = appState.client
         let key = scope.cacheKey
@@ -94,9 +106,11 @@ final class HomeModel {
         favoriteSongs = Array((await starred?.songs ?? []).prefix(4))
         forgotten = await neglected
         hasLoaded = true
+        step("shelves", since: &mark)
 
         // From this phone's own history: the server counts plays but never dates them.
         await loadMonth(appState: appState)
+        step("month", since: &mark)
 
         // The shelves cut from the whole album list. After the rest, so they never hold
         // Home up; the list itself is kept on disk and only refetched every few hours.
@@ -105,10 +119,12 @@ final class HomeModel {
             let albums = (try? await client.albums(type: .random, size: 20, scope: scope, genre: genre)) ?? []
             let fresh = SearchRanking.oneOfEach(albums.filter { !seen.contains($0.id) })
             moreInGenre = fresh.isEmpty ? nil : (genre, fresh)
+            step("genre", since: &mark)
         }
 
         let index = appState.libraryIndex
         await index.ensureLoaded(scope: scope)
+        step("all albums", since: &mark)
         // The same, for a few thousand albums run through the calendar.
         let albums = index.albums
         let year = lastYear
@@ -123,5 +139,6 @@ final class HomeModel {
         onThisDay = facets.onThisDay
         bestOfLastYear = facets.bestOf
         notPlayedLately = facets.notPlayed
+        step("calendar", since: &mark)
     }
 }
