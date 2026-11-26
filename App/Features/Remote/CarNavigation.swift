@@ -117,14 +117,13 @@ final class CarNavigation: NSObject, RemoteCarNavigator {
                 request.region = MKCoordinateRegion(center: near, latitudinalMeters: 100_000, longitudinalMeters: 100_000)
             }
             MKLocalSearch(request: request).start { response, _ in
-                MainActor.assumeIsolated {
-                    let hits = (response?.mapItems ?? []).prefix(15).map { item -> Hit in
-                        let mark = item.placemark
-                        return Hit(name: item.name ?? mark.title ?? "Place", address: mark.title ?? "",
-                                   lat: mark.coordinate.latitude, lon: mark.coordinate.longitude)
-                    }
-                    done.resume(returning: Array(hits))
+                // read out as plain data right here; nothing of MapKit's leaves this closure
+                let hits = (response?.mapItems ?? []).prefix(15).map { item -> Hit in
+                    let mark = item.placemark
+                    return Hit(name: item.name ?? mark.title ?? "Place", address: mark.title ?? "",
+                               lat: mark.coordinate.latitude, lon: mark.coordinate.longitude)
                 }
+                done.resume(returning: Array(hits))
             }
         }
     }
@@ -139,14 +138,14 @@ final class CarNavigation: NSObject, RemoteCarNavigator {
             to.name = place.title
             request.destination = to
             request.transportType = .automobile
+            let title = place.title
             MKDirections(request: request).calculate { response, _ in
-                MainActor.assumeIsolated {
-                    guard let best = response?.routes.first else { return done.resume(returning: nil) }
-                    let steps = best.steps.map { RemoteCarRoute.MapsStep(instruction: $0.instructions, points: coordinates($0.polyline)) }
-                    done.resume(returning: RemoteCarRoute.from(points: coordinates(best.polyline), steps: steps,
-                                                               distance: best.distance, time: best.expectedTravelTime,
-                                                               destination: place.title, new: new))
-                }
+                // read out as plain data right here; nothing of MapKit's leaves this closure
+                guard let best = response?.routes.first else { return done.resume(returning: nil) }
+                let steps = best.steps.map { RemoteCarRoute.MapsStep(instruction: $0.instructions, points: coordinates($0.polyline)) }
+                done.resume(returning: RemoteCarRoute.from(points: coordinates(best.polyline), steps: steps,
+                                                           distance: best.distance, time: best.expectedTravelTime,
+                                                           destination: title, new: new))
             }
         }
     }
