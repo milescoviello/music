@@ -143,7 +143,7 @@ struct QueueView: View {
 
                 // Swipe left to remove, right to play next. Neither works while the drag
                 // handles show (Edit), so the long-press menu has both too.
-                ForEach(upNextWithIndices, id: \.track) { entry in
+                ForEach(upNextWithIndices, id: \.key) { entry in
                     row(entry)
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
@@ -221,9 +221,9 @@ struct QueueView: View {
         ScrollViewReader { proxy in
             List {
                 Section {
-                    ForEach(earlierWithIndices, id: \.track) { entry in
+                    ForEach(earlierWithIndices, id: \.key) { entry in
                         row(entry)
-                            .id(entry.track)
+                            .id(entry.key)
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
                                     remove(entry)
@@ -249,7 +249,7 @@ struct QueueView: View {
             // Oldest first, like the queue itself, but opened at the most recent end:
             // the track that just finished is the one most likely wanted back.
             .onAppear {
-                if let last = earlierWithIndices.last { proxy.scrollTo(last.track, anchor: .bottom) }
+                if let last = earlierWithIndices.last { proxy.scrollTo(last.key, anchor: .bottom) }
             }
             .overlay {
                 // The same test `earlier` makes, without building every track already
@@ -395,9 +395,7 @@ struct QueueView: View {
 
         // The next few hundred: a 28,000-track queue as a list is a lag spike every time
         // it is drawn, and nobody scrolls that far.
-        return (start..<min(queue.order.count, start + 300)).map { index in
-            QueueEntry(orderIndex: index, track: queue.order[index], song: queue.tracks[queue.order[index]])
-        }
+        return QueueEntry.entries(of: queue, at: start..<min(queue.order.count, start + 300))
     }
 
     private var earlierWithIndices: [QueueEntry] {
@@ -405,9 +403,7 @@ struct QueueView: View {
         guard queue.position > 0, queue.position <= queue.order.count else { return [] }
         // The last few hundred, like Up Next: deep into a 28,000-track queue this was every
         // track already played, built and handed to the list on each redraw.
-        return (max(0, queue.position - 300)..<queue.position).map { index in
-            QueueEntry(orderIndex: index, track: queue.order[index], song: queue.tracks[queue.order[index]])
-        }
+        return QueueEntry.entries(of: queue, at: max(0, queue.position - 300)..<queue.position)
     }
 }
 
@@ -488,11 +484,26 @@ private struct AutoplayCarousel: View {
     }
 }
 
-/// A queue row: where it is in the play order, and which of the queue's tracks it is.
-/// Rows are told apart by the track, which stays the same as songs move: by their place,
-/// a song removed or moved made the one after it take over its row, swipe and all.
+/// A queue row: where it is in the play order, and the song there.
 private struct QueueEntry {
     let orderIndex: Int
-    let track: Int
     let song: Song
+    /// What the list tells rows apart by: the song, and which of its copies in these rows
+    /// this one is. Not its place: a song removed or moved made the one after it take
+    /// over its row, swipe and all. And not its index in the queue's tracks: removing a
+    /// song takes it out of the tracks too, which renumbers every track after it, so each
+    /// swipe away gave those rows new identities. The list then animated them as rows
+    /// deleted and inserted at once -- the next song blinked out, rows were drawn over
+    /// each other, and one further down flashed into view.
+    let key: String
+
+    static func entries(of queue: PlaybackQueue, at range: Range<Int>) -> [QueueEntry] {
+        var copies: [String: Int] = [:]
+        return range.map { index in
+            let song = queue.tracks[queue.order[index]]
+            let copy = copies[song.id, default: 0]
+            copies[song.id] = copy + 1
+            return QueueEntry(orderIndex: index, song: song, key: "\(song.id)#\(copy)")
+        }
+    }
 }
