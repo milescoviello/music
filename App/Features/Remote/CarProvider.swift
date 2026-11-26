@@ -74,37 +74,61 @@ final class CarProvider: RemoteCarProvider {
     func lyrics(songID: String) async -> RemoteCarLyrics? {
         var sets = await LyricsStore.shared.load(songID: songID)
         if sets == nil { sets = try? await app.client.lyrics(songID: songID) }
-        guard let sets, let shown = LyricsStore.shown(from: sets), !shown.lines.isEmpty else { return nil }
+        guard let sets, let shown = StructuredLyrics.shown(from: sets), !shown.lines.isEmpty else { return nil }
         let offset = shown.synced ? (shown.offset ?? 0) : 0
-        let texts = shown.lines.map(\.value)
-        let wordLines = shown.synced ? await LyricsStore.shared.words(songID: songID) : nil
-        let translations = await LyricTranslationStore.shared.translations(songID: songID, lines: texts)
+        let texts: [String] = shown.lines.map { (line: LyricLine) -> String in line.value }
+        var wordLines: [SonicClient.WordLine] = []
+        if shown.synced, let kept = await LyricsStore.shared.words(songID: songID) { wordLines = kept }
+        let translations: [String?] = await LyricTranslationStore.shared.translations(songID: songID, lines: texts) ?? []
         let tag = shown.lang
         // Off the main actor, as the lyrics screen does it: tokenizing Japanese takes a while.
-        let romanized = await Task.detached(priority: .userInitiated) {
+        let romanized: [String?] = await Task.detached(priority: .userInitiated) {
             Romanizer.romanize(texts, language: LyricsLanguage.detect(texts, tag: tag))
         }.value
 
-        let starts = shown.lines.map { $0.start.map { max(0, $0 - offset) } }
+        var starts: [Int?] = []
+        for line in shown.lines {
+            if let start = line.start { starts.append(max(0, start - offset)) } else { starts.append(nil) }
+        }
         var lines: [RemoteCarLyrics.Line] = []
-        for (index, text) in texts.enumerated() {
+        for index in texts.indices {
             let start = starts[index]
-            let end = starts.dropFirst(index + 1).compactMap { $0 }.first
-            // Word timing comes from another source than the lines: matched by time.
-            let words = start.flatMap { start in
-                wordLines?.min { abs($0.start - start) < abs($1.start - start) }
-                    .flatMap { abs($0.start - start) <= 1_500 ? $0 : nil }
-            }?.words.map { RemoteCarLyrics.Word(start: $0.start, text: $0.text) }
+            var end: Int?
+            for later in starts[(index + 1)...] where later != nil {
+                end = later
+                break
+            }
+            let translation: String? = index < translations.count ? translations[index] : nil
+            let romanization: String? = index < romanized.count ? romanized[index] : nil
             lines.append(RemoteCarLyrics.Line(
                 start: start,
                 end: end,
-                text: text,
-                words: words,
-                translation: translations.flatMap { $0.indices.contains(index) ? $0[index] : nil },
-                romanized: romanized.indices.contains(index) ? romanized[index] : nil
+                text: texts[index],
+                words: Self.words(near: start, in: wordLines),
+                translation: translation,
+                romanized: romanization
             ))
         }
         return RemoteCarLyrics(synced: shown.synced, lines: lines)
+    }
+
+    /// Word timing comes from another source than the lines (LRCLIB, through the sonic
+    /// service), so a line's words are the timed line starting nearest it, within 1.5 s.
+    private static func words(near start: Int?, in wordLines: [SonicClient.WordLine]) -> [RemoteCarLyrics.Word]? {
+        guard let start else { return nil }
+        var best: SonicClient.WordLine?
+        var bestDistance = Int.max
+        for candidate in wordLines {
+            let distance = abs(candidate.start - start)
+            if distance < bestDistance {
+                best = candidate
+                bestDistance = distance
+            }
+        }
+        guard let best, bestDistance <= 1_500 else { return nil }
+        return best.words.map { (word: SonicClient.WordLine.Word) -> RemoteCarLyrics.Word in
+            RemoteCarLyrics.Word(start: word.start, text: word.text)
+        }
     }
 
     func levels(songID: String) async -> [Float]? {
@@ -119,50 +143,64 @@ final class CarProvider: RemoteCarProvider {
     /// artists, albums, playlists and their songs.
     func browse(path: String) async -> RemoteCarBrowse? {
         let parts = path.split(separator: "/").map(String.init)
+        let first = parts.first ?? ""
+        let id: String? = parts.count > 1 ? parts[1] : nil
         let client = app.client
-        func albumItems(_ albums: [Album]) -> [RemoteCarBrowse.Item] {
-            albums.map { .init(kind: "album", id: $0.id, title: $0.name, subtitle: $0.artist, cover: $0.coverArt) }
-        }
-        func songItems(_ songs: [Song]) -> [RemoteCarBrowse.Item] {
-            songs.map { .init(kind: "song", id: $0.id, title: $0.title, subtitle: $0.artist, cover: $0.coverArt) }
-        }
         do {
-            switch (parts.first ?? "", parts.count > 1 ? parts[1] : nil) {
+            switch (first, id) {
             case ("", nil):
                 return RemoteCarBrowse(title: "Library", items: [
-                    .init(kind: "folder", id: "recent", title: "Recently Played"),
-                    .init(kind: "folder", id: "playlists", title: "Playlists"),
-                    .init(kind: "folder", id: "artists", title: "Artists"),
-                    .init(kind: "folder", id: "albums", title: "Recently Added"),
-                    .init(kind: "folder", id: "favourites", title: "Favourites"),
+                    RemoteCarBrowse.Item(kind: "folder", id: "recent", title: "Recently Played"),
+                    RemoteCarBrowse.Item(kind: "folder", id: "playlists", title: "Playlists"),
+                    RemoteCarBrowse.Item(kind: "folder", id: "artists", title: "Artists"),
+                    RemoteCarBrowse.Item(kind: "folder", id: "albums", title: "Recently Added"),
+                    RemoteCarBrowse.Item(kind: "folder", id: "favourites", title: "Favourites"),
                 ])
             case ("recent", nil):
-                return RemoteCarBrowse(title: "Recently Played", items: albumItems(try await client.albums(type: .recent, size: 80)))
+                let albums = try await client.albums(type: .recent, size: 80)
+                return RemoteCarBrowse(title: "Recently Played", items: Self.items(albums))
             case ("albums", nil):
-                return RemoteCarBrowse(title: "Recently Added", items: albumItems(try await client.albums(type: .newest, size: 80)))
+                let albums = try await client.albums(type: .newest, size: 80)
+                return RemoteCarBrowse(title: "Recently Added", items: Self.items(albums))
             case ("favourites", nil):
                 let starred = try await client.starred()
-                return RemoteCarBrowse(title: "Favourites", items: albumItems(starred.albums) + songItems(starred.songs))
+                return RemoteCarBrowse(title: "Favourites", items: Self.items(starred.albums) + Self.items(starred.songs))
             case ("artists", nil):
-                let artists = try await client.artists().flatMap(\.artists)
-                return RemoteCarBrowse(title: "Artists", items: artists.map {
-                    .init(kind: "artist", id: $0.id, title: $0.name, subtitle: $0.albumCount.map { $0 == 1 ? "1 album" : "\($0) albums" }, cover: $0.coverArt)
-                })
+                let indexes = try await client.artists()
+                var items: [RemoteCarBrowse.Item] = []
+                for index in indexes {
+                    for artist in index.artists {
+                        items.append(RemoteCarBrowse.Item(
+                            kind: "artist", id: artist.id, title: artist.name,
+                            subtitle: Self.count(artist.albumCount, "album"), cover: artist.coverArt
+                        ))
+                    }
+                }
+                return RemoteCarBrowse(title: "Artists", items: items)
             case ("playlists", nil):
-                return RemoteCarBrowse(title: "Playlists", items: try await client.playlists().map {
-                    .init(kind: "playlist", id: $0.id, title: $0.name, subtitle: $0.songCount.map { "\($0) songs" }, cover: $0.coverArt)
-                })
+                let playlists = try await client.playlists()
+                var items: [RemoteCarBrowse.Item] = []
+                for playlist in playlists {
+                    items.append(RemoteCarBrowse.Item(
+                        kind: "playlist", id: playlist.id, title: playlist.name,
+                        subtitle: Self.count(playlist.songCount, "song"), cover: playlist.coverArt
+                    ))
+                }
+                return RemoteCarBrowse(title: "Playlists", items: items)
             case ("artist", let id?):
                 let artist = try await client.artistDetail(id: id)
-                return RemoteCarBrowse(title: artist.name, items: artist.albums.map {
-                    .init(kind: "album", id: $0.id, title: $0.name, subtitle: $0.year.map(String.init), cover: $0.coverArt)
-                })
+                var items: [RemoteCarBrowse.Item] = []
+                for album in artist.albums {
+                    let year: String? = album.year.map { (year: Int) -> String in String(year) }
+                    items.append(RemoteCarBrowse.Item(kind: "album", id: album.id, title: album.name, subtitle: year, cover: album.coverArt))
+                }
+                return RemoteCarBrowse(title: artist.name, items: items)
             case ("album", let id?):
                 let album = try await client.albumDetail(id: id)
-                return RemoteCarBrowse(title: album.name, items: songItems(album.songs))
+                return RemoteCarBrowse(title: album.name, items: Self.items(album.songs))
             case ("playlist", let id?):
                 let playlist = try await client.playlistDetail(id: id)
-                return RemoteCarBrowse(title: playlist.name, items: songItems(playlist.songs))
+                return RemoteCarBrowse(title: playlist.name, items: Self.items(playlist.songs))
             default:
                 return nil
             }
@@ -171,34 +209,60 @@ final class CarProvider: RemoteCarProvider {
         }
     }
 
+    private static func items(_ albums: [Album]) -> [RemoteCarBrowse.Item] {
+        var items: [RemoteCarBrowse.Item] = []
+        for album in albums {
+            items.append(RemoteCarBrowse.Item(kind: "album", id: album.id, title: album.name, subtitle: album.artist, cover: album.coverArt))
+        }
+        return items
+    }
+
+    private static func items(_ songs: [Song]) -> [RemoteCarBrowse.Item] {
+        var items: [RemoteCarBrowse.Item] = []
+        for song in songs {
+            items.append(RemoteCarBrowse.Item(kind: "song", id: song.id, title: song.title, subtitle: song.artist, cover: song.coverArt))
+        }
+        return items
+    }
+
+    /// "1 album", "12 albums"; nil when the server didn't say.
+    private static func count(_ value: Int?, _ noun: String) -> String? {
+        guard let value else { return nil }
+        return value == 1 ? "1 \(noun)" : "\(value) \(noun)s"
+    }
+
     /// Plays what a browse page named: an album or playlist from `index`, an artist's songs.
     func playItem(kind: String, id: String, index: Int, shuffled: Bool) async -> Bool {
         let client = app.client
+        var songs: [Song] = []
+        var source = ""
         do {
-            let songs: [Song]
-            let source: String
             switch kind {
             case "album":
                 let album = try await client.albumDetail(id: id)
-                (songs, source) = (album.songs, album.name)
+                songs = album.songs
+                source = album.name
             case "playlist":
                 let playlist = try await client.playlistDetail(id: id)
-                (songs, source) = (playlist.songs, playlist.name)
+                songs = playlist.songs
+                source = playlist.name
             case "artist":
                 songs = try await client.artistSongs(id: id)
                 source = songs.first?.artist ?? "Artist"
             case "song":
                 let song = try await client.song(id: id)
-                (songs, source) = ([song], song.title)
+                songs = [song]
+                source = song.title
             default:
                 return false
             }
-            guard !songs.isEmpty else { return false }
-            app.player.play(songs: songs, startingAt: min(max(0, index), songs.count - 1), source: source, shuffled: shuffled)
-            return true
         } catch {
             return false
         }
+        guard !songs.isEmpty else { return false }
+        let start = min(max(0, index), songs.count - 1)
+        app.player.play(songs: songs, startingAt: start, source: source, shuffled: shuffled)
+        return true
     }
 
     // MARK: - Timing and the spectrum
@@ -222,11 +286,11 @@ private final class CarSpectrumAnalyser: @unchecked Sendable {
     private static let size = 512
     private let setup = vDSP_create_fftsetup(9, FFTRadix(kFFTRadix2))
     private var ring = [Float](repeating: 0, count: AudioSampleBuffer.capacity)
-    private var window = [Float](repeating: 0, count: size)
-    private var windowed = [Float](repeating: 0, count: size)
-    private var real = [Float](repeating: 0, count: size / 2)
-    private var imaginary = [Float](repeating: 0, count: size / 2)
-    private var magnitudes = [Float](repeating: 0, count: size / 2)
+    private var window = [Float](repeating: 0, count: CarSpectrumAnalyser.size)
+    private var windowed = [Float](repeating: 0, count: CarSpectrumAnalyser.size)
+    private var real = [Float](repeating: 0, count: CarSpectrumAnalyser.size / 2)
+    private var imaginary = [Float](repeating: 0, count: CarSpectrumAnalyser.size / 2)
+    private var magnitudes = [Float](repeating: 0, count: CarSpectrumAnalyser.size / 2)
 
     init() {
         vDSP_hann_window(&window, vDSP_Length(Self.size), Int32(vDSP_HANN_DENORM))
