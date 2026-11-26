@@ -87,6 +87,8 @@
 	</array>
 	<key>NSSiriUsageDescription</key>
 	<string>Siri plays your playlists, artists, albums and songs from your library.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Music asks Apple Maps for a route from where you are, for the car's navigation.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

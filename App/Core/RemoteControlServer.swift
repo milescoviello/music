@@ -91,6 +91,8 @@ final class RemoteControlServer {
     @ObservationIgnored private var pinger: Task<Void, Never>?
     /// What only the iPhone app can serve a car (`RemoteCarProvider`); nil on the desktop.
     @ObservationIgnored var carProvider: (any RemoteCarProvider)?
+    /// Turn-by-turn for the car (`RemoteCarNav`); the iPhone's is `CarNavigation`.
+    @ObservationIgnored var carNavigator: (any RemoteCarNavigator)?
     /// Cars following the spectrum, and what feeds them while any do.
     @ObservationIgnored private var spectrumStreams: [ObjectIdentifier: HTTPConnection] = [:]
     @ObservationIgnored private var spectrumFeed: Task<Void, Never>?
@@ -339,6 +341,11 @@ final class RemoteControlServer {
             guard rest.count == 1, RemoteCarTrips.save(request.body, id: rest[0]) else { connection.respond(400); return true }
             connection.respond(204)
             return true
+        case ("GET", "nav"), ("POST", "nav"):
+            guard device(for: request) != nil else { connection.respond(401); return true }
+            guard let navigator = carNavigator else { connection.respond(404); return true }
+            navigation(request.method, rest, body: request.body, navigator: navigator, on: connection)
+            return true
         case ("GET", "art"), ("GET", "palette"), ("GET", "lyrics"), ("GET", "levels"), ("GET", "browse"):
             break
         default:
@@ -370,6 +377,37 @@ final class RemoteControlServer {
             }
         }
         return true
+    }
+
+    /// `GET /v1/nav/places`, `POST /v1/nav/start/<id>`, `POST /v1/nav/reroute`,
+    /// `POST /v1/nav/stop`. Routes themselves go out as `route` events (`publishRoute`).
+    private func navigation(_ method: String, _ rest: [String], body: Data, navigator: any RemoteCarNavigator,
+                            on connection: HTTPConnection) {
+        switch (method, rest.first ?? "") {
+        case ("GET", "places"):
+            connection.respond(200, json: encode(navigator.places()))
+        case ("POST", "start"):
+            guard rest.count == 2 else { return connection.respond(400) }
+            let id = rest[1]
+            Task { @MainActor in
+                connection.respond(await navigator.navigate(toPlace: id) ? 204 : 404)
+            }
+        case ("POST", "reroute"):
+            guard let from = try? JSONDecoder().decode(RemoteCarReroute.self, from: body) else { return connection.respond(400) }
+            connection.respond(202)
+            Task { @MainActor in await navigator.reroute(from: from) }
+        case ("POST", "stop"):
+            navigator.stop()
+            connection.respond(204)
+        default:
+            connection.respond(404)
+        }
+    }
+
+    /// Tells the car about a new route, or that there is none (an empty object).
+    func publishRoute(_ route: RemoteCarRoute?) {
+        let text = route.map { json($0) } ?? "{}"
+        broadcast(EventStream.frame("route", text))
     }
 
     private func requestPairing(_ request: HTTPServer.Request, on connection: HTTPConnection) {
@@ -594,6 +632,11 @@ final class RemoteControlServer {
         connection.send(EventStream.frame("hello", json(RemoteHello(
             id: id, name: name, server: app?.credentials?.baseURL.absoluteString
         ))))
+        // A car joining mid-drive picks up the route being followed.
+        if var route = carNavigator?.route {
+            route.new = false
+            connection.send(EventStream.frame("route", json(route)))
+        }
         // Everyone is told the whole picture again, which a newcomer needs and the others
         // can take; it keeps one record of what was last said.
         sentWindow = nil

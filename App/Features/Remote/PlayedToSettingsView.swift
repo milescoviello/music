@@ -30,6 +30,14 @@ struct PlayedToSettingsView: View {
                 }
 
                 if server.isEnabled {
+                    Section {
+                        NavigationLink("Navigate in the Car") { CarNavigationView() }
+                    } header: {
+                        Text("In the Car")
+                    } footer: {
+                        Text("A paired car's own map can take you somewhere: pick the place here and the car shows the route and the turns.")
+                    }
+
                     Section("Paired Computers") {
                         if server.devices.isEmpty {
                             Text("None yet").foregroundStyle(.secondary)
