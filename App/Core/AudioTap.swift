@@ -95,12 +95,15 @@ enum AudioTap {
             },
             unprepare: nil,
             process: { tap, numberFrames, _, bufferListInOut, numberFramesOut, flagsOut in
+                // Where in the song these samples are: the car times its spectrum by it.
+                // A struct on the stack, so nothing is allocated here.
+                var range = CMTimeRange()
                 let status = MTAudioProcessingTapGetSourceAudio(
                     tap,
                     numberFrames,
                     bufferListInOut,
                     flagsOut,
-                    nil,
+                    &range,
                     numberFramesOut
                 )
                 guard status == noErr else { return }
@@ -143,6 +146,7 @@ enum AudioTap {
                    let first = list.first, let data = first.mData {
                     let count = Int(first.mDataByteSize) / MemoryLayout<Float>.size
                     spectrum.write(data.assumingMemoryBound(to: Float.self), count: count)
+                    if range.start.isValid { spectrum.note(mediaTime: range.start.seconds, frames: frames) }
                 }
             }
         )

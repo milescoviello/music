@@ -39,6 +39,12 @@ final class AudioSampleBuffer: @unchecked Sendable {
     /// octave.
     var sampleRate: Double = 48_000
 
+    /// The song position, in seconds, of the newest sample written, or -1 before any. The
+    /// car shows each spectrum at the moment its audio is heard there, which it can only do
+    /// knowing where in the song the samples came from (`RemoteCarProvider`). One store on
+    /// the audio thread, read on the main actor: a torn read costs one frame of a display.
+    private(set) var newestMediaTime: Double = -1
+
     init() {
         storage = .allocate(capacity: Self.capacity)
         storage.initialize(repeating: 0, count: Self.capacity)
@@ -73,6 +79,12 @@ final class AudioSampleBuffer: @unchecked Sendable {
         writeIndex = writeIndex &+ usable
     }
 
+    /// Called from the audio thread, after `write`: the song position of the first of the
+    /// `frames` frames just written.
+    func note(mediaTime: Double, frames: Int) {
+        newestMediaTime = mediaTime + Double(frames) / sampleRate
+    }
+
     /// Called from the main actor. Copies the whole ring, oldest first.
     func snapshot(into destination: inout [Float]) {
         precondition(destination.count == Self.capacity)
@@ -98,5 +110,6 @@ final class AudioSampleBuffer: @unchecked Sendable {
         storage.update(repeating: 0, count: Self.capacity)
         writeIndex = 0
         isReceiving = false
+        newestMediaTime = -1
     }
 }

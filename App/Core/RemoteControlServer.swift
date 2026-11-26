@@ -89,6 +89,11 @@ final class RemoteControlServer {
     /// the system's, set by its buttons, so there it says full and leaves it.
     @ObservationIgnored var volume: (read: @MainActor () -> Double, write: @MainActor (Double) -> Void) = ({ 1 }, { _ in })
     @ObservationIgnored private var pinger: Task<Void, Never>?
+    /// What only the iPhone app can serve a car (`RemoteCarProvider`); nil on the desktop.
+    @ObservationIgnored var carProvider: (any RemoteCarProvider)?
+    /// Cars following the spectrum, and what feeds them while any do.
+    @ObservationIgnored private var spectrumStreams: [ObjectIdentifier: HTTPConnection] = [:]
+    @ObservationIgnored private var spectrumFeed: Task<Void, Never>?
     @ObservationIgnored private var expiry: Task<Void, Never>?
     /// What the phones were last told, to say only what they could not work out.
     @ObservationIgnored private var sentState: (state: RemoteState, at: Date)?
@@ -309,9 +314,62 @@ final class RemoteControlServer {
                 return connection.respond(400)
             }
             connection.respond(perform(command) ? 204 : 409)
+        case ("GET", "/v1/clock"):
+            guard device(for: request) != nil else { return connection.respond(401) }
+            connection.respond(200, json: encode(RemoteClock(uptime: ProcessInfo.processInfo.systemUptime)))
+        case ("GET", "/v1/spectrum"):
+            guard device(for: request) != nil else { return connection.respond(401) }
+            guard carProvider != nil else { return connection.respond(404) }
+            followSpectrum(on: connection)
         default:
-            connection.respond(404)
+            if !carRoute(request, on: connection) { connection.respond(404) }
         }
+    }
+
+    /// The car's routes with what they ask for in the path (`RemoteControl`, "The car.").
+    /// False for a path that isn't one, which is the caller's 404.
+    private func carRoute(_ request: HTTPServer.Request, on connection: HTTPConnection) -> Bool {
+        let parts = request.path.split(separator: "/").map { String($0).removingPercentEncoding ?? String($0) }
+        guard parts.count >= 2, parts[0] == "v1" else { return false }
+        let route = parts[1]
+        let rest = Array(parts.dropFirst(2))
+        switch (request.method, route) {
+        case ("POST", "trips"):
+            guard device(for: request) != nil else { connection.respond(401); return true }
+            guard rest.count == 1, RemoteCarTrips.save(request.body, id: rest[0]) else { connection.respond(400); return true }
+            connection.respond(204)
+            return true
+        case ("GET", "art"), ("GET", "palette"), ("GET", "lyrics"), ("GET", "levels"), ("GET", "browse"):
+            break
+        default:
+            return false
+        }
+        guard device(for: request) != nil else { connection.respond(401); return true }
+        guard let provider = carProvider else { connection.respond(404); return true }
+        // Answered when it is ready: the connection stays open after this returns.
+        Task { @MainActor in
+            switch route {
+            case "art":
+                guard rest.count == 2, let size = Int(rest[1]), (16...600).contains(size),
+                      let pixels = await provider.art(coverArt: rest[0], size: size)
+                else { return connection.respond(404) }
+                connection.respond(200, body: pixels, contentType: "application/x-rgb24",
+                                   headers: ["X-Width": "\(size)", "X-Height": "\(size)"])
+            case "palette":
+                guard rest.count == 1, let palette = await provider.palette(coverArt: rest[0]) else { return connection.respond(404) }
+                connection.respond(200, json: encode(palette))
+            case "lyrics":
+                guard rest.count == 1, let lyrics = await provider.lyrics(songID: rest[0]) else { return connection.respond(404) }
+                connection.respond(200, json: encode(lyrics))
+            case "levels":
+                guard rest.count == 1, let levels = await provider.levels(songID: rest[0]) else { return connection.respond(404) }
+                connection.respond(200, json: encode(RemoteCarLevels(levels: levels)))
+            default:
+                guard let page = await provider.browse(path: rest.joined(separator: "/")) else { return connection.respond(404) }
+                connection.respond(200, json: encode(page))
+            }
+        }
+        return true
     }
 
     private func requestPairing(_ request: HTTPServer.Request, on connection: HTTPConnection) {
@@ -514,6 +572,11 @@ final class RemoteControlServer {
             for _ in RepeatMode.allCases where player.queue.repeatMode != mode {
                 player.cycleRepeat()
             }
+        case .playItem:
+            guard let provider = carProvider, let kind = command.kind, let id = command.id else { return false }
+            let index = command.index ?? 0
+            let shuffled = command.shuffled ?? false
+            Task { _ = await provider.playItem(kind: kind, id: id, index: index, shuffled: shuffled) }
         }
         return true
     }
@@ -606,7 +669,66 @@ final class RemoteControlServer {
         let now = Date.now
         if let sent = sentState, !state.differs(from: sent.state, after: now.timeIntervalSince(sent.at)) { return }
         sentState = (state, now)
-        broadcast(EventStream.frame("state", json(state)))
+        broadcast(EventStream.frame("state", json(timed(state, player))))
+    }
+
+    /// `state` as sent, with the car's timing: the song position leaving the speakers now
+    /// (`RemoteState.mediaTime`). Kept off the copy compared, since it changes every instant.
+    private func timed(_ state: RemoteState, _ player: PlaybackController) -> RemoteState {
+        var state = state
+        let latency = carProvider?.outputLatency ?? 0
+        state.mediaTime = max(0, player.elapsedNow - latency)
+        state.atUptime = ProcessInfo.processInfo.systemUptime
+        state.rate = player.isPlaying && !player.isBuffering ? Double(player.speed) : 0
+        state.outputLatency = latency
+        return state
+    }
+
+    // MARK: - The car's spectrum
+
+    /// A car following the spectrum: `spectrum` events, each with the song position of its
+    /// samples, and with what is heard when, so the car's timing never drifts from the
+    /// music's. Fed only while one listens; a ping when there is nothing new, so a paused
+    /// song doesn't read as a dropped connection.
+    private func followSpectrum(on connection: HTTPConnection) {
+        let key = ObjectIdentifier(connection)
+        connection.onClose = {
+            Task { @MainActor in RemoteControlServer.shared.dropSpectrum(key) }
+        }
+        spectrumStreams[key] = connection
+        connection.startEvents()
+        guard spectrumFeed == nil else { return }
+        spectrumFeed = Task { @MainActor [weak self] in
+            var last = -1.0
+            var quietSince = Date.now
+            while !Task.isCancelled {
+                try? await Task.sleep(for: RemoteCarSpectrum.interval)
+                guard let self, !self.spectrumStreams.isEmpty else { return }
+                var event: String?
+                if let frame = self.carProvider?.spectrum(), frame.mediaTime != last, let player = self.app?.player {
+                    last = frame.mediaTime
+                    let latency = self.carProvider?.outputLatency ?? 0
+                    let rate = player.isPlaying && !player.isBuffering ? Double(player.speed) : 0
+                    event = RemoteCarSpectrum.event(
+                        mediaTime: frame.mediaTime, bands: frame.bands,
+                        heard: max(0, player.elapsedNow - latency), at: ProcessInfo.processInfo.systemUptime, rate: rate
+                    )
+                    quietSince = .now
+                } else if Date.now.timeIntervalSince(quietSince) > 5 {
+                    event = EventStream.ping
+                    quietSince = .now
+                }
+                guard let event else { continue }
+                for connection in self.spectrumStreams.values { connection.send(event) }
+            }
+        }
+    }
+
+    private func dropSpectrum(_ key: ObjectIdentifier) {
+        spectrumStreams[key] = nil
+        guard spectrumStreams.isEmpty else { return }
+        spectrumFeed?.cancel()
+        spectrumFeed = nil
     }
 
     /// What plays here, to the devices following it, when it is news: closer than the

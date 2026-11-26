@@ -309,6 +309,19 @@ final class HTTPConnection: @unchecked Sendable {
         }
     }
 
+    /// Answers with a body that isn't JSON -- a cover's pixels for the car -- and closes.
+    func respond(_ status: Int, body: Data, contentType: String, headers: [String: String] = [:]) {
+        var head = "HTTP/1.1 \(status) \(Self.reason(status))\r\nConnection: close\r\nContent-Length: \(body.count)\r\n"
+        head += "Content-Type: \(contentType)\r\n"
+        for (name, value) in headers.sorted(by: { $0.key < $1.key }) { head += "\(name): \(value)\r\n" }
+        head += "\r\n"
+        let data = Data(head.utf8) + body
+        writes.async { [self] in
+            _ = write(data)
+            close()
+        }
+    }
+
     /// Begins an event stream: the headers, and then whatever `send` is given.
     func startEvents() {
         isStreaming = true

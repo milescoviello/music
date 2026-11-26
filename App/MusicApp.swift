@@ -21,6 +21,8 @@ struct MusicApp: App {
         _remotePlayers = State(initialValue: RemotePlayers(appState: appState, browser: NetworkRemoteBrowser()))
         // The desktop can play to the phone too, when it is allowed in Settings.
         RemoteControlServer.shared.start(app: appState, advertiser: BonjourAdvertiser())
+        // And a car: what only this app can serve it, covers to the spectrum (`CarProvider`).
+        RemoteControlServer.shared.carProvider = CarProvider(app: appState)
         // The watch app's link, at launch: a command from the watch can start the app in
         // the background, before any screen exists.
         WatchBridge.shared.start(appState: appState)

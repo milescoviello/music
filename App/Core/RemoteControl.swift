@@ -43,6 +43,32 @@ import Foundation
 /// `data:` line of JSON, and is acted on at its `data:` line, because the phone's line
 /// reader drops the blank line that ends an event.
 ///
+/// **The car.** A car's head unit (an Audi MMI 3G+) follows the phone as a remote too, on
+/// the car's own Wi-Fi: the phone plays, its sound goes to the car over Bluetooth as ever,
+/// and the car's screen shows the player. Its screen has no way to the server, so the
+/// phone serves it what it would otherwise fetch (`RemoteCarProvider`), every route below
+/// under the same token, all additions a remote that doesn't ask for them never sees:
+///
+/// - `GET /v1/clock`: `RemoteClock`, the phone's monotonic clock, for the car to measure
+///   its own against.
+/// - `state` carries `mediaTime`, `atUptime`, `rate` and `outputLatency`: the song
+///   position leaving the speakers at a moment of that clock. Bluetooth plays the audio
+///   a fifth of a second after the phone has it; with these the car lights lyrics and
+///   draws its spectrum for what is heard, not for what has been sent.
+/// - `GET /v1/spectrum`: an event stream of `spectrum` events, `<mediaTime> <128 hex>`:
+///   64 bands, each tagged with where in the song its samples were.
+/// - `GET /v1/art/<coverArt>/<size>`: the cover as `size`×`size` raw RGB, with `X-Width`
+///   and `X-Height`; the car has no JPEG decoder.
+/// - `GET /v1/palette/<coverArt>`: `RemoteCarPalette`, the colours the player takes from it.
+/// - `GET /v1/lyrics/<song>`: `RemoteCarLyrics`, the lines as the lyrics screen has them,
+///   timed, with word timing, translation and romanization where there are.
+/// - `GET /v1/levels/<song>`: `RemoteCarLevels`, the loudness-shaped seekbar's bars.
+/// - `GET /v1/browse/<path>`: `RemoteCarBrowse`, the library a page at a time, and the
+///   `playItem` command to play from it.
+/// - `POST /v1/trips/<id>`: a drive the car's GPS recorded, as CSV, kept on the phone.
+///
+/// Parameters go in the path: the server reads no query string.
+///
 /// HTTP and server-sent events rather than a socket protocol of its own: URLSession
 /// streams them on the phone, curl drives them from a terminal, and the desktop's server
 /// stays a page of code.
@@ -328,6 +354,9 @@ struct RemoteCommand: Codable, Equatable, Sendable {
         case shuffle
         /// Until the queue repeats `repeatMode`.
         case `repeat`
+        /// `kind` (album, artist, playlist) `id`, from `index`, `shuffled`: for a remote
+        /// that browses with `GET /v1/browse` and has no songs of its own to send.
+        case playItem
     }
 
     var action: Action
@@ -341,6 +370,9 @@ struct RemoteCommand: Codable, Equatable, Sendable {
     var paused: Bool?
     var repeatMode: RepeatMode?
     var station: Station?
+    /// `playItem`: what to play, as `RemoteCarBrowse.Item` names it.
+    var kind: String?
+    var id: String?
 
     init(_ action: Action) {
         self.action = action
@@ -431,6 +463,14 @@ struct RemoteState: Codable, Equatable, Sendable {
     var position = 0
     var repeatMode: RepeatMode = .off
     var canAddToUpNext = false
+    /// The car's timing (`RemoteCarProvider`): the song position leaving the speakers at
+    /// `atUptime` on the phone's clock (`ProcessInfo.systemUptime`), moving at `rate` (0
+    /// while paused); `outputLatency` is the delay already taken off. Set only on the copy
+    /// sent, never on the one compared: it changes every instant.
+    var mediaTime: Double?
+    var atUptime: Double?
+    var rate: Double?
+    var outputLatency: Double?
 
     /// Where playback has got to, `interval` seconds after this was read.
     func elapsed(after interval: TimeInterval) -> Double {
