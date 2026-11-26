@@ -88,10 +88,13 @@
 	<key>NSSiriUsageDescription</key>
 	<string>Siri plays your playlists, artists, albums and songs from your library.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Music asks Apple Maps for a route from where you are, for the car's navigation.</string>
+	<string>Music asks Apple Maps for a route from where you are, and sends your position to your car's screen while it is connected.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>While your car is connected, Music sends your position to the car's map, also with the app in the background. Nothing is sent when no car is connected.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>location</string>
 		<string>processing</string>
 	</array>
 	<!-- The overnight sync (OvernightSync): on the charger, with a network. -->

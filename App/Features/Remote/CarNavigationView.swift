@@ -8,6 +8,7 @@ struct CarNavigationView: View {
     @State private var searching = false
 
     private var nav: CarNavigation { CarNavigation.shared }
+    private var position: CarLocation { CarLocation.shared }
 
     var body: some View {
         Form {
@@ -47,6 +48,29 @@ struct CarNavigationView: View {
                 }
 
                 Section {
+                    Toggle("Send My Position to the Car", isOn: Binding(get: { position.enabled }, set: { position.enabled = $0 }))
+                    if position.enabled {
+                        LabeledContent("Location", value: permission)
+                        if position.authorization == .notDetermined || position.authorization == .authorizedWhenInUse {
+                            Button(position.authorization == .notDetermined ? "Allow Location" : "Allow in the Background") {
+                                position.askPermission()
+                            }
+                        } else if position.authorization == .denied || position.authorization == .restricted {
+                            Button("Open Settings") {
+                                if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                            }
+                        }
+                        if position.running {
+                            LabeledContent("Sending", value: position.lastSent.map { "last \($0.formatted(date: .omitted, time: .standard))" } ?? "starting")
+                        }
+                    }
+                } header: {
+                    Text("Position")
+                } footer: {
+                    Text("The car's own GPS belongs to its navigation, so its map uses this iPhone's position. It's sent only while the car is connected. \"Always\" lets it start with the app in the background, which is how it usually is in the car.")
+                }
+
+                Section {
                 } footer: {
                     Text("Apple Maps works out the route from this iPhone. The car shows it on its own map with the next turn and your arrival time, and asks for a new route if you leave it. The car's Destination page lists these recent places too.")
                 }
@@ -56,6 +80,16 @@ struct CarNavigationView: View {
         .disabled(nav.isRouting)
         .navigationTitle("Navigate in the Car")
         .onAppear { nav.prepare() }
+    }
+
+    private var permission: String {
+        switch position.authorization {
+        case .authorizedAlways: "Always"
+        case .authorizedWhenInUse: "While Using the App"
+        case .denied: "Not Allowed"
+        case .restricted: "Restricted"
+        default: "Not Asked Yet"
+        }
     }
 
     private func row(_ title: String, _ subtitle: String) -> some View {
