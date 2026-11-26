@@ -23,7 +23,17 @@ server -- desktop Feishin, say -- stays in step. Neither app keeps that state to
   known), an equalizer, playback speed, a sleep timer, synced lyrics with translation
   and romanization, and the Plexamp visualizers.
 - **Offline**: download albums and playlists. A downloaded playlist follows the server
-  when it changes, and a song two downloads share stays until neither needs it.
+  when it changes, and a song two downloads share stays until neither needs it. A
+  download keeps its lyrics, word timing and translations, so they work with no server
+  too, and with the server out of reach Home starts with what is on the phone.
+- **Getting music into the library**: Search has a Soulseek side for songs and albums the
+  library does not have, an artist's page lists the albums and EPs it is missing, and a
+  song's menu offers its full album or a lossless copy of a lossy file. Add takes the best
+  lossless copy; Choose the Copy lists every one found. Requests shows each one as it
+  downloads, is checked and lands, and a Soulseek page watches the client itself: whether
+  it is signed in, what it shares and sends, its downloads folder by folder and the imports
+  into the library. Only lossless copies are ever taken. The request service sits beside
+  the server and is reached through `server/sonic`; it is not part of this repository.
 - **Guest DJs** that slip picks into the queue as it plays, and **listening stats**:
   history, charts, and top artists, albums and songs by week, month and year.
 - **Siri and Shortcuts** on the phone: play a playlist, play favourites, shuffle the
@@ -35,15 +45,18 @@ server -- desktop Feishin, say -- stays in step. Neither app keeps that state to
   lossy, while the Song side stays the library's file -- and stays on from song to song.
   Change Video picks another when the automatic one is wrong, and the pick is kept for
   every device. Search has a YouTube side: play a video, or add the song (and its album)
-  to the library through Hermes. No ads: the video plays in the app's own player, through
-  `server/sonic`.
+  to the library the same way as above. A video shrinks into the mini player and plays on
+  while the app is browsed, and floats as Picture in Picture when the app is left. No ads:
+  the video plays in the app's own player, through `server/sonic`.
 - **Sonic features**, with `server/sonic` running: sonically similar tracks, albums and
   artists, Sonic Adventure, sonic radio, the loudness-shaped seekbar, and instant lyric
   search. Without it, the app falls back to what Navidrome offers.
 
 The iPhone app is native SwiftUI with no web view, so scrolling, gestures and the tab bar
 are the system's, and playback is `AVQueuePlayer`, so background audio and the lock screen
-work as they do in any iOS app. The Linux app is GTK 4 and libadwaita over the same core.
+work as they do in any iOS app. It is built with Xcode 27, so on the iPhone Duo it fills the
+unfolded inner screen and follows the fold, with album grids that take as many columns as fit.
+The Linux app is GTK 4 and libadwaita over the same core.
 
 ## Parts
 
@@ -58,9 +71,11 @@ work as they do in any iOS app. The Linux app is GTK 4 and libadwaita over the s
 
 ## Building the iPhone app
 
-There is no Mac in this loop. GitHub Actions compiles on a macOS runner and
-publishes an unsigned `.ipa`; it is signed and installed on-device with
-[xtool](https://github.com/xtool-org/xtool):
+GitHub Actions builds it (`.github/workflows/ios.yml`). The logic and app tests run on
+a self-hosted macOS runner; the phone build runs on GitHub's `xcode-27` image with
+Xcode 27.2, which is Apple silicon only and is what lets the app fill the iPhone Duo's
+inner screen. Each push to `main` publishes an ad-hoc signed `.ipa`, which is re-signed on
+the phone: through a Feather source, or with [xtool](https://github.com/xtool-org/xtool):
 
 ```sh
 gh release download latest -p Music.ipa -D dist --clobber
@@ -74,6 +89,10 @@ the documented path.
 
 A free Apple developer certificate expires after 7 days, so re-running
 `xtool install` is the weekly refresh.
+
+`.github/workflows/duo-look.yml` runs the app on the iPhone Duo simulator and photographs
+it folded, unfolded, on its side and half open. `simctl` cannot fold the simulator, so it
+uses [hinge](https://github.com/artemnovichkov/hinge), pinned to a release.
 
 ## Linux
 
