@@ -87,8 +87,9 @@ extension View {
 /// column down one side, and iOS marks only that side unsafe -- a notched iPhone on its
 /// side is given the same inset on both. Centred in what was left, the player and
 /// everything else centred sat some 40 pt left of the middle. The short side is now made
-/// up to match; where the two already match, which is everywhere but there, this adds
-/// nothing.
+/// up to match; where the two already match, which is everywhere but the Duo, this adds
+/// nothing. Lists and forms come out 20 pt wider on the added side than on the system's
+/// (UIKit adds its margin to the one but not the other), which is close enough.
 ///
 /// Added on the window's root view controller, as `additionalSafeAreaInsets`, because
 /// that is the one place every screen inherits from: the tabs, the navigation stacks and
@@ -125,7 +126,11 @@ struct EvenSideMargins: UIViewRepresentable {
         private func even() {
             guard let window, let root = window.rootViewController else { return }
             let system = window.safeAreaInsets
-            let lopsided = system.right - system.left
+            // The big screen only. The outer screen has the same column, but there it is
+            // 84 pt of a 466-pt width, and taking as much again from the other side
+            // leaves room for one album column instead of two.
+            let isWide = window.bounds.width >= 600
+            let lopsided = isWide ? system.right - system.left : 0
             var insets = root.additionalSafeAreaInsets
             insets.left = max(0, lopsided)
             insets.right = max(0, -lopsided)
