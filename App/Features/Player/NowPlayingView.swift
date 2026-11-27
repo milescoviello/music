@@ -137,6 +137,9 @@ struct NowPlayingView: View {
                 bottomRow
             }
         }
+        // Inside the player's own navigation stack, which the app root's margins may not
+        // reach; where they do, this adds nothing.
+        .evenSideMargins()
         // `contentShape` is the fix for "it only works on the album art": empty layout
         // space in a stack is not hit-testable, so a drag starting to the right of the
         // title was landing on nothing at all. The artwork worked only because an image

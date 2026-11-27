@@ -46,6 +46,7 @@ struct MusicApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .evenSideMargins()
                 .environment(appState)
                 .environment(appState.artwork)
                 .environment(appState.playlistArtwork)

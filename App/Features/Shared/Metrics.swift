@@ -79,3 +79,37 @@ extension View {
         modifier(PlayerClearance())
     }
 }
+
+/// The same room on both sides, so what is centred sits in the middle of the glass.
+///
+/// The iPhone Duo's inner screen held sideways keeps the camera and the status bar in a
+/// column down one side, and iOS marks only that side unsafe -- a notched iPhone on its
+/// side is given the same inset on both. Centred in what was left, the player and
+/// everything else centred sat some 40 pt left of the middle. Each side now gets the
+/// larger of the two; where they already match, which is everywhere but there, this
+/// adds nothing, so it is harmless to apply at more than one level.
+///
+/// `safeAreaPadding`, not `padding`, so backdrops that ignore the safe area still run edge
+/// to edge and lists still scroll under the margin. The insets are read by a
+/// `GeometryReader` of its own, outside the padding: measured on the padded content, the
+/// reading would include its own correction and chase it.
+struct EvenSideMargins: ViewModifier {
+    func body(content: Content) -> some View {
+        GeometryReader { proxy in
+            let lopsided = proxy.safeAreaInsets.trailing - proxy.safeAreaInsets.leading
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .safeAreaPadding(.leading, max(0, lopsided))
+                .safeAreaPadding(.trailing, max(0, -lopsided))
+        }
+    }
+}
+
+extension View {
+    /// See `EvenSideMargins`. On the app's root, on each tab (each is hosted by its own
+    /// controller, which a modifier outside the `TabView` does not reach) and on the
+    /// player.
+    func evenSideMargins() -> some View {
+        modifier(EvenSideMargins())
+    }
+}

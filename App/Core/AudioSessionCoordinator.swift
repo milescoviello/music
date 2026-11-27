@@ -137,9 +137,17 @@ final class AudioSessionCoordinator {
             //
             // No special case for `.appWasSuspended`: it was never followed by `.ended`
             // and iOS 16 stopped sending it at all.
-            wasInterruptedWhilePlaying = isPlaying
-            interruptedAt = .now
-            log("interrupted\(isPlaying ? " while playing" : ""), by \(cause(rawReason))")
+            //
+            // A second `.began` with no `.ended` between keeps the first one's answer. A
+            // call sends two -- "interrupted while playing, by a call", then a moment
+            // later "interrupted, by a call" -- and by the second the first had already
+            // paused, so reading `isPlaying` again latched false and the call's end said
+            // "wasn't playing". Only a recent first counts: one left open for good by an
+            // app that never gave the audio back must not authorise a resume much later.
+            let isRepeat = interruptedAt.map { Date.now.timeIntervalSince($0) < 300 } ?? false
+            wasInterruptedWhilePlaying = isPlaying || (isRepeat && wasInterruptedWhilePlaying)
+            if !isRepeat { interruptedAt = .now }
+            log("interrupted\(isRepeat ? " again" : "")\(isPlaying ? " while playing" : ""), by \(cause(rawReason))")
             onPause?()
 
         case .ended:
@@ -225,6 +233,7 @@ final class AudioSessionCoordinator {
 
     private func resumeAfterInterruption() {
         wasInterruptedWhilePlaying = false
+        interruptedAt = nil
         // Reactivating *before* resuming is essential; skipping it is the classic cause
         // of playback that resumes but produces no sound.
         isActivated = false
@@ -235,7 +244,11 @@ final class AudioSessionCoordinator {
     func noteIsPlaying(_ isPlaying: Bool) {
         self.isPlaying = isPlaying
         // Playing again -- by any route -- settles the question, so a stale latch cannot
-        // restart music minutes later.
-        if isPlaying { wasInterruptedWhilePlaying = false }
+        // restart music minutes later -- nor make the next interruption look like a repeat
+        // of an old one.
+        if isPlaying {
+            wasInterruptedWhilePlaying = false
+            interruptedAt = nil
+        }
     }
 }
