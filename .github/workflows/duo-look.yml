@@ -33,7 +33,9 @@ jobs:
 
             - name: Boot an iPhone Duo and install the app
               run: |
-                  RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "import json,sys; r=[x for x in json.load(sys.stdin)['runtimes'] if x['platform']=='iOS' and x['isAvailable']]; print(sorted(r, key=lambda x: x['version'])[-1]['identifier'])")
+                  # The newest runtime that can run a Duo, not simply the newest: on 11-27 that one refused ("Incompatible device").
+                  xcrun simctl list runtimes
+                  RUNTIME=$(xcrun simctl list runtimes -j | python3 -c "import json,sys; r=[x for x in json.load(sys.stdin)['runtimes'] if x['platform']=='iOS' and x['isAvailable'] and any(t.get('identifier','').endswith('.iPhone-Duo') for t in x.get('supportedDeviceTypes', []))]; print(sorted(r, key=lambda x: x['version'])[-1]['identifier'])")
                   UDID=$(xcrun simctl create duo com.apple.CoreSimulator.SimDeviceType.iPhone-Duo "$RUNTIME")
                   echo "UDID=$UDID" >> "$GITHUB_ENV"
                   echo "HINGE_DEVICE=$UDID" >> "$GITHUB_ENV"
