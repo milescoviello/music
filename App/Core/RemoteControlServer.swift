@@ -93,12 +93,6 @@ final class RemoteControlServer {
     @ObservationIgnored var carProvider: (any RemoteCarProvider)?
     /// Turn-by-turn for the car (`RemoteCarNav`); the iPhone's is `CarNavigation`.
     @ObservationIgnored var carNavigator: (any RemoteCarNavigator)?
-    /// Sends this phone's position to following cars (`RemoteCarLocation`); the iPhone's is
-    /// `CarLocation`. Told how many follow, so it runs only while one does.
-    @ObservationIgnored var carLocation: (any RemoteCarLocating)?
-    /// The followers that are cars (they say `User-Agent: AudiMMI/...`): only they are sent
-    /// this phone's position, never another paired device following the music.
-    @ObservationIgnored private var carStreams: Set<ObjectIdentifier> = []
     /// Cars following the spectrum, and what feeds them while any do.
     @ObservationIgnored private var spectrumStreams: [ObjectIdentifier: HTTPConnection] = [:]
     @ObservationIgnored private var spectrumFeed: Task<Void, Never>?
@@ -227,9 +221,7 @@ final class RemoteControlServer {
         for connection in watchers.values { connection.close() }
         streams = [:]
         watchers = [:]
-        carStreams = []
         listenerCount = 0
-        carLocation?.followersChanged(0)
         stopFollowing()
         cancelPairing()
     }
@@ -317,7 +309,7 @@ final class RemoteControlServer {
             connection.respond(204)
         case ("GET", "/v1/events"):
             guard device(for: request) != nil else { return connection.respond(401) }
-            follow(on: connection, isCar: RemoteCarLocation.isCar(userAgent: request.headers["user-agent"]))
+            follow(on: connection)
         case ("POST", "/v1/command"):
             guard device(for: request) != nil else { return connection.respond(401) }
             guard let command = try? JSONDecoder().decode(RemoteCommand.self, from: request.body) else {
@@ -416,14 +408,6 @@ final class RemoteControlServer {
     func publishRoute(_ route: RemoteCarRoute?) {
         let text = route.map { json($0) } ?? "{}"
         broadcast(EventStream.frame("route", text))
-    }
-
-    /// Tells following cars where this phone is (their own GPS belongs to their navigation).
-    /// Cars only: another paired device following the music isn't told where the phone is.
-    func publishLocation(_ location: RemoteCarLocation) {
-        guard !carStreams.isEmpty else { return }
-        let frame = EventStream.frame("location", json(location))
-        for key in carStreams { streams[key]?.send(frame) }
     }
 
     private func requestPairing(_ request: HTTPServer.Request, on connection: HTTPConnection) {
@@ -637,17 +621,13 @@ final class RemoteControlServer {
 
     // MARK: - Following
 
-    private func follow(on connection: HTTPConnection, isCar: Bool = false) {
+    private func follow(on connection: HTTPConnection) {
         let key = ObjectIdentifier(connection)
         connection.onClose = {
             Task { @MainActor in RemoteControlServer.shared.drop(key) }
         }
         streams[key] = connection
         listenerCount = streams.count
-        if isCar {
-            carStreams.insert(key)
-            carLocation?.followersChanged(carStreams.count)
-        }
         connection.startEvents()
         connection.send(EventStream.frame("hello", json(RemoteHello(
             id: id, name: name, server: app?.credentials?.baseURL.absoluteString
@@ -689,7 +669,6 @@ final class RemoteControlServer {
         streams[key] = nil
         watchers[key] = nil
         listenerCount = streams.count
-        if carStreams.remove(key) != nil { carLocation?.followersChanged(carStreams.count) }
         if streams.isEmpty, watchers.isEmpty {
             stopFollowing()
             pinger?.cancel()

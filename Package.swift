@@ -150,7 +150,6 @@ func logicPackage() -> Package {
                     "RemoteControl.swift",
                     "RemoteCar.swift",
                     "RemoteCarNav.swift",
-                    "RemoteCarLocation.swift",
                     "QRCode.swift",
                     "RecordingMatch.swift",
                     "VideoClient.swift",

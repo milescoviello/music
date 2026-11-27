@@ -24,7 +24,6 @@ struct MusicApp: App {
         // And a car: what only this app can serve it, covers to the spectrum (`CarProvider`).
         RemoteControlServer.shared.carProvider = CarProvider(app: appState)
         RemoteControlServer.shared.carNavigator = CarNavigation.shared
-        RemoteControlServer.shared.carLocation = CarLocation.shared
         // The watch app's link, at launch: a command from the watch can start the app in
         // the background, before any screen exists.
         WatchBridge.shared.start(appState: appState)
