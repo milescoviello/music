@@ -191,11 +191,9 @@ struct MainTabView: View {
     private func hosted<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         if #available(iOS 26.0, *) {
             content()
-                .evenSideMargins()
                 .accessibilityHidden(navigator.showsPlayer)
         } else {
             content()
-                .evenSideMargins()
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     MiniPlayerBar(showsPlayer: showsPlayer)
                 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// One place for the numbers, so screens line up without each view inventing its
 /// own spacing. Values are chosen to match the system's own list insets on iPhone:
@@ -85,31 +86,64 @@ extension View {
 /// The iPhone Duo's inner screen held sideways keeps the camera and the status bar in a
 /// column down one side, and iOS marks only that side unsafe -- a notched iPhone on its
 /// side is given the same inset on both. Centred in what was left, the player and
-/// everything else centred sat some 40 pt left of the middle. Each side now gets the
-/// larger of the two; where they already match, which is everywhere but there, this
-/// adds nothing, so it is harmless to apply at more than one level.
+/// everything else centred sat some 40 pt left of the middle. The short side is now made
+/// up to match; where the two already match, which is everywhere but there, this adds
+/// nothing.
 ///
-/// `safeAreaPadding`, not `padding`, so backdrops that ignore the safe area still run edge
-/// to edge and lists still scroll under the margin. The insets are read by a
-/// `GeometryReader` of its own, outside the padding: measured on the padded content, the
-/// reading would include its own correction and chase it.
-struct EvenSideMargins: ViewModifier {
-    func body(content: Content) -> some View {
-        GeometryReader { proxy in
-            let lopsided = proxy.safeAreaInsets.trailing - proxy.safeAreaInsets.leading
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .safeAreaPadding(.leading, max(0, lopsided))
-                .safeAreaPadding(.trailing, max(0, -lopsided))
+/// Added on the window's root view controller, as `additionalSafeAreaInsets`, because
+/// that is the one place every screen inherits from: the tabs, the navigation stacks and
+/// the forms inside them are UIKit underneath, and SwiftUI's `safeAreaPadding` on the
+/// root never reached them. The window's own insets are the system's alone -- what the
+/// root adds does not show there -- so reading them is never confused by this.
+struct EvenSideMargins: UIViewRepresentable {
+    func makeUIView(context: Context) -> Probe {
+        let probe = Probe()
+        probe.isUserInteractionEnabled = false
+        return probe
+    }
+
+    func updateUIView(_ uiView: Probe, context: Context) {}
+
+    /// Laid over the whole window, so that anything moving the system's insets -- a turn,
+    /// an unfold -- reaches `safeAreaInsetsDidChange` here.
+    final class Probe: UIView {
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            even()
+        }
+
+        override func safeAreaInsetsDidChange() {
+            super.safeAreaInsetsDidChange()
+            even()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            even()
+        }
+
+        private func even() {
+            guard let window, let root = window.rootViewController else { return }
+            let system = window.safeAreaInsets
+            let lopsided = system.right - system.left
+            var insets = root.additionalSafeAreaInsets
+            insets.left = max(0, lopsided)
+            insets.right = max(0, -lopsided)
+            // Only on a change: setting it lays the screen out again, which calls back here.
+            if insets != root.additionalSafeAreaInsets {
+                root.additionalSafeAreaInsets = insets
+            }
         }
     }
 }
 
 extension View {
-    /// See `EvenSideMargins`. On the app's root, on each tab (each is hosted by its own
-    /// controller, which a modifier outside the `TabView` does not reach) and on the
-    /// player.
+    /// See `EvenSideMargins`. Once, on the app's root.
     func evenSideMargins() -> some View {
-        modifier(EvenSideMargins())
+        background {
+            EvenSideMargins()
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        }
     }
 }
