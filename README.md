@@ -37,9 +37,9 @@ server -- desktop Feishin, say -- stays in step. Neither app keeps that state to
 - **Guest DJs** that slip picks into the queue as it plays, and **listening stats**, all
   time, from the server's own log of every play: minutes listened, when you listen, charts
   of top songs, albums and artists that step back by week, month, season, year or decade,
-  and a Wrapped-style story of the year with a card to share. History from YouTube and
-  YouTube Music (Google Takeout) or Apple Music (Apple's data export) can be imported into
-  the same log through `server/sonic`, and counts everywhere.
+  and a Wrapped-style story of the year with a card to share. History from Spotify (its
+  data export), YouTube and YouTube Music (Google Takeout) or Apple Music (Apple's data
+  export) can be imported into the same log through `server/sonic`, and counts everywhere.
 - **Siri and Shortcuts** on the phone: play a playlist, play favourites, shuffle the
   library.
 - **Play on the computer from the phone** (see below), the way one Plexamp plays to
