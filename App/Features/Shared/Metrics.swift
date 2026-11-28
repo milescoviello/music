@@ -127,6 +127,8 @@ struct EvenSideMargins: UIViewRepresentable {
 
         private func even() {
             guard let window, let root = window.rootViewController else { return }
+            // The side bar off on every screen that has appeared (VerticalBar); cheap to repeat.
+            VerticalBar.cover(root)
             let system = window.safeAreaInsets
             // The big screen only. The outer screen has the same column, but there it is
             // 84 pt of a 466-pt width, and taking as much again from the other side
