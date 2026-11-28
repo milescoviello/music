@@ -23,6 +23,8 @@ final class AudioSessionCoordinator {
     private var wasInterruptedWhilePlaying = false
     /// When the interruption began, for how long it lasted.
     private var interruptedAt: Date?
+    /// The resume after an interruption, while it waits for iOS to give the session back.
+    private var resumeRetry: Task<Void, Never>?
     /// Asked at an interruption whether a call is under way: the session itself says
     /// only that something else took the audio.
     private let calls = CXCallObserver()
@@ -54,14 +56,18 @@ final class AudioSessionCoordinator {
     /// A refusal is said and not taken for success: marked active after one, every later
     /// press of play skipped the session and played to nothing. iOS refuses a background
     /// app that starts its audio after the moment a lock-screen or headphone press gave it.
-    func activate() {
-        guard !isActivated else { return }
+    /// Whether the session is active now.
+    @discardableResult
+    func activate() -> Bool {
+        guard !isActivated else { return true }
         do {
             try AVAudioSession.sharedInstance().setActive(true)
             isActivated = true
+            return true
         } catch {
-            let line = "could not start the audio session: \(error.localizedDescription)"
+            let line = "could not start the audio session: \(error.localizedDescription) (code \((error as NSError).code))"
             Task { await Diagnostics.shared.record("audio", line) }
+            return false
         }
     }
 
@@ -144,6 +150,8 @@ final class AudioSessionCoordinator {
             // paused, so reading `isPlaying` again latched false and the call's end said
             // "wasn't playing". Only a recent first counts: one left open for good by an
             // app that never gave the audio back must not authorise a resume much later.
+            resumeRetry?.cancel()
+            resumeRetry = nil
             let isRepeat = interruptedAt.map { Date.now.timeIntervalSince($0) < 300 } ?? false
             wasInterruptedWhilePlaying = isPlaying || (isRepeat && wasInterruptedWhilePlaying)
             if !isRepeat { interruptedAt = .now }
@@ -231,14 +239,40 @@ final class AudioSessionCoordinator {
         resumeAfterInterruption()
     }
 
+    /// Reactivating *before* resuming is essential; skipping it is the classic cause of
+    /// playback that resumes but produces no sound.
+    ///
+    /// And iOS can refuse the reactivation for a moment after it said the interruption was
+    /// over: on 11-27 another app's short sounds interrupted the music over and over, and
+    /// twice "interruption over: resuming" was followed by "Session activation failed". The
+    /// player was told to play anyway, with no session, and stayed silent until a press of
+    /// next. So it is retried, briefly, and the player resumes only once the session is back.
+    /// A new interruption, or playing again by any route, ends the wait.
     private func resumeAfterInterruption() {
         wasInterruptedWhilePlaying = false
         interruptedAt = nil
-        // Reactivating *before* resuming is essential; skipping it is the classic cause
-        // of playback that resumes but produces no sound.
         isActivated = false
-        activate()
-        onResume?()
+        resumeRetry?.cancel()
+        resumeRetry = nil
+        if activate() {
+            onResume?()
+            return
+        }
+        resumeRetry = Task { @MainActor [weak self] in
+            let waits: [Double] = [0.3, 0.7, 1.5, 3, 5]
+            for (attempt, wait) in waits.enumerated() {
+                try? await Task.sleep(for: .seconds(wait))
+                guard let self, !Task.isCancelled, self.interruptedAt == nil, !self.isPlaying else { return }
+                if self.activate() {
+                    self.log("the audio session came back on try \(attempt + 2): resuming")
+                    self.resumeRetry = nil
+                    self.onResume?()
+                    return
+                }
+            }
+            self?.log("the audio session was still refused after \(waits.count + 1) tries over 10 s: not resuming")
+            self?.resumeRetry = nil
+        }
     }
 
     func noteIsPlaying(_ isPlaying: Bool) {
@@ -249,6 +283,8 @@ final class AudioSessionCoordinator {
         if isPlaying {
             wasInterruptedWhilePlaying = false
             interruptedAt = nil
+            resumeRetry?.cancel()
+            resumeRetry = nil
         }
     }
 }
