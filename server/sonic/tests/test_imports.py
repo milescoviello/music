@@ -83,6 +83,23 @@ class Imports(unittest.TestCase):
         self.assertEqual(store.add("import-youtube", events)["added"], 3)
         self.assertEqual(store.add("import-youtube", events)["added"], 0)
 
+    def test_spotify_extended_and_basic_histories(self):
+        extended = [
+            {"ts": "2022-05-01T20:03:21Z", "ms_played": 201000, "master_metadata_track_name": "Low Tide",
+             "master_metadata_album_artist_name": "The Lanterns", "master_metadata_album_album_name": "Glass Harbor"},
+            {"ts": "2022-05-01T20:04:00Z", "ms_played": 5000, "master_metadata_track_name": "Low Tide",
+             "master_metadata_album_artist_name": "The Lanterns"},
+            {"ts": "2022-05-02T08:00:00Z", "ms_played": 1800000, "episode_name": "A podcast"},
+        ]
+        source, plays, counts = imports.read(json.dumps(extended).encode(), "Streaming_History_Audio_2022.json")
+        self.assertEqual((source, len(plays), counts["tooShort"]), ("spotify", 1, 1))
+        self.assertEqual(plays[0]["seconds"], 201)
+        self.assertEqual(plays[0]["at"], imports.when("2022-05-01T20:00:00Z"))
+        basic = [{"endTime": "2021-03-04 10:05", "artistName": "Juniper Vale", "trackName": "Paper Moons", "msPlayed": 180000}]
+        source, plays, _ = imports.read(json.dumps(basic).encode(), "StreamingHistory_music_0.json")
+        events, matched = imports.events(source, plays, library())
+        self.assertEqual((source, matched, events[0]["songID"]), ("spotify", 1, "s2"))
+
     def test_anything_else_is_refused(self):
         with self.assertRaises(imports.Unreadable):
             imports.read(b"just some text", "notes.txt")

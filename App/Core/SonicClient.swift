@@ -225,7 +225,7 @@ struct SonicClient: Sendable {
 
     /// What one history import came to.
     struct HistoryImport: Decodable, Sendable {
-        /// "youtube" or "apple".
+        /// "youtube", "apple" or "spotify".
         var source: String
         var plays: Int
         /// Of those, found in the library.
@@ -237,7 +237,7 @@ struct SonicClient: Sendable {
     }
 
     #if os(iOS)
-    /// Hands a YouTube (Google Takeout) or Apple Music (Apple's data export) history to the
+    /// Hands a Spotify, YouTube (Google Takeout) or Apple Music (Apple data export) history to the
     /// service, which reads it into the shared play log; every app then takes it in as it takes
     /// another device's plays. The file goes as it is, zip or not, streamed from disk: an Apple
     /// export can be hundreds of megabytes. A file the service cannot read comes back as

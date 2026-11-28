@@ -4,6 +4,8 @@ Two exports are understood, as the zip they arrive in or as the file inside it:
 
 - Google Takeout, YouTube and YouTube Music: `watch-history.json`. Only what is music is kept:
   what YouTube Music played, and on YouTube the auto-made "<artist> - Topic" tracks.
+- Spotify's data export (Account > Privacy): the extended streaming history
+  (`Streaming_History_Audio_*.json`) or the basic one (`StreamingHistory_music_*.json`).
 - Apple's data export (privacy.apple.com, Apple Media Services): Apple Music's
   `Apple Music Play Activity.csv`, or failing that `Apple Music - Play History Daily Tracks.csv`.
   The one with a row per listen is preferred; both together would count every play twice.
@@ -38,6 +40,7 @@ MIN_LISTEN_SECONDS = 30
 YOUTUBE_NAME = re.compile(r"watch-history\.json$", re.I)
 APPLE_ACTIVITY = re.compile(r"Apple Music Play Activity\.csv$", re.I)
 APPLE_DAILY = re.compile(r"Play History Daily Tracks\.csv$", re.I)
+SPOTIFY_NAME = re.compile(r"Streaming_?History_?(Audio|music)[^/]*\.json$", re.I)
 
 
 class Unreadable(ValueError):
@@ -56,7 +59,7 @@ def files_in(blob: bytes, name: str = "", depth: int = 0):
                     continue
                 inner = info.filename
                 if inner.lower().endswith(".zip") or YOUTUBE_NAME.search(inner) or APPLE_ACTIVITY.search(inner) \
-                        or APPLE_DAILY.search(inner):
+                        or APPLE_DAILY.search(inner) or SPOTIFY_NAME.search(inner):
                     yield from files_in(archive.read(info), inner, depth + 1)
         return
     yield name, blob
@@ -65,9 +68,12 @@ def files_in(blob: bytes, name: str = "", depth: int = 0):
 def read(blob: bytes, name: str = "") -> tuple[str, list[dict], dict]:
     """The plays in an upload: its source ("youtube" or "apple"), the plays, and counts of
     what was read and passed over."""
-    youtube, activity, daily = [], [], []
+    youtube, activity, daily, spotify = [], [], [], []
     for inner, data in files_in(blob, name):
-        if YOUTUBE_NAME.search(inner) or (inner.lower().endswith(".json") and data.lstrip()[:1] == b"["):
+        if SPOTIFY_NAME.search(inner) or (inner.lower().endswith(".json") and b'"ms_played"' in data[:4096]) \
+                or (inner.lower().endswith(".json") and b'"msPlayed"' in data[:4096]):
+            spotify.append(data)
+        elif YOUTUBE_NAME.search(inner) or (inner.lower().endswith(".json") and data.lstrip()[:1] == b"["):
             youtube.append(data)
         elif APPLE_ACTIVITY.search(inner):
             activity.append(data)
@@ -79,6 +85,14 @@ def read(blob: bytes, name: str = "") -> tuple[str, list[dict], dict]:
                 activity.append(data)
             elif "Track Description" in head and "Play Count" in head:
                 daily.append(data)
+    if spotify:
+        plays, counts = [], {"read": 0, "tooShort": 0}
+        for data in spotify:
+            got, seen = spotify_plays(json.loads(data.decode("utf-8-sig")))
+            plays += got
+            for key in counts:
+                counts[key] += seen[key]
+        return "spotify", plays, counts
     if youtube:
         plays, counts = [], {"read": 0, "notMusic": 0}
         for data in youtube:
@@ -137,6 +151,36 @@ def youtube_plays(entries) -> tuple[list[dict], dict]:
         artist = re.sub(r"VEVO$", "", artist).strip()
         plays.append({"title": title.strip(), "artist": artist or "Unknown Artist", "album": None, "at": at,
                       "seconds": None})
+    return plays, seen
+
+
+# ── Spotify ─────────────────────────────────────────────────────────────────────────────
+
+def spotify_plays(entries) -> tuple[list[dict], dict]:
+    """Extended history: `ts` (when the stream ENDED), `ms_played`, `master_metadata_*`; podcasts
+    and audiobooks have no track name and are passed over. Basic history: `endTime` in UTC,
+    `artistName`, `trackName`, `msPlayed`."""
+    plays, seen = [], {"read": 0, "tooShort": 0}
+    if not isinstance(entries, list):
+        raise Unreadable("the Spotify history is not a list")
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        seen["read"] += 1
+        title = entry.get("master_metadata_track_name") or entry.get("trackName")
+        artist = entry.get("master_metadata_album_artist_name") or entry.get("artistName")
+        played = entry.get("ms_played", entry.get("msPlayed")) or 0
+        if not title or not artist:
+            continue
+        listened = float(played) / 1000
+        if listened < MIN_LISTEN_SECONDS:
+            seen["tooShort"] += 1
+            continue
+        ended = when(entry.get("ts")) if entry.get("ts") else when(str(entry.get("endTime", "")).replace(" ", "T"))
+        if ended is None:
+            continue
+        plays.append({"title": str(title), "artist": str(artist), "album": entry.get("master_metadata_album_album_name"),
+                      "at": ended - listened, "seconds": int(listened)})
     return plays, seen
 
 

@@ -123,13 +123,13 @@ struct StatsView: View {
             Button {
                 isPickingImport = true
             } label: {
-                Label(isImporting ? "Importing…" : "Import from YouTube or Apple Music", systemImage: "square.and.arrow.down")
+                Label(isImporting ? "Importing…" : "Import from Spotify, YouTube or Apple Music", systemImage: "square.and.arrow.down")
             }
             .disabled(isImporting)
         } header: {
             Text("History From Elsewhere")
         } footer: {
-            Text(importReport ?? "Google Takeout: choose YouTube and YouTube Music, with the history as JSON. Apple: privacy.apple.com, request a copy of your data, Apple Media Services. The zip as it downloads is fine, and importing one again adds nothing twice.")
+            Text(importReport ?? "Spotify: Account, Privacy, download your extended streaming history. Google Takeout: choose YouTube and YouTube Music, with the history as JSON. Apple: privacy.apple.com, request a copy of your data, Apple Media Services. The zip as it downloads is fine, and importing one again adds nothing twice.")
         }
         .fileImporter(isPresented: $isPickingImport, allowedContentTypes: [.zip, .json, .commaSeparatedText, .data],
                       allowsMultipleSelection: true) { result in
@@ -185,7 +185,7 @@ struct StatsView: View {
                 if scoped { file.stopAccessingSecurityScopedResource() }
                 try copied.get()
                 let result = try await client.importHistory(file: copy)
-                let name = result.source == "apple" ? "Apple Music" : "YouTube"
+                let name = ["apple": "Apple Music", "spotify": "Spotify"][result.source] ?? "YouTube"
                 let years = [result.first, result.last].compactMap { $0 }
                     .map { Calendar.current.component(.year, from: Date(timeIntervalSince1970: $0)) }
                 let span = years.count == 2 ? (years[0] == years[1] ? " from \(years[0])" : " from \(years[0]) to \(years[1])") : ""
