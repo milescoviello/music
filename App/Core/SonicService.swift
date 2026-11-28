@@ -43,6 +43,12 @@ final class SonicService {
         } else {
             configuration = .default
         }
+        #if targetEnvironment(simulator)
+        // The Duo look check on GitHub: SIMCTL_CHILD_MUSIC_SONIC names its stand-in for the service.
+        if let address = ProcessInfo.processInfo.environment["MUSIC_SONIC"], let url = URL(string: address) {
+            configuration = SonicClient.Configuration(baseURL: url)
+        }
+        #endif
     }
 
     func configure(appState: AppState) {

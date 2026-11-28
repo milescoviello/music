@@ -116,10 +116,9 @@ jobs:
                       sleep 1
                   done
                   echo; cat "$RUNNER_TEMP/standin.log"
-                  # sonic's address, the stand-in's: SonicService reads it from these defaults at launch.
-                  xcrun simctl spawn "$UDID" defaults write com.milescoviello.music sonic.configuration \
-                    -data "$(printf '{"baseURL":"http://127.0.0.1:8650"}' | xxd -p | tr -d '\n')"
-                  SIMCTL_CHILD_MUSIC_SERVER=http://127.0.0.1:4533 SIMCTL_CHILD_MUSIC_USER=look SIMCTL_CHILD_MUSIC_PASSWORD=look \
+                  curl -sf "http://127.0.0.1:8650/v1/history/summary"; echo
+                  # sonic's address, the stand-in's, from SIMCTL_CHILD_MUSIC_SONIC (SonicService, simulator only).
+                  SIMCTL_CHILD_MUSIC_SONIC=http://127.0.0.1:8650 SIMCTL_CHILD_MUSIC_SERVER=http://127.0.0.1:4533 SIMCTL_CHILD_MUSIC_USER=look SIMCTL_CHILD_MUSIC_PASSWORD=look \
                     xcrun simctl launch "$UDID" com.milescoviello.music
                   sleep 12
 
@@ -145,7 +144,7 @@ jobs:
                   xcrun simctl terminate "$UDID" com.milescoviello.music || true
                   "$HINGE" open
                   sleep 3
-                  SIMCTL_CHILD_MUSIC_SHOW=wrapped SIMCTL_CHILD_MUSIC_SERVER=http://127.0.0.1:4533 SIMCTL_CHILD_MUSIC_USER=look \
+                  SIMCTL_CHILD_MUSIC_SHOW=wrapped SIMCTL_CHILD_MUSIC_SONIC=http://127.0.0.1:8650 SIMCTL_CHILD_MUSIC_SERVER=http://127.0.0.1:4533 SIMCTL_CHILD_MUSIC_USER=look \
                     SIMCTL_CHILD_MUSIC_PASSWORD=look xcrun simctl launch "$UDID" com.milescoviello.music
                   sleep 6
                   "$HINGE" screenshot "$RUNNER_TEMP/shots/6-stats.png"
