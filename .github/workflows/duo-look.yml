@@ -84,6 +84,9 @@ jobs:
                   EVENTS.sort(key=lambda e: e["at"])
                   SUMMARY = {"plays": len(EVENTS), "seconds": sum(e["duration"] for e in EVENTS), "first": EVENTS[0]["at"],
                              "last": EVENTS[-1]["at"], "lastRow": 0}
+                  import sys
+                  def note(kind, path):
+                      print(time.strftime("%H:%M:%S"), kind, path[:160], file=sys.stderr, flush=True)
                   class Sonic(http.server.BaseHTTPRequestHandler):
                       def reply(self, body, code=200):
                           data = json.dumps(body).encode()
@@ -93,6 +96,7 @@ jobs:
                           self.end_headers()
                           self.wfile.write(data)
                       def do_GET(self):
+                          note("sonic GET", self.path)
                           path = self.path.split("?")[0]
                           if path == "/v1/taste":
                               since = int((self.path.split("since=") + ["0"])[1].split("&")[0] or 0)
@@ -103,6 +107,7 @@ jobs:
                               return self.reply(SUMMARY)
                           return self.reply({"error": "no such endpoint"}, 404)
                       def do_POST(self):
+                          note("sonic POST", self.path)
                           self.rfile.read(int(self.headers.get("Content-Length") or 0))
                           return self.reply({"added": 0, "seq": len(EVENTS)})
                       def log_message(self, *args):
@@ -144,13 +149,15 @@ jobs:
                   xcrun simctl terminate "$UDID" com.milescoviello.music || true
                   "$HINGE" open
                   sleep 3
+                  date +"%H:%M:%S launching for Stats and Wrapped" >> "$RUNNER_TEMP/standin.log"
                   SIMCTL_CHILD_MUSIC_SHOW=wrapped SIMCTL_CHILD_MUSIC_SONIC=http://127.0.0.1:8650 SIMCTL_CHILD_MUSIC_SERVER=http://127.0.0.1:4533 SIMCTL_CHILD_MUSIC_USER=look \
                     SIMCTL_CHILD_MUSIC_PASSWORD=look xcrun simctl launch "$UDID" com.milescoviello.music
                   sleep 18
-                  "$HINGE" screenshot "$RUNNER_TEMP/shots/6-stats.png"
+                  "$HINGE" screenshot "$RUNNER_TEMP/shots/6-stats.png"; date +"%H:%M:%S took 6-stats" >> "$RUNNER_TEMP/standin.log"
                   sleep 6
                   for n in $(seq -w 1 20); do sleep 4; "$HINGE" screenshot "$RUNNER_TEMP/shots/7-wrapped-$n.png"; done
                   xcrun simctl spawn "$UDID" launchctl list | grep -i com.milescoviello.music || echo "Music is NOT running"
+                  cp "$RUNNER_TEMP/standin.log" "$RUNNER_TEMP/shots/standin.log"
 
             - uses: actions/upload-artifact@v4
               if: always()
