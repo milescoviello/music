@@ -77,6 +77,9 @@ struct MainTabView: View {
         // The accent follows the playing song's cover, as on Linux; read here so the
         // whole app redraws in it when the song changes.
         .tint(Color.appTint)
+        #if targetEnvironment(simulator)
+        .task { await openFromLaunchEnvironment() }
+        #endif
         .task(id: appState.player.currentSong?.coverArt) {
             await CoverTint.shared.follow(appState.player.currentSong?.coverArt, artwork: appState.artwork)
         }
@@ -148,6 +151,18 @@ struct MainTabView: View {
                 }
         }
     }
+
+    #if targetEnvironment(simulator)
+    /// Simulator only (the Duo look check on GitHub): `SIMCTL_CHILD_MUSIC_SHOW=stats` or `=wrapped`
+    /// opens Stats once the tabs are up, and Stats then opens its Wrapped story, so a screenshot
+    /// can show them with nothing tapping. None of this exists in a device build.
+    private func openFromLaunchEnvironment() async {
+        guard let show = ProcessInfo.processInfo.environment["MUSIC_SHOW"], show == "stats" || show == "wrapped" else { return }
+        try? await Task.sleep(for: .seconds(3))
+        selection = .library
+        navigator.open(.stats)
+    }
+    #endif
 
     private var tabs: some View {
         TabView(selection: $selection) {

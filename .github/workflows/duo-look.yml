@@ -64,6 +64,50 @@ jobs:
                       do_POST = do_GET
                       def log_message(self, *args):
                           pass
+                  # sonic's stand-in, for Stats and Wrapped: a made-up year of plays (invented names), handed
+                  # over the way another device's would be, through the taste log.
+                  import random, threading, time, uuid
+                  random.seed(7)
+                  ARTISTS = ["Lanterns Under Glass", "Juniper Vale", "Static Orchard", "Copper Tide", "Low Meridian",
+                             "Velvet Arcade", "North Ember", "Quiet Engines", "Saltwater Radio", "Paper Satellites"]
+                  GENRES = ["Dream Pop", "Indie Rock", "Electronic", "Jazz", "Hip-Hop"]
+                  start = time.mktime((2026, 1, 1, 0, 0, 0, 0, 0, -1)); now = time.time()
+                  EVENTS = []
+                  for n in range(3000):
+                      a = min(int(random.expovariate(0.45)), len(ARTISTS) - 1)
+                      song = min(int(random.expovariate(0.6)), 5)
+                      EVENTS.append({"id": str(uuid.UUID(int=random.getrandbits(128))).upper(), "kind": "play",
+                                     "at": start + random.random() * (now - start), "songID": f"fake-{a}-{song}",
+                                     "title": f"Song {song + 1} of {ARTISTS[a].split()[0]}", "artist": ARTISTS[a],
+                                     "album": f"{ARTISTS[a]} Sessions", "genre": GENRES[a % len(GENRES)],
+                                     "duration": random.randint(150, 300)})
+                  EVENTS.sort(key=lambda e: e["at"])
+                  SUMMARY = {"plays": len(EVENTS), "seconds": sum(e["duration"] for e in EVENTS), "first": EVENTS[0]["at"],
+                             "last": EVENTS[-1]["at"], "lastRow": 0}
+                  class Sonic(http.server.BaseHTTPRequestHandler):
+                      def reply(self, body, code=200):
+                          data = json.dumps(body).encode()
+                          self.send_response(code)
+                          self.send_header("Content-Type", "application/json")
+                          self.send_header("Content-Length", str(len(data)))
+                          self.end_headers()
+                          self.wfile.write(data)
+                      def do_GET(self):
+                          path = self.path.split("?")[0]
+                          if path == "/v1/taste":
+                              since = int((self.path.split("since=") + ["0"])[1].split("&")[0] or 0)
+                              return self.reply({"events": EVENTS if since == 0 else [], "seq": len(EVENTS)})
+                          if path == "/v1/history/plays":
+                              return self.reply({"plays": [], "after": 0, "more": False})
+                          if path == "/v1/history/summary":
+                              return self.reply(SUMMARY)
+                          return self.reply({"error": "no such endpoint"}, 404)
+                      def do_POST(self):
+                          self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                          return self.reply({"added": 0, "seq": len(EVENTS)})
+                      def log_message(self, *args):
+                          pass
+                  threading.Thread(target=http.server.ThreadingHTTPServer(("127.0.0.1", 8650), Sonic).serve_forever, daemon=True).start()
                   http.server.ThreadingHTTPServer(("127.0.0.1", 4533), Answer).serve_forever()
                   PY
                   nohup python3 "$RUNNER_TEMP/standin.py" > "$RUNNER_TEMP/standin.log" 2>&1 &
@@ -72,6 +116,9 @@ jobs:
                       sleep 1
                   done
                   echo; cat "$RUNNER_TEMP/standin.log"
+                  # sonic's address, the stand-in's: SonicService reads it from these defaults at launch.
+                  xcrun simctl spawn "$UDID" defaults write com.milescoviello.music sonic.configuration \
+                    -data "$(printf '{"baseURL":"http://127.0.0.1:8650"}' | xxd -p | tr -d '\n')"
                   SIMCTL_CHILD_MUSIC_SERVER=http://127.0.0.1:4533 SIMCTL_CHILD_MUSIC_USER=look SIMCTL_CHILD_MUSIC_PASSWORD=look \
                     xcrun simctl launch "$UDID" com.milescoviello.music
                   sleep 12
@@ -90,6 +137,20 @@ jobs:
                   # Still running after all that: a crash on a fold would have ended it.
                   xcrun simctl spawn "$UDID" launchctl list | grep -i com.milescoviello.music || echo "Music is NOT running"
                   sips -g pixelWidth -g pixelHeight "$RUNNER_TEMP"/shots/*.png
+
+            - name: Stats and the Wrapped story, unfolded
+              run: |
+                  # Opened from the launch environment (MainTabView.openFromLaunchEnvironment, simulator only):
+                  # Stats after 3 s, its Wrapped story 4 s later, then a picture every 4 s as the pages move on.
+                  xcrun simctl terminate "$UDID" com.milescoviello.music || true
+                  "$HINGE" open
+                  sleep 3
+                  SIMCTL_CHILD_MUSIC_SHOW=wrapped SIMCTL_CHILD_MUSIC_SERVER=http://127.0.0.1:4533 SIMCTL_CHILD_MUSIC_USER=look \
+                    SIMCTL_CHILD_MUSIC_PASSWORD=look xcrun simctl launch "$UDID" com.milescoviello.music
+                  sleep 6
+                  "$HINGE" screenshot "$RUNNER_TEMP/shots/6-stats.png"
+                  for n in $(seq -w 1 20); do sleep 4; "$HINGE" screenshot "$RUNNER_TEMP/shots/7-wrapped-$n.png"; done
+                  xcrun simctl spawn "$UDID" launchctl list | grep -i com.milescoviello.music || echo "Music is NOT running"
 
             - uses: actions/upload-artifact@v4
               if: always()

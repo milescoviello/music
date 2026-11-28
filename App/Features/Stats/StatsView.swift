@@ -70,6 +70,14 @@ struct StatsView: View {
         .playerClearance()
         .refreshable { await load() }
         .task { await load() }
+        #if targetEnvironment(simulator)
+        // The Duo look check (MainTabView.openFromLaunchEnvironment): Wrapped on its own.
+        .task {
+            guard ProcessInfo.processInfo.environment["MUSIC_SHOW"] == "wrapped" else { return }
+            try? await Task.sleep(for: .seconds(4))
+            isShowingRecap = true
+        }
+        #endif
     }
 
     // MARK: - Listening
