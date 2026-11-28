@@ -17,6 +17,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     ) -> Bool {
         // Before launch finishes, or iOS refuses it.
         MainActor.assumeIsolated { OvernightSync.register() }
+        // Before the first window, so no screen is ever laid out around the Duo's side bar.
+        VerticalBar.turnOff()
         return true
     }
 

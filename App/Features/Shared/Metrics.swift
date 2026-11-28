@@ -89,7 +89,9 @@ extension View {
 /// everything else centred sat some 40 pt left of the middle. The short side is now made
 /// up to match; where the two already match, which is everywhere but the Duo, this adds
 /// nothing. Lists and forms come out 20 pt wider on the added side than on the system's
-/// (UIKit adds its margin to the one but not the other), which is close enough.
+/// (UIKit adds its margin to the one but not the other), which is close enough. From
+/// iOS 27.1 the column is turned off altogether (`VerticalBar`), and this finds nothing
+/// to even out.
 ///
 /// Added on the window's root view controller, as `additionalSafeAreaInsets`, because
 /// that is the one place every screen inherits from: the tabs, the navigation stacks and
