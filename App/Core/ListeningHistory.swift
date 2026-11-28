@@ -48,9 +48,12 @@ final class ListeningHistory {
     /// next one.
     private(set) var relinked = 0
 
-    /// Roughly two years of heavy listening. Capped because this is read whole for every
-    /// statistic, and an unbounded array would eventually make the stats screen crawl.
-    private let limit = 20_000
+    /// The statistics are all time, so this is set far past any real history rather than
+    /// near it: the old 20,000, about two years of heavy listening, would have quietly
+    /// started dropping the oldest plays of a history the server keeps for good. Still a
+    /// cap, because this is read whole for every statistic; the reading and writing are
+    /// off the main thread and the stats screen keeps what it works out.
+    private let limit = 150_000
     private let url = Paths.root.appendingPathComponent("history.json")
     private var saveTask: Task<Void, Never>?
     private let writer = HistoryWriter()
@@ -339,26 +342,28 @@ final class ListeningHistory {
         return buckets
     }
 
-    /// Plays per day for the last `days` days, oldest first, for the little bar chart.
-    func playsByDay(_ days: Int = 30) -> [(date: Date, count: Int)] {
+    /// Plays per month, from the month of the first play to this one, oldest first, for the
+    /// little bar chart: all time, with an empty month shown as one.
+    func playsByMonth() -> [(date: Date, count: Int)] {
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: .now)
+        func month(of date: Date) -> Date {
+            calendar.date(from: calendar.dateComponents([.year, .month], from: date)) ?? date
+        }
+        guard let first = plays.first?.at else { return [] }
         var buckets: [Date: Int] = [:]
-
         for play in plays {
-            let day = calendar.startOfDay(for: play.at)
-            guard let gap = calendar.dateComponents([.day], from: day, to: today).day,
-                  gap >= 0, gap < days
-            else { continue }
-            buckets[day, default: 0] += 1
+            buckets[month(of: play.at), default: 0] += 1
         }
 
-        return (0..<days).reversed().compactMap { offset in
-            guard let day = calendar.date(byAdding: .day, value: -offset, to: today) else {
-                return nil
-            }
-            return (date: day, count: buckets[day] ?? 0)
+        var months: [(date: Date, count: Int)] = []
+        var cursor = month(of: min(first, .now))
+        let last = month(of: .now)
+        while cursor <= last {
+            months.append((date: cursor, count: buckets[cursor] ?? 0))
+            guard let next = calendar.date(byAdding: .month, value: 1, to: cursor) else { break }
+            cursor = next
         }
+        return months
     }
 
     /// Consecutive days ending today (or yesterday) with at least one play.

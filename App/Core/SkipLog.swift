@@ -22,8 +22,9 @@ final class SkipLog {
         return skips.reduce(0) { $0 + ($1.at >= start ? 1 : 0) }
     }
     @ObservationIgnored private let url = Paths.root.appendingPathComponent("skips.json")
-    /// A year of skipping at ten a day: they fade out of any score long before.
-    @ObservationIgnored private let limit = 3_000
+    /// Years of skipping: they fade out of any score long before, but Stats counts them all
+    /// time beside the plays.
+    @ObservationIgnored private let limit = 20_000
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var isLoaded = false
     /// The play log, whose full plays forgive earlier skips. Set by `AppState`.

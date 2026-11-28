@@ -52,6 +52,13 @@ final class TasteSync {
         }
     }
 
+    /// After the history was cleared: the server's own play log is read again from its
+    /// first row at the next sync, so clearing loses only the plays the server never got,
+    /// and the statistics stay all time.
+    func readServerLogAgain() {
+        UserDefaults.standard.removeObject(forKey: Key.serverRow)
+    }
+
     func sync() async {
         guard let appState, !isSyncing, appState.reachability.network != .offline else { return }
         isSyncing = true

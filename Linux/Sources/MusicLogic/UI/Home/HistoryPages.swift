@@ -168,29 +168,17 @@ enum TripModePage {
     }
 }
 
-/// Stats: what this computer recorded — plays, hours, streaks, when you listen, the top
-/// lists — and what the server knows across every device.
+/// Stats, all time: plays, hours, streaks, when you listen and the top lists from the play
+/// log -- the server's own, every play any player logged, with what this app and the other
+/// devices recorded -- and what the server knows across every device.
 @MainActor
 enum StatsPage {
     static func make(_ env: Env) -> NavigationPage {
         let app = env.app
         let history = app.history
-        var window: ListeningHistory.Window = .month
-        let windows = ListeningHistory.Window.allCases
-        let switcher = Box.horizontal().css("linked").halign(GTK_ALIGN_CENTER)
+        // All time, always: no window to pick.
+        let window = ListeningHistory.Window.all
         let local = Box.vertical(spacing: 24)
-        var first: ToggleButton?
-        for option in windows {
-            let toggle = ToggleButton(option.title)
-            if let first { toggle.group(with: first) } else { first = toggle }
-            toggle.isActive = option == window
-            switcher.append(toggle)
-            Signal.connect(toggle.widget, "toggled") {
-                guard toggle.isActive else { return }
-                window = option
-                fill()
-            }
-        }
 
         func fill() {
             local.removeAll()
@@ -204,15 +192,17 @@ enum StatsPage {
                 figure("\(history.streak)", "day streak")
                 figure("\(app.skips.count(in: window))", "skipped")
             }.homogeneous()
-            local.append(RediscoverPage.section("Your Listening",
-                footer: history.plays.isEmpty ? "Nothing yet. Plays are recorded as they happen, on this computer." : "Every play your server has logged, from any player, with what this app recorded here and on your other devices.",
+            let since = history.plays.first.map { " since \($0.at.formatted(.dateTime.month(.wide).year()))" } ?? ""
+            local.append(RediscoverPage.section("Your Listening, All Time",
+                footer: history.plays.isEmpty ? "Nothing yet. The server's play log comes in when the app next reaches it." : "Every play your server has logged\(since), from any player, with what this app recorded here and on your other devices.",
                 figures))
 
             let byHour = history.playsByHour(in: window)
-            let byDay = history.playsByDay(30)
+            let byMonth = history.playsByMonth()
             local.append(RediscoverPage.section("When You Listen", footer: nil, Box.vertical(spacing: 12) {
                 bars(byHour.map(Double.init), height: 70, labels: ["12a", "12p", "11p"])
-                bars(byDay.map { Double($0.count) }, height: 50, labels: ["Last 30 days"])
+                bars(byMonth.map { Double($0.count) }, height: 50,
+                     labels: byMonth.first.map { ["By month, since \($0.date.formatted(.dateTime.month(.abbreviated).year()))"] } ?? [])
             }))
             for (title, entries) in [
                 ("Top Artists", history.topArtists(in: window)),
@@ -231,16 +221,26 @@ enum StatsPage {
             }
             if !history.plays.isEmpty {
                 let count = history.plays.count
-                local.append(PreferencesGroup(description: "\(count) plays in this computer's history. Clearing does not touch the server's own play counts or its play log.") {
+                local.append(PreferencesGroup(description: "\(count) plays in your history. Clearing empties this computer's copy; the server's play counts and its play log stay as they are.") {
                     ButtonRow("Export History…", icon: "document-save-symbolic") {
                         FilePicker.save(Data(csv(history.plays).utf8), suggestedName: "listening-history.csv", title: "Export Listening History")
                     }
                     ButtonRow("Clear Listening History", icon: "user-trash-symbolic", destructive: true) {
                         Dialogs.alert(
-                            "Delete \(count) plays from this computer's history?",
-                            body: "Play counts on the server are unaffected.",
+                            "Delete this computer's copy of \(count) plays?",
+                            body: "Every play the server logged comes back from its play log. Only plays the server never got are lost.",
                             responses: [("cancel", "Cancel", ADW_RESPONSE_DEFAULT), ("delete", "Delete", ADW_RESPONSE_DESTRUCTIVE)]
-                        ) { if $0 == "delete" { history.clear(); fill() } }
+                        ) {
+                            guard $0 == "delete" else { return }
+                            history.clear()
+                            app.taste.readServerLogAgain()
+                            fill()
+                            let shown = local.liveness
+                            Task { @MainActor in
+                                await app.taste.sync()
+                                if shown.isAlive { fill() }
+                            }
+                        }
                     }
                 })
             }
@@ -253,7 +253,6 @@ enum StatsPage {
         }
         let body = Box.vertical(spacing: 24) {
             recap
-            switcher
             local
             server
         }.margin(horizontal: 12, vertical: 24)
@@ -379,7 +378,7 @@ enum ChartsPage {
     static func make(_ env: Env) -> NavigationPage {
         let app = env.app
         let defaults = UserDefaults.standard
-        var span = ChartSpan(rawValue: defaults.string(forKey: "charts.span") ?? "") ?? .month
+        var span = ChartSpan(rawValue: defaults.string(forKey: "charts.span") ?? "") ?? .all
         var limit = defaults.object(forKey: "charts.limit") as? Int ?? 25
         var hemisphere = Hemisphere(rawValue: defaults.string(forKey: "charts.hemisphere") ?? "") ?? .north
         var period: ChartPeriod?

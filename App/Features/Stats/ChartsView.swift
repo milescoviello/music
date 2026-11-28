@@ -3,15 +3,15 @@ import SwiftUI
 /// Plexamp's charts — "Aural Fixations": your top tracks, albums and artists for a week,
 /// a month, a season, a year, a decade or all time, stepping back through earlier ones.
 ///
-/// Built from this phone's own play history, because the server only knows how many times
-/// something was played, never when. All Time's albums come from the server's play counts
-/// as well, which reach back before the app was installed.
+/// Built from the play history, which is the server's own log of every play from any
+/// player, with what this app and the other devices recorded. Opens on All Time, like
+/// every statistic; the shorter spans are for stepping back through.
 struct ChartsView: View {
     @Environment(AppState.self) private var appState
     @Environment(ListeningHistory.self) private var history
     @Environment(LibraryScopeStore.self) private var scope
 
-    @AppStorage("charts.span") private var spanRaw = ChartSpan.month.rawValue
+    @AppStorage("charts.span") private var spanRaw = ChartSpan.all.rawValue
     @AppStorage("charts.limit") private var limit = 25
     @AppStorage("charts.hemisphere") private var hemisphereRaw = Hemisphere.north.rawValue
 
@@ -26,7 +26,7 @@ struct ChartsView: View {
         case artists = "Artists"
     }
 
-    private var span: ChartSpan { ChartSpan(rawValue: spanRaw) ?? .month }
+    private var span: ChartSpan { ChartSpan(rawValue: spanRaw) ?? .all }
     private var hemisphere: Hemisphere { Hemisphere(rawValue: hemisphereRaw) ?? .north }
     private var shown: ChartPeriod { period ?? ChartPeriod.current(span) }
 

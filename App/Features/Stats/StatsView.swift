@@ -1,26 +1,15 @@
 import SwiftUI
 
-/// Listening statistics, and what the server holds.
+/// Listening statistics, all time, and what the server holds.
 ///
-/// Split deliberately into two kinds of number, because they answer different questions
-/// and have different reach:
-///
-/// - **This phone** comes from the app's own play log. Navidrome does keep a per-play
-///   event table, but neither its API nor Subsonic's exposes it, so anything needing
-///   individual plays — time of day, streaks, "this week" — has to be recorded here as it
-///   happens. These figures start from when the app was installed.
-/// - **Everywhere** comes from Navidrome's own API, which unlike Subsonic returns a
-///   `playDate` per song. That reaches back through the whole library, covers desktop
-///   Feishin too, and includes the plays imported from Plex.
-///
-/// Saying which is which matters: "you played this 8 times on this phone" and "this has
-/// been played 8 times" are different claims, and merging them would make the screen
-/// quietly untrue.
+/// Every figure is all time: there is no window to pick. The play log they come from is
+/// the server's own, every play any player logged back to the first (Plex's era
+/// included), which `TasteSync` brings in through sonic, with what this app and the other
+/// devices recorded. Navidrome's own API adds the per-song counts and last-played dates.
 struct StatsView: View {
     @Environment(AppState.self) private var appState
     @Environment(ListeningHistory.self) private var history
 
-    @State private var window: ListeningHistory.Window = .month
     @State private var figures = HistoryFigures()
     @State private var confirmsClearHistory = false
     @State private var scan: ScanStatus?
@@ -67,14 +56,6 @@ struct StatsView: View {
     @ViewBuilder
     private var listeningSection: some View {
         Section {
-            Picker("Window", selection: $window) {
-                ForEach(ListeningHistory.Window.allCases) { option in
-                    Text(option.title).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
-
             HStack {
                 figure("\(current.count)", "plays")
                 Divider()
@@ -82,16 +63,16 @@ struct StatsView: View {
                 Divider()
                 figure("\(log.streak)", log.streak == 1 ? "day streak" : "day streak")
                 Divider()
-                figure("\(appState.skips.count(in: window))", "skipped")
+                figure("\(appState.skips.count(in: .all))", "skipped")
             }
             .frame(maxWidth: .infinity)
         } header: {
-            Text("Your Listening")
+            Text("Your Listening, All Time")
         } footer: {
             if history.plays.isEmpty {
-                Text("Nothing yet. Plays are recorded as they happen, on this phone.")
-            } else {
-                Text("Every play your server has logged, from any player, with what this app recorded here and on your other devices.")
+                Text("Nothing yet. The server's play log comes in when the app next reaches it.")
+            } else if let first = history.plays.first?.at {
+                Text("Every play your server has logged since \(first.formatted(.dateTime.month(.wide).year())), from any player, with what this app recorded here and on your other devices.")
             }
         }
 
@@ -108,23 +89,27 @@ struct StatsView: View {
                     confirmsClearHistory = true
                 }
             } footer: {
-                Text("\(history.plays.count) plays in this phone's history. Clearing does not touch the server's own play counts or its play log.")
+                Text("\(history.plays.count) plays in your history. Clearing empties this phone's copy; the server's play counts and its play log stay as they are.")
             }
             .confirmationDialog(
-                "Delete \(history.plays.count) plays from this phone's history?",
+                "Delete this phone's copy of \(history.plays.count) plays?",
                 isPresented: $confirmsClearHistory,
                 titleVisibility: .visible
             ) {
-                Button("Delete", role: .destructive) { history.clear() }
+                Button("Delete", role: .destructive) {
+                    history.clear()
+                    appState.taste.readServerLogAgain()
+                    Task { await appState.taste.sync() }
+                }
             } message: {
-                Text("This only clears what this phone recorded. Play counts on the server are unaffected.")
+                Text("Every play the server logged comes back from its play log. Only plays the server never got are lost.")
             }
         }
     }
 
     /// The play log's figures for this redraw, worked out only when the log has changed.
     private var log: HistoryFigures.Log { figures.log(of: history) }
-    private var current: HistoryFigures.Windowed { figures.windowed(window, of: history) }
+    private var current: HistoryFigures.Windowed { figures.windowed(.all, of: history) }
 
     private var hours: String {
         let seconds = current.seconds
@@ -155,7 +140,7 @@ struct StatsView: View {
                 .frame(height: 90)
                 .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 4, trailing: 16))
 
-            DayChart(days: log.byDay)
+            MonthChart(months: log.byMonth)
                 .frame(height: 70)
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 12, trailing: 16))
         }
@@ -392,7 +377,7 @@ struct StatsView: View {
 private final class HistoryFigures {
     struct Log {
         let streak: Int
-        let byDay: [(date: Date, count: Int)]
+        let byMonth: [(date: Date, count: Int)]
         let csv: String
     }
 
@@ -422,7 +407,7 @@ private final class HistoryFigures {
     func log(of history: ListeningHistory) -> Log {
         refresh(history)
         if let madeLog { return madeLog }
-        let made = Log(streak: history.streak, byDay: history.playsByDay(30), csv: Self.csv(history.plays))
+        let made = Log(streak: history.streak, byMonth: history.playsByMonth(), csv: Self.csv(history.plays))
         madeLog = made
         return made
     }
@@ -522,23 +507,27 @@ private struct HourChart: View {
 }
 
 /// The last 30 days.
-private struct DayChart: View {
-    let days: [(date: Date, count: Int)]
+/// Plays per month, from the first in the log to this one: all time, like the rest.
+private struct MonthChart: View {
+    let months: [(date: Date, count: Int)]
 
     var body: some View {
-        let peak = max(days.map(\.count).max() ?? 1, 1)
+        let peak = max(months.map(\.count).max() ?? 1, 1)
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .bottom, spacing: 2) {
-                ForEach(Array(days.enumerated()), id: \.offset) { _, day in
+                ForEach(Array(months.enumerated()), id: \.offset) { _, month in
                     RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(day.count == 0 ? Color.secondary.opacity(0.15) : Color.appTint.opacity(0.8))
-                        .frame(height: max(2, CGFloat(day.count) / CGFloat(peak) * 44))
+                        .fill(month.count == 0 ? Color.secondary.opacity(0.15) : Color.appTint.opacity(0.8))
+                        .frame(height: max(2, CGFloat(month.count) / CGFloat(peak) * 44))
+                        .accessibilityLabel("\(month.date.formatted(.dateTime.month(.wide).year())): \(month.count) plays")
                 }
             }
-            Text("Last 30 days")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            if let first = months.first?.date {
+                Text("By month, since \(first.formatted(.dateTime.month(.abbreviated).year()))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 }
