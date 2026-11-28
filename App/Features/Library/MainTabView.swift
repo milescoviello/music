@@ -159,6 +159,9 @@ struct MainTabView: View {
     private func openFromLaunchEnvironment() async {
         guard let show = ProcessInfo.processInfo.environment["MUSIC_SHOW"], show == "stats" || show == "wrapped" else { return }
         try? await Task.sleep(for: .seconds(3))
+        // The stand-in server answers every request with an empty success, which the launch's own
+        // catch-up does not get past; the plays come in through the taste log, so ask for it here.
+        await appState.taste.sync()
         selection = .library
         navigator.open(.stats)
     }
