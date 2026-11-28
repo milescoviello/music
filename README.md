@@ -34,8 +34,12 @@ server -- desktop Feishin, say -- stays in step. Neither app keeps that state to
   it is signed in, what it shares and sends, its downloads folder by folder and the imports
   into the library. Only lossless copies are ever taken. The request service sits beside
   the server and is reached through `server/sonic`; it is not part of this repository.
-- **Guest DJs** that slip picks into the queue as it plays, and **listening stats**:
-  history, charts, and top artists, albums and songs by week, month and year.
+- **Guest DJs** that slip picks into the queue as it plays, and **listening stats**, all
+  time, from the server's own log of every play: minutes listened, when you listen, charts
+  of top songs, albums and artists that step back by week, month, season, year or decade,
+  and a Wrapped-style story of the year with a card to share. History from YouTube and
+  YouTube Music (Google Takeout) or Apple Music (Apple's data export) can be imported into
+  the same log through `server/sonic`, and counts everywhere.
 - **Siri and Shortcuts** on the phone: play a playlist, play favourites, shuffle the
   library.
 - **Play on the computer from the phone** (see below), the way one Plexamp plays to
