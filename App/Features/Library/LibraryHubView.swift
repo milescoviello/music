@@ -187,8 +187,9 @@ struct LibraryRow: LayoutItem {
 
     /// The page's old order, which is the default one.
     static var allCases: [LibraryRow] {
+        // No Charts: it is part of Stats now.
         [.playlists, .artists, .albums, .tracks, .recentlyPlayed, .mostPlayed, .genres, .favourites, .downloads,
-         .stations, .charts]
+         .stations]
             + LibraryFacet.allCases.map(facet)
             + [.folders, .rediscover, .makePlaylist, .lyricSearch, .tripMode, .stats, .libraryHealth,
                .duplicateAlbums, .requestMusic, .settings]
@@ -265,7 +266,7 @@ struct LibraryRow: LayoutItem {
         case .mostPlayed: return .albums(.frequent)
         case .genres: return .genres
         case .stations: return .stations
-        case .charts: return .charts
+        case .charts: return .stats
         case .folders: return .folder(nil)
         case .favourites: return .favorites
         case .downloads: return .downloads

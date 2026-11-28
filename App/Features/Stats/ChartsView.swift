@@ -6,7 +6,10 @@ import SwiftUI
 /// Built from the play history, which is the server's own log of every play from any
 /// player, with what this app and the other devices recorded. Opens on All Time, like
 /// every statistic; the shorter spans are for stepping back through.
-struct ChartsView: View {
+///
+/// Sections, not a screen: Charts is part of Stats (his ask, 11-27: one place, not two), so
+/// these sit in Stats' own list under the all-time figures, in place of its top lists.
+struct ChartsSections: View {
     @Environment(AppState.self) private var appState
     @Environment(ListeningHistory.self) private var history
     @Environment(LibraryScopeStore.self) private var scope
@@ -31,72 +34,56 @@ struct ChartsView: View {
     private var shown: ChartPeriod { period ?? ChartPeriod.current(span) }
 
     var body: some View {
-        List {
-            Group {
-                Section {
-                    Picker("Span", selection: $spanRaw) {
-                        ForEach(ChartSpan.allCases) { span in
-                            Text(span.title).tag(span.rawValue)
-                        }
-                    }
-                    .pickerStyle(.menu)
-
-                    if span != .all {
-                        HStack {
-                            Button {
-                                period = shown.offset(by: -1)
-                            } label: {
-                                Image(systemName: "chevron.left")
-                            }
-                            .buttonStyle(.borderless)
-
-                            Spacer()
-                            Text(shown.title(hemisphere: hemisphere))
-                                .font(.headline)
-                            Spacer()
-
-                            Button {
-                                period = shown.offset(by: 1)
-                            } label: {
-                                Image(systemName: "chevron.right")
-                            }
-                            .buttonStyle(.borderless)
-                            .disabled(!shown.hasNext())
-                        }
-                    }
-
-                    Picker("Chart", selection: $kind) {
-                        ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                Section {
-                    switch kind {
-                    case .tracks: trackRows
-                    case .albums: albumRows
-                    case .artists: artistRows
-                    }
+        Section {
+            Picker("Span", selection: $spanRaw) {
+                ForEach(ChartSpan.allCases) { span in
+                    Text(span.title).tag(span.rawValue)
                 }
             }
-            .glassRow()
-        }
-        .navigationTitle("Charts")
-        .playerClearance()
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Length", selection: $limit) {
-                        ForEach(Charts.limits, id: \.self) { Text("Top \($0)").tag($0) }
+            .pickerStyle(.menu)
+
+            if span != .all {
+                HStack {
+                    Button {
+                        period = shown.offset(by: -1)
+                    } label: {
+                        Image(systemName: "chevron.left")
                     }
-                    Picker("Hemisphere", selection: $hemisphereRaw) {
-                        Text("Northern Hemisphere").tag(Hemisphere.north.rawValue)
-                        Text("Southern Hemisphere").tag(Hemisphere.south.rawValue)
+                    .buttonStyle(.borderless)
+
+                    Spacer()
+                    Text(shown.title(hemisphere: hemisphere))
+                        .font(.headline)
+                    Spacer()
+
+                    Button {
+                        period = shown.offset(by: 1)
+                    } label: {
+                        Image(systemName: "chevron.right")
                     }
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
+                    .buttonStyle(.borderless)
+                    .disabled(!shown.hasNext())
                 }
             }
+
+            Picker("Chart", selection: $kind) {
+                ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+
+            Menu {
+                Picker("Length", selection: $limit) {
+                    ForEach(Charts.limits, id: \.self) { Text("Top \($0)").tag($0) }
+                }
+                Picker("Hemisphere", selection: $hemisphereRaw) {
+                    Text("Northern Hemisphere").tag(Hemisphere.north.rawValue)
+                    Text("Southern Hemisphere").tag(Hemisphere.south.rawValue)
+                }
+            } label: {
+                Label("Top \(limit), \(hemisphere == .north ? "northern" : "southern") seasons", systemImage: "slider.horizontal.3")
+            }
+        } header: {
+            Text("Charts")
         }
         .onChange(of: spanRaw) { period = nil }
         // The length is in the key too: Top 50 kept All Time's albums at 25.
@@ -105,6 +92,14 @@ struct ChartsView: View {
             serverAlbums = (try? await appState.client.mostPlayedAlbums(size: limit, scope: scope.scope)) ?? []
         }
         .task(id: rankKey) { await rank(rankKey) }
+
+        Section {
+            switch kind {
+            case .tracks: trackRows
+            case .albums: albumRows
+            case .artists: artistRows
+            }
+        }
     }
 
     // MARK: - Ranking

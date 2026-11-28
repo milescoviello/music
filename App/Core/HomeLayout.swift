@@ -88,7 +88,10 @@ struct ItemLayout<Item: LayoutItem>: Codable, Equatable, Sendable {
               let stored = try? JSONDecoder().decode(StoredLayout.self, from: data)
         else { return .default }
 
-        var order = stored.order.compactMap(Item.init(rawValue:))
+        // A row retired since (Charts, folded into Stats) is dropped rather than kept as a way in
+        // the page no longer offers.
+        let offered = Set(Item.allCases)
+        var order = stored.order.compactMap(Item.init(rawValue:)).filter { offered.contains($0) }
         var seen = Set<Item>()
         order = order.filter { seen.insert($0).inserted }
 

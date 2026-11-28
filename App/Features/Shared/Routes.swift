@@ -158,7 +158,8 @@ private struct DestinationPage: View {
         case let .albumCollection(title, albums):
             AlbumCollectionView(title: title, albums: albums)
         case .charts:
-            ChartsView()
+            // Charts is part of Stats now; the destination stays for links made before.
+            StatsView()
         case .tracks:
             TracksView()
         case let .folder(ref):

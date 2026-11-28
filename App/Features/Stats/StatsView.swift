@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Listening statistics, all time, and what the server holds.
 ///
@@ -19,6 +20,11 @@ struct StatsView: View {
     @State private var recentTracks: [NavidromeClient.Song] = []
     @State private var topTracks: [NavidromeClient.Song] = []
     @State private var isShowingRecap = false
+    /// The server's own count of its play log: the all-time figures, when it can be had.
+    @State private var server: SonicClient.ServerPlaysSummary?
+    @State private var isPickingImport = false
+    @State private var isImporting = false
+    @State private var importReport: String?
 
     var body: some View {
         List {
@@ -27,15 +33,31 @@ struct StatsView: View {
                     Button {
                         isShowingRecap = true
                     } label: {
-                        Label("Your \(String(Calendar.current.component(.year, from: .now))) in Music", systemImage: "sparkles")
-                            .font(.headline)
+                        HStack(spacing: 14) {
+                            Image(systemName: "sparkles")
+                                .font(.title.weight(.bold))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Your \(String(Calendar.current.component(.year, from: .now))) Wrapped")
+                                    .font(.title3.weight(.heavy))
+                                Text("Your year in music, a story at a time")
+                                    .font(.subheadline)
+                                    .opacity(0.85)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 10)
                     }
-                } footer: {
-                    Text("Your year so far: top songs, artists and albums, and how you listened.")
+                    .listRowBackground(
+                        LinearGradient(colors: [Color.appTint, Color(red: 0.12, green: 0.84, blue: 0.38)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                    )
                 }
                 listeningSection
                 shapeSection
-                topSection
+                ChartsSections()
+                genreSection
                 allTimeSection
                 nowPlayingSection
                 librarySection
@@ -44,7 +66,7 @@ struct StatsView: View {
             .glassRow()
         }
         .navigationTitle("Stats")
-        .sheet(isPresented: $isShowingRecap) { RecapView() }
+        .fullScreenCover(isPresented: $isShowingRecap) { RecapView() }
         .playerClearance()
         .refreshable { await load() }
         .task { await load() }
@@ -56,24 +78,55 @@ struct StatsView: View {
     @ViewBuilder
     private var listeningSection: some View {
         Section {
+            VStack(spacing: 4) {
+                Text(totalMinutes.formatted())
+                    .font(.system(size: 48, weight: .heavy, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Color.appTint)
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                Text("minutes listened")
+                    .font(.headline)
+                Text(hoursAndDays)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+
             HStack {
-                figure("\(current.count)", "plays")
+                figure(totalPlays.formatted(), "plays")
                 Divider()
-                figure(hours, "listened")
+                figure("\(log.streak)", "day streak")
                 Divider()
-                figure("\(log.streak)", log.streak == 1 ? "day streak" : "day streak")
-                Divider()
-                figure("\(appState.skips.count(in: .all))", "skipped")
+                figure(appState.skips.count(in: .all).formatted(), "skipped")
             }
             .frame(maxWidth: .infinity)
         } header: {
             Text("Your Listening, All Time")
         } footer: {
-            if history.plays.isEmpty {
+            if let first = firstPlay {
+                Text("Every play your server has logged since \(first.formatted(.dateTime.month(.wide).day().year())), from any player.")
+            } else {
                 Text("Nothing yet. The server's play log comes in when the app next reaches it.")
-            } else if let first = history.plays.first?.at {
-                Text("Every play your server has logged since \(first.formatted(.dateTime.month(.wide).year())), from any player, with what this app recorded here and on your other devices.")
             }
+        }
+
+        Section {
+            Button {
+                isPickingImport = true
+            } label: {
+                Label(isImporting ? "Importing…" : "Import from YouTube or Apple Music", systemImage: "square.and.arrow.down")
+            }
+            .disabled(isImporting)
+        } header: {
+            Text("History From Elsewhere")
+        } footer: {
+            Text(importReport ?? "Google Takeout: choose YouTube and YouTube Music, with the history as JSON. Apple: privacy.apple.com, request a copy of your data, Apple Media Services. The zip as it downloads is fine, and importing one again adds nothing twice.")
+        }
+        .fileImporter(isPresented: $isPickingImport, allowedContentTypes: [.zip, .json, .commaSeparatedText, .data],
+                      allowsMultipleSelection: true) { result in
+            guard case let .success(files) = result, !files.isEmpty else { return }
+            Task { await importHistory(files) }
         }
 
         if !history.plays.isEmpty {
@@ -107,17 +160,60 @@ struct StatsView: View {
         }
     }
 
+    /// Each picked file to the service, which reads it into the shared play log; then a sync, so
+    /// its plays are here at once rather than at the next one. Copied out first: a file from
+    /// Files or iCloud is only readable while its security scope is open.
+    private func importHistory(_ files: [URL]) async {
+        isImporting = true
+        defer { isImporting = false }
+        let client = SonicClient(configuration: appState.sonic.configuration)
+        var lines: [String] = []
+        for file in files {
+            let copy = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + "-" + file.lastPathComponent)
+            defer { try? FileManager.default.removeItem(at: copy) }
+            do {
+                let scoped = file.startAccessingSecurityScopedResource()
+                let copied = Result { try FileManager.default.copyItem(at: file, to: copy) }
+                if scoped { file.stopAccessingSecurityScopedResource() }
+                try copied.get()
+                let result = try await client.importHistory(file: copy)
+                let name = result.source == "apple" ? "Apple Music" : "YouTube"
+                let years = [result.first, result.last].compactMap { $0 }
+                    .map { Calendar.current.component(.year, from: Date(timeIntervalSince1970: $0)) }
+                let span = years.count == 2 ? (years[0] == years[1] ? " from \(years[0])" : " from \(years[0]) to \(years[1])") : ""
+                lines.append("\(name): \(result.plays.formatted()) plays\(span), \(result.matched.formatted()) in your library, \(result.added.formatted()) new.")
+                await Diagnostics.shared.record(
+                    "history", "imported \(file.lastPathComponent): \(result.source), \(result.plays) plays\(span), \(result.matched) in the library, \(result.added) new"
+                )
+            } catch {
+                let said: String
+                if case let SonicError.refused(message) = error { said = message } else { said = error.localizedDescription }
+                lines.append("\(file.lastPathComponent): \(said)")
+                await Diagnostics.shared.record("history", "import of \(file.lastPathComponent) failed: \(Diagnostics.describe(error))")
+            }
+        }
+        importReport = lines.joined(separator: "\n")
+        await appState.taste.sync()
+    }
+
     /// The play log's figures for this redraw, worked out only when the log has changed.
     private var log: HistoryFigures.Log { figures.log(of: history) }
     private var current: HistoryFigures.Windowed { figures.windowed(.all, of: history) }
 
-    private var hours: String {
-        let seconds = current.seconds
-        if seconds < 3_600 { return "\(seconds / 60)m" }
-        let hours = Double(seconds) / 3_600
-        return hours < 10
-            ? String(format: "%.1fh", hours)
-            : "\(Int(hours))h"
+    /// The server's count when it answered, which is the whole log; the copy here otherwise. The
+    /// two agree once the copy has read the log (TasteSync checks), so this is the same number
+    /// either way, only sooner.
+    private var totalSeconds: Int { max(server?.seconds ?? 0, current.seconds) }
+    private var totalPlays: Int { max(server?.plays ?? 0, current.count) }
+    private var totalMinutes: Int { totalSeconds / 60 }
+    private var firstPlay: Date? {
+        [server?.first.map(Date.init(timeIntervalSince1970:)), history.plays.first?.at].compactMap { $0 }.min()
+    }
+
+    private var hoursAndDays: String {
+        let hours = totalSeconds / 3_600
+        let days = Double(totalSeconds) / 86_400
+        return "\(hours.formatted()) hours, or \(days.formatted(.number.precision(.fractionLength(1)))) days of music"
     }
 
     private func figure(_ value: String, _ label: String) -> some View {
@@ -148,11 +244,9 @@ struct StatsView: View {
 
     // MARK: - Tops
 
+    /// Charts has the songs, albums and artists; genres only here.
     @ViewBuilder
-    private var topSection: some View {
-        rankSection("Top Artists", current.artists)
-        rankSection("Top Albums", current.albums)
-        rankSection("Top Songs", current.songs)
+    private var genreSection: some View {
         rankSection("Top Genres", current.genres)
     }
 
@@ -357,6 +451,8 @@ struct StatsView: View {
         async let playing = try? appState.client.nowPlaying()
         async let recent = try? appState.native.recentlyPlayed(limit: 25)
         async let top = try? appState.native.mostPlayedRecordings(limit: 25)
+        async let counted = try? SonicClient(configuration: appState.sonic.configuration)
+            .serverPlaysSummary(user: appState.credentials?.username ?? "")
 
         scan = await status
         starred = await stars
@@ -364,6 +460,13 @@ struct StatsView: View {
         nowPlaying = await playing ?? []
         recentTracks = await recent ?? []
         topTracks = await top ?? []
+        if let counted = await counted { server = counted }
+        let here = history.plays
+        await Diagnostics.shared.record(
+            "stats",
+            "shown: \(totalPlays) plays, \(totalMinutes) min (server \(server.map { "\($0.plays) plays, \($0.seconds / 60) min" } ?? "unknown"); "
+                + "here \(here.count) plays, \(current.seconds / 60) min, \(here.reduce(0) { $0 + ($1.duration > 0 ? 0 : 1) }) with no length)"
+        )
     }
 }
 

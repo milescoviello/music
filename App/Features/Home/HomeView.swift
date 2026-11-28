@@ -144,7 +144,7 @@ struct HomeView: View {
         case .favourites: favoriteSongs
         case .mostPlayed: albumShelf("Most Played", model.mostPlayed, sort: .frequent)
         case .mostPlayedThisMonth:
-            albumShelf(model.monthTitle, model.mostPlayedThisMonth, seeAll: .charts)
+            albumShelf(model.monthTitle, model.mostPlayedThisMonth, seeAll: .stats)
         case .forgottenFavourites: forgottenFavourites
         case .onThisDay: onThisDay
         case .moreInGenre:
