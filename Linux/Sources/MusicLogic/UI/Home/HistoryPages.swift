@@ -204,10 +204,8 @@ enum StatsPage {
                 bars(byMonth.map { Double($0.count) }, height: 50,
                      labels: byMonth.first.map { ["By month, since \($0.date.formatted(.dateTime.month(.abbreviated).year()))"] } ?? [])
             }))
+            // Charts, below, has the songs, albums and artists; genres only here.
             for (title, entries) in [
-                ("Top Artists", history.topArtists(in: window)),
-                ("Top Albums", history.topAlbums(in: window)),
-                ("Top Songs", history.topSongs(in: window)),
                 ("Top Genres", history.topGenres(in: window)),
             ] where !entries.isEmpty {
                 let group = PreferencesGroup(title)
@@ -254,6 +252,7 @@ enum StatsPage {
         let body = Box.vertical(spacing: 24) {
             recap
             local
+            ChartsPage.section(env)
             server
         }.margin(horizontal: 12, vertical: 24)
         let alive = body.liveness
@@ -367,15 +366,16 @@ enum StatsPage {
     }
 }
 
-/// Charts from the local history: tracks, albums and artists for a week, month, season,
-/// year, decade or all time, stepping back through past periods.
+/// Charts from the play history: tracks, albums and artists for a week, month, season,
+/// year, decade or all time, stepping back through past periods. A section of Stats, not a
+/// page of its own (one place for both, as on the phone).
 @MainActor
 enum ChartsPage {
     private enum Kind: String, CaseIterable {
         case tracks = "Tracks", albums = "Albums", artists = "Artists"
     }
 
-    static func make(_ env: Env) -> NavigationPage {
+    static func section(_ env: Env) -> Box {
         let app = env.app
         let defaults = UserDefaults.standard
         var span = ChartSpan(rawValue: defaults.string(forKey: "charts.span") ?? "") ?? .all
@@ -405,7 +405,7 @@ enum ChartsPage {
             periodRow
             kinds
             list
-        }.margin(horizontal: 12, vertical: 24)
+        }
         let alive = body.liveness
 
         func shown() -> ChartPeriod { period ?? ChartPeriod.current(span) }
@@ -520,6 +520,13 @@ enum ChartsPage {
                 },
             ]])
         }
-        return Page.make("Charts", content: body) { bar in bar.end(options) }
+        let header = Box.horizontal(spacing: 8) {
+            Label("Charts", "heading").xalign(0).hexpand()
+            options
+        }
+        return Box.vertical(spacing: 12) {
+            header
+            body
+        }
     }
 }

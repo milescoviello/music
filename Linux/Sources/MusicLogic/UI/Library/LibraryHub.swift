@@ -72,7 +72,6 @@ enum LibraryHub {
             row("Recently Played", "document-open-recent-symbolic", .albums(.recent))
             row("Most Played", "view-continuous-symbolic", .albums(.frequent))
             row("Stations", "network-wireless-symbolic", .stations)
-            row("Charts", "power-profile-performance-symbolic", .charts)
         }
         let facets = PreferencesGroup()
         for facet in LibraryFacet.allCases { facets.add(row(facet.title, facet.icon, .libraryFacet(facet))) }

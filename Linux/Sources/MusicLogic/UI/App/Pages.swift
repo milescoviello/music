@@ -63,7 +63,8 @@ enum Pages {
         case .recap:
             return RecapPage.make(env)
         case .charts:
-            return ChartsPage.make(env)
+            // Charts is part of Stats now; the route stays for links made before.
+            return StatsPage.make(env)
         case .downloads:
             return DownloadsPage.make(env)
         case let .downloadFolder(id):

@@ -143,7 +143,7 @@ enum HomePage {
         case .mostPlayed:
             return albums(env, "Most Played", model.mostPlayed, more: .albums(.frequent))
         case .mostPlayedThisMonth:
-            return albums(env, model.monthTitle, model.mostPlayedThisMonth, more: .charts)
+            return albums(env, model.monthTitle, model.mostPlayedThisMonth, more: .stats)
         case .moreInGenre:
             guard let genre = model.moreInGenre else { return nil }
             return albums(env, "More in \(genre.name)", genre.albums, more: .genre(genre.name))
