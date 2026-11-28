@@ -74,7 +74,8 @@ struct StatsView: View {
         // The Duo look check (MainTabView.openFromLaunchEnvironment): Wrapped on its own.
         .task {
             guard ProcessInfo.processInfo.environment["MUSIC_SHOW"] == "wrapped" else { return }
-            try? await Task.sleep(for: .seconds(4))
+            // Long enough for the first sync to bring the stand-in's plays in, and for a picture of Stats.
+            try? await Task.sleep(for: .seconds(20))
             isShowingRecap = true
         }
         #endif

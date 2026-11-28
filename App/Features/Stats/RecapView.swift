@@ -34,7 +34,9 @@ struct RecapView: View {
         }
         .preferredColorScheme(.dark)
         .statusBarHidden()
-        .task {
+        // Again whenever the log grows: opened while a first sync is still bringing the plays in,
+        // it said "Nothing Yet" and stayed that way.
+        .task(id: history.plays.count) {
             await history.loaded()
             recap = history.recap()
         }

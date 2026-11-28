@@ -140,14 +140,15 @@ jobs:
             - name: Stats and the Wrapped story, unfolded
               run: |
                   # Opened from the launch environment (MainTabView.openFromLaunchEnvironment, simulator only):
-                  # Stats after 3 s, its Wrapped story 4 s later, then a picture every 4 s as the pages move on.
+                  # Stats after 3 s, its Wrapped story 20 s later, then a picture every 4 s as the pages move on.
                   xcrun simctl terminate "$UDID" com.milescoviello.music || true
                   "$HINGE" open
                   sleep 3
                   SIMCTL_CHILD_MUSIC_SHOW=wrapped SIMCTL_CHILD_MUSIC_SONIC=http://127.0.0.1:8650 SIMCTL_CHILD_MUSIC_SERVER=http://127.0.0.1:4533 SIMCTL_CHILD_MUSIC_USER=look \
                     SIMCTL_CHILD_MUSIC_PASSWORD=look xcrun simctl launch "$UDID" com.milescoviello.music
-                  sleep 6
+                  sleep 18
                   "$HINGE" screenshot "$RUNNER_TEMP/shots/6-stats.png"
+                  sleep 6
                   for n in $(seq -w 1 20); do sleep 4; "$HINGE" screenshot "$RUNNER_TEMP/shots/7-wrapped-$n.png"; done
                   xcrun simctl spawn "$UDID" launchctl list | grep -i com.milescoviello.music || echo "Music is NOT running"
 
