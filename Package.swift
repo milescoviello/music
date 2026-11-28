@@ -46,6 +46,7 @@ let appleOnly = [
     "QueuePlayerOutput.swift",
     "Reachability.swift",
     "ScreenAwake.swift",
+    "VerticalBar.swift",
     "VideoEngine.swift",
 ].map { "Core/\($0)" }
 
