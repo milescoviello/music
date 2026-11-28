@@ -114,6 +114,7 @@ final class TasteSync {
         let addedPlays = appState.history.merge(newPlays)
         let addedSkips = appState.skips.merge(newSkips)
         let fromServer = await takeInServerLog(client, user: appState.credentials?.username ?? "", into: appState.history)
+        await checkAgainstServer(client, user: appState.credentials?.username ?? "", history: appState.history)
         defaults.set(seq, forKey: Key.seq)
         // Only as far back as the next send can look: a day before this one, and a day of
         // slack for a clock that moved.
@@ -125,6 +126,43 @@ final class TasteSync {
                     + (fromServer > 0 ? ", and \(fromServer) plays from the server's own log" : "")
             )
         }
+    }
+
+    private var checkedAgainstServer = false
+
+    /// Once a launch, the copy of the history held here against the server's own count of its log,
+    /// both said in the log -- so a report says at once whether an all-time figure is short because the
+    /// copy is, or because that is all the server has. A copy short by more than a little reads the
+    /// server's log again from its first row: `merge` keeps every play once, so that only fills gaps.
+    private func checkAgainstServer(_ client: SonicClient, user: String, history: ListeningHistory) async {
+        guard !checkedAgainstServer else { return }
+        let server: SonicClient.ServerPlaysSummary?
+        do {
+            server = try await client.serverPlaysSummary(user: user)
+        } catch {
+            await Diagnostics.shared.record("history", "could not count the server's play log: \(Diagnostics.describe(error))")
+            return
+        }
+        guard let server else { return }
+        checkedAgainstServer = true
+        func day(_ date: Date?) -> String { date.map { $0.formatted(date: .abbreviated, time: .omitted) } ?? "none" }
+        let plays = history.plays
+        let seconds = plays.reduce(0) { $0 + $1.duration }
+        let unmeasured = plays.reduce(0) { $0 + ($1.duration > 0 ? 0 : 1) }
+        await Diagnostics.shared.record(
+            "history",
+            "here: \(plays.count) plays, \(seconds / 3600) h (\(seconds / 60) min), since \(day(plays.first?.at)), "
+                + "\(unmeasured) with no length; the server's log: \(server.plays) plays, \(server.seconds / 3600) h, "
+                + "since \(day(server.first.map(Date.init(timeIntervalSince1970:)))), read here to row "
+                + "\(UserDefaults.standard.integer(forKey: Key.serverRow)) of \(server.lastRow)"
+        )
+        guard plays.count + 25 < server.plays * 98 / 100 else { return }
+        readServerLogAgain()
+        let added = await takeInServerLog(client, user: user, into: history)
+        await Diagnostics.shared.record(
+            "history",
+            "\(server.plays - plays.count) plays short of the server's log: read it again from the start, \(added) added"
+        )
     }
 
     /// The music server's own play log, read through sonic: what other players (desktop

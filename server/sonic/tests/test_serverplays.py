@@ -41,6 +41,14 @@ class ServerPlays(unittest.TestCase):
         self.assertEqual(len(serverplays.page(db, user="")["plays"]), 3)
         self.assertEqual(serverplays.page(db, after=3, user="listener"), {"plays": [], "after": 3, "more": False})
 
+    def test_summary_counts_what_the_pages_hold(self):
+        db = self.database()
+        self.assertEqual(serverplays.summary(db, user="listener"),
+                         {"plays": 2, "seconds": 403, "first": 1_760_000_000.0, "last": 1_790_000_000.0, "lastRow": 3})
+        self.assertEqual(serverplays.summary(db, user="")["plays"], 3)
+        self.assertEqual(serverplays.summary(db, user="nobody"),
+                         {"plays": 0, "seconds": 0, "first": None, "last": None, "lastRow": 0})
+
 
 if __name__ == "__main__":
     unittest.main()

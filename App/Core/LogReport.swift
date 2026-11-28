@@ -86,6 +86,7 @@ struct LogReport: Sendable, Equatable {
         case .status(413): "The report is too big for the server."
         case .status(let code): "The sonic service answered \(code)."
         case .badURL: "The sonic service's address isn't valid. Check it in Sonic Analysis settings."
+        case .refused(let said): "The sonic service said: \(said)"
         case .notFound, nil: error.localizedDescription
         }
     }

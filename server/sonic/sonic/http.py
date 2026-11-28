@@ -13,9 +13,15 @@ import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
+import zipfile
+
+from . import imports
 from .config import TAGS
 from .links import history_links
 from .logs import LIMIT, LogBox
+
+#: The largest history export taken (an Apple data export with its media lists is a few hundred MB).
+IMPORT_LIMIT = 768 * 1024 * 1024
 from .lyricsfile import Refused
 
 log = logging.getLogger("sonic.http")
@@ -123,6 +129,7 @@ def make_handler(service):
         (re.compile(r"^/v1/history/plays$"),
          lambda match, q: service.server_plays(_int(q, "after", 0, 0, 2**62), _text(q, "user"),
                                                _int(q, "limit", 5000, 1, 5000))),
+        (re.compile(r"^/v1/history/summary$"), lambda match, q: service.server_plays_summary(_text(q, "user"))),
         (re.compile(r"^/v1/history/links$"),
          lambda match, q: {"links": history_links(service.config.data_dir / "history-links.json")}),
         (re.compile(r"^/v1/about/flags$"), lambda match, q: {"items": service.about_flags.open_flags()}),
@@ -306,6 +313,8 @@ def make_handler(service):
             path = unquote(urlparse(self.path).path)
             if path == "/v1/taste":
                 return self._taste()
+            if path == "/v1/history/import":
+                return self._import_history()
             if path in ("/v1/lyrics/readings", "/v1/lyrics/translate"):
                 return self._words(path)
             if path == "/v1/lyrics/save":
@@ -380,6 +389,29 @@ def make_handler(service):
                 result = service.taste.add(body.get("device"), body.get("events"))
             except (ValueError, AttributeError) as error:
                 return self._send(400, {"error": str(error)})
+            return self._send(200, result)
+
+        def _import_history(self):
+            """A history export as the body, its file name in X-File-Name: see `imports`."""
+            try:
+                length = int(self.headers.get("Content-Length", ""))
+            except ValueError:
+                return self._send(411, {"error": "length required"})
+            if not 0 < length <= IMPORT_LIMIT:
+                return self._send(413 if length > 0 else 400, {"error": f"between 1 byte and {IMPORT_LIMIT} bytes"})
+            body = bytearray()
+            while len(body) < length:
+                chunk = self.rfile.read(min(length - len(body), 1 << 20))
+                if not chunk:
+                    break
+                body += chunk
+            try:
+                result = service.import_history(bytes(body), unquote(self.headers.get("X-File-Name", "")))
+            except imports.Unreadable as error:
+                return self._send(422, {"error": str(error)})
+            except (ValueError, KeyError, zipfile.BadZipFile) as error:
+                return self._send(400, {"error": f"could not read it: {error}"})
+            log.info("history import: %s", {k: v for k, v in result.items() if k not in ("first", "last")})
             return self._send(200, result)
 
         def _words(self, path: str):

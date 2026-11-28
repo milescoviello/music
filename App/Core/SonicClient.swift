@@ -205,6 +205,61 @@ struct SonicClient: Sendable {
         try await getIfPresent("v1/history/plays", ["after": String(after), "user": user], as: ServerPlays.self)
     }
 
+    /// The server's whole play log in a few numbers: what the all-time figures come to, and what
+    /// this app's own copy of the log is checked against.
+    struct ServerPlaysSummary: Decodable, Sendable {
+        var plays: Int
+        /// Every play's full length, as the server counts listening.
+        var seconds: Int
+        /// Seconds since 1970.
+        var first: Double?
+        var last: Double?
+        /// The newest row: past it, the copy has not read yet.
+        var lastRow: Int
+    }
+
+    /// Nil from a service too old to count its log.
+    func serverPlaysSummary(user: String) async throws -> ServerPlaysSummary? {
+        try await getIfPresent("v1/history/summary", ["user": user], as: ServerPlaysSummary.self)
+    }
+
+    /// What one history import came to.
+    struct HistoryImport: Decodable, Sendable {
+        /// "youtube" or "apple".
+        var source: String
+        var plays: Int
+        /// Of those, found in the library.
+        var matched: Int
+        /// New to the log: a file imported before adds nothing again.
+        var added: Int
+        var first: Double?
+        var last: Double?
+    }
+
+    #if os(iOS)
+    /// Hands a YouTube (Google Takeout) or Apple Music (Apple's data export) history to the
+    /// service, which reads it into the shared play log; every app then takes it in as it takes
+    /// another device's plays. The file goes as it is, zip or not, streamed from disk: an Apple
+    /// export can be hundreds of megabytes. A file the service cannot read comes back as
+    /// `SonicError.refused` with what it said.
+    func importHistory(file: URL) async throws -> HistoryImport {
+        guard let url = url("v1/history/import") else { throw SonicError.badURL }
+        var request = URLRequest(url: url, timeoutInterval: 900)
+        request.httpMethod = "POST"
+        authorise(&request)
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue(file.lastPathComponent.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                         forHTTPHeaderField: "X-File-Name")
+        let (data, response) = try await session.upload(for: request, fromFile: file)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200...299).contains(status) else {
+            let said = (try? JSONDecoder().decode([String: String].self, from: data))?["error"]
+            throw SonicError.refused(said ?? "the service answered \(status)")
+        }
+        return try JSONDecoder().decode(HistoryImport.self, from: data)
+    }
+    #endif
+
     /// Hands a Send Logs report to the service, which keeps it as a file in its `data/logs`
     /// on the server. Returns the file's name. A service too old to take one answers 404.
     func sendLogs(_ text: String, source: String) async throws -> String {
@@ -687,6 +742,8 @@ enum SonicError: Error, Equatable {
     case badURL
     case notFound
     case status(Int)
+    /// The service read the request and said no, in its own words.
+    case refused(String)
 
     /// Whether a failure is the service's as a whole — not reached, not let in, or
     /// failing — rather than about the one track asked after.
@@ -701,7 +758,7 @@ enum SonicError: Error, Equatable {
         guard let error = error as? SonicError else { return false }
         switch error {
         case .badURL: return true
-        case .notFound: return false
+        case .notFound, .refused: return false
         case .status(let code): return code >= 500 || code == 401 || code == 403
         }
     }

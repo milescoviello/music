@@ -50,3 +50,19 @@ def page(connection: sqlite3.Connection, after: int = 0, user: str = "", limit: 
             "duration": int(duration or 0), "genres": genres,
         })
     return {"plays": plays, "after": rows[-1][0] if rows else after, "more": more}
+
+
+def summary(connection: sqlite3.Connection, user: str = "") -> dict:
+    """The whole log in four numbers: how many plays, how long they ran, when the first and the
+    last were, and the newest row -- what an app's own copy is checked against, and what its all-time
+    figures should come to. Counted over the same join as `page`, so the two always agree."""
+    plays, seconds, first, last, row = connection.execute(
+        """select count(*), coalesce(sum(m.duration), 0), min(s.submission_time), max(s.submission_time), max(s.id)
+           from scrobbles s
+           join media_file m on m.id = s.media_file_id
+           join user u on u.id = s.user_id
+           where (? = '' or u.user_name = ?)""",
+        (user, user),
+    ).fetchone()
+    return {"plays": plays, "seconds": int(seconds or 0), "first": float(first) if first is not None else None,
+            "last": float(last) if last is not None else None, "lastRow": row or 0}

@@ -15,7 +15,7 @@ from concurrent.futures.process import BrokenProcessPool
 
 import numpy as np
 
-from . import duplicates, library, lrclib, lyricsfile, serverplays
+from . import duplicates, imports, library, lrclib, lyricsfile, serverplays, taste as taste_store
 from . import lyrics as lyric_files
 from .analyse import analyse, init_worker
 from .config import ANALYSIS_VERSION, MODEL_NAME, MODEL_URL, Config
@@ -169,6 +169,31 @@ class Service:
             return serverplays.page(connection, after, user, limit)
         finally:
             connection.close()
+
+    def server_plays_summary(self, user: str) -> dict:
+        """How many plays the server's log holds and how long they ran (`serverplays.summary`)."""
+        connection = sqlite3.connect(f"file:{self.config.navidrome_db}?mode=ro", uri=True)
+        try:
+            return serverplays.summary(connection, user)
+        finally:
+            connection.close()
+
+    def import_history(self, blob: bytes, name: str) -> dict:
+        """A YouTube (Takeout) or Apple Music (data export) history read into the taste log, where
+        every app takes it in (`imports`). Raises imports.Unreadable for anything else."""
+        source, plays, counts = imports.read(blob, name)
+        connection = sqlite3.connect(f"file:{self.config.navidrome_db}?mode=ro", uri=True)
+        try:
+            library = imports.Library(connection)
+        finally:
+            connection.close()
+        events, matched = imports.events(source, plays, library)
+        added = 0
+        for start in range(0, len(events), taste_store.BATCH):
+            added += self.taste.add(f"import-{source}", events[start:start + taste_store.BATCH])["added"]
+        times = [event["at"] for event in events]
+        return {"source": source, "plays": len(events), "matched": matched, "added": added,
+                "first": min(times) if times else None, "last": max(times) if times else None, **counts}
 
     def duplicate_albums(self) -> dict:
         """Albums in both libraries, side by side (`duplicates`); worked out at most every
